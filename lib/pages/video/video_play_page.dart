@@ -29,6 +29,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   final HlsService _hlsService = HlsService();
   final ScrollController _scrollController = ScrollController();
 
+  // 使用稳定的 GlobalKey 保持播放器状态
+  late final GlobalKey _playerKey;
+
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
   UserActionStatus? _actionStatus;
@@ -42,6 +45,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   void initState() {
     super.initState();
     _currentPart = widget.initialPart ?? 1;
+    // 为播放器创建稳定的 GlobalKey，使用 vid 和 part 作为标识
+    _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$_currentPart');
     _loadVideoData();
   }
 
@@ -123,6 +128,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     setState(() {
       _currentPart = part;
       _initialProgress = progress?.toDouble();
+      // 切换分P时更新播放器 key
+      _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
     });
 
     // 滚动到顶部
@@ -179,7 +186,14 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _buildBody(),
+      body: SafeArea(
+        // 只在顶部添加安全区域，适配刘海、挖孔、水滴屏
+        top: true,
+        bottom: false,
+        left: false,
+        right: false,
+        child: _buildBody(),
+      ),
     );
   }
 
@@ -255,9 +269,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 视频播放器
+          // 视频播放器 - 使用 GlobalKey 保持全屏切换时的状态
           MediaPlayerWidget(
-            key: ValueKey('video_${widget.vid}_$_currentPart'),
+            key: _playerKey,
             resourceId: currentResource.id,
             initialPosition: _initialProgress,
             onVideoEnd: _onVideoEnded,

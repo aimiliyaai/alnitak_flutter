@@ -29,7 +29,9 @@
       "Bash(flutter analyze:*)",
       "Bash(dir:*)",
       "Bash(adb:*)",
-      "Bash(powershell -Command \"(Get-Item ''E:\\alnitak_flutter\\lib\\pages\\video\\widgets\\media_player_widget.dart'').LastWriteTime = Get-Date\")"
+      "Bash(powershell -Command \"(Get-Item ''E:\\alnitak_flutter\\lib\\pages\\video\\widgets\\media_player_widget.dart'').LastWriteTime = Get-Date\")",
+      "Bash(timeout 30 adb logcat:*)",
+      "Bash(flutter attach:*)"
     ],
     "deny": [],
     "ask": []

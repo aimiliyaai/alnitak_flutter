@@ -54,14 +54,39 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
 
+  // 手势控制状态
+  double _normalPlaybackSpeed = 1.0; // 正常播放速度
+  bool _isLongPressing = false; // 是否正在长按
+
   @override
   void initState() {
     super.initState();
+    print('📹 [initState] MediaPlayerWidget 初始化 - resourceId: ${widget.resourceId}, hashCode: $hashCode');
     // 创建播放器实例
     _player = Player();
     _videoController = VideoController(_player);
     _setupPlayerListeners();
     _initializePlayer();
+  }
+
+  @override
+  void deactivate() {
+    print('📹 [deactivate] Widget 被停用但未销毁 - resourceId: ${widget.resourceId}');
+    super.deactivate();
+  }
+
+  @override
+  void didUpdateWidget(MediaPlayerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    print('📹 [didUpdateWidget] old resourceId: ${oldWidget.resourceId}, new resourceId: ${widget.resourceId}');
+    // 只有当 resourceId 改变时才重新初始化播放器
+    // 这样可以避免全屏切换导致的重建
+    if (oldWidget.resourceId != widget.resourceId) {
+      print('📹 [didUpdateWidget] resourceId 改变，重新初始化播放器');
+      _initializePlayer();
+    } else {
+      print('📹 [didUpdateWidget] resourceId 未改变，跳过重新初始化');
+    }
   }
 
   /// 设置播放器事件监听
@@ -268,6 +293,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
   @override
   void dispose() {
+    print('📹 [dispose] 销毁播放器');
     _player.dispose();
     // 退出时恢复系统UI
     SystemChrome.setPreferredOrientations([
@@ -297,6 +323,40 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     return _buildPlayer();
   }
 
+  /// 双击切换播放/暂停
+  void _handleDoubleTap() {
+    if (_player.state.playing) {
+      _player.pause();
+      print('📹 双击暂停');
+    } else {
+      _player.play();
+      print('📹 双击播放');
+    }
+  }
+
+  /// 长按开始 - 2倍速播放
+  void _handleLongPressStart() {
+    if (!_isLongPressing) {
+      setState(() {
+        _isLongPressing = true;
+        _normalPlaybackSpeed = _player.state.rate;
+      });
+      _player.setRate(2.0);
+      print('📹 长按开始 - 2倍速播放');
+    }
+  }
+
+  /// 长按结束 - 恢复正常速度
+  void _handleLongPressEnd() {
+    if (_isLongPressing) {
+      setState(() {
+        _isLongPressing = false;
+      });
+      _player.setRate(_normalPlaybackSpeed);
+      print('📹 长按结束 - 恢复$_normalPlaybackSpeed倍速');
+    }
+  }
+
   /// 构建播放器主体 - 使用 media_kit 原生控制器
   Widget _buildPlayer() {
     return Container(
@@ -307,8 +367,14 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
           Center(
             child: AspectRatio(
               aspectRatio: 16 / 9,
-              child: MaterialVideoControlsTheme(
-                normal: MaterialVideoControlsThemeData(
+              child: GestureDetector(
+                // 双击切换播放/暂停
+                onDoubleTap: _handleDoubleTap,
+                // 长按2倍速播放
+                onLongPressStart: (_) => _handleLongPressStart(),
+                onLongPressEnd: (_) => _handleLongPressEnd(),
+                child: MaterialVideoControlsTheme(
+                  normal: MaterialVideoControlsThemeData(
                   // 顶部按钮栏配置
                   topButtonBar: [
                     // 返回按钮
@@ -363,8 +429,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                   ],
                   // 播放器样式配置
                   seekBarMargin: const EdgeInsets.only(bottom: 40),
-                  seekBarThumbColor: Theme.of(context).colorScheme.primary,
-                  seekBarPositionColor: Theme.of(context).colorScheme.primary,
+                  seekBarThumbColor: Colors.blue, // 进度条滑块颜色改为蓝色
+                  seekBarPositionColor: Colors.blue, // 进度条已播放部分颜色改为蓝色
                   volumeGesture: true,
                   brightnessGesture: true,
                   seekGesture: true,
@@ -375,13 +441,60 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     ),
                   ),
                 ),
-                fullscreen: const MaterialVideoControlsThemeData(),
-                child: Video(
-                  controller: _videoController,
+                fullscreen: MaterialVideoControlsThemeData(
+                  // 全屏模式下适配安全区域（刘海、挖孔、水滴屏）
+                  topButtonBarMargin: EdgeInsets.only(
+                    top: MediaQuery.of(context).padding.top,
+                    left: 8,
+                    right: 8,
+                  ),
+                  bottomButtonBarMargin: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).padding.bottom,
+                    left: 8,
+                    right: 8,
+                  ),
+                  // 全屏时进度条位置往上移
+                  seekBarMargin: EdgeInsets.only(
+                    bottom: 60 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  seekBarThumbColor: Colors.blue, // 全屏时进度条滑块颜色也改为蓝色
+                  seekBarPositionColor: Colors.blue, // 全屏时进度条已播放部分颜色也改为蓝色
+                  displaySeekBar: true,
+                ),
+                  child: Video(
+                    controller: _videoController,
+                  ),
                 ),
               ),
             ),
           ),
+
+          // 长按倍速指示器
+          if (_isLongPressing)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.fast_forward, color: Colors.white, size: 24),
+                    SizedBox(width: 8),
+                    Text(
+                      '2倍速播放中...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // 加载中指示器（切换清晰度时）
           if (_isSwitchingQuality)
