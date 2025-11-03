@@ -421,10 +421,10 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     if (_availableQualities.length > 1)
                       MaterialCustomButton(
                         icon: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white70),
-                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.white60, width: 0.8),
+                            borderRadius: BorderRadius.circular(3),
                           ),
                           child: Text(
                             _currentQuality != null
@@ -432,7 +432,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                                 : '画质',
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 12,
+                              fontSize: 11,
                             ),
                           ),
                         ),
@@ -441,7 +441,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     const MaterialFullscreenButton(),
                   ],
                   // 播放器样式配置
-                  seekBarMargin: const EdgeInsets.only(bottom: 40),
+                  bottomButtonBarMargin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+                  seekBarMargin: const EdgeInsets.only(bottom: 50),
                   seekBarThumbColor: Colors.blue, // 进度条滑块颜色改为蓝色
                   seekBarPositionColor: Colors.blue, // 进度条已播放部分颜色改为蓝色
                   // 移除UI显示时的暗淡遮罩

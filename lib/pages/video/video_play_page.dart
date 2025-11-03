@@ -268,78 +268,71 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     final screenWidth = MediaQuery.of(context).size.width;
     final playerHeight = screenWidth * 9 / 16;
 
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        // 固定播放器区域
-        SliverAppBar(
-          pinned: true,
-          expandedHeight: playerHeight,
-          automaticallyImplyLeading: false,
-          backgroundColor: Colors.black,
-          flexibleSpace: FlexibleSpaceBar(
-            background: MediaPlayerWidget(
-              key: _playerKey,
-              resourceId: currentResource.id,
-              initialPosition: _initialProgress,
-              onVideoEnd: _onVideoEnded,
-              onProgressUpdate: _onProgressUpdate,
-            ),
+    return Column(
+      children: [
+        // 固定播放器区域（不参与滚动）
+        SizedBox(
+          width: double.infinity,
+          height: playerHeight,
+          child: MediaPlayerWidget(
+            key: _playerKey,
+            resourceId: currentResource.id,
+            initialPosition: _initialProgress,
+            onVideoEnd: _onVideoEnded,
+            onProgressUpdate: _onProgressUpdate,
           ),
         ),
 
         // 可滚动内容区域
-        SliverToBoxAdapter(
-          child: Padding(
+        Expanded(
+          child: ListView(
+            controller: _scrollController,
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 视频标题和信息
-                VideoInfoCard(
-                  videoDetail: _videoDetail!,
-                  videoStat: _videoStat!,
+            children: [
+              // 视频标题和信息
+              VideoInfoCard(
+                videoDetail: _videoDetail!,
+                videoStat: _videoStat!,
+                currentPart: _currentPart,
+              ),
+              const SizedBox(height: 16),
+
+              // 操作按钮
+              VideoActionButtons(
+                vid: widget.vid,
+                initialStat: _videoStat!,
+                initialHasLiked: _actionStatus!.hasLiked,
+                initialHasCollected: _actionStatus!.hasCollected,
+              ),
+              const SizedBox(height: 16),
+
+              // 作者信息
+              AuthorCard(
+                author: _videoDetail!.author,
+                initialRelationStatus: _actionStatus!.relationStatus,
+                onAvatarTap: () {
+                  // TODO: 跳转到用户主页
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 分P列表（手机端）
+              if (MediaQuery.of(context).size.width <= 900)
+                PartList(
+                  resources: _videoDetail!.resources,
                   currentPart: _currentPart,
+                  onPartChange: _changePart,
                 ),
-                const SizedBox(height: 16),
 
-                // 操作按钮
-                VideoActionButtons(
+              const SizedBox(height: 16),
+
+              // 推荐视频（手机端）
+              if (MediaQuery.of(context).size.width <= 900)
+                RecommendList(
                   vid: widget.vid,
-                  initialStat: _videoStat!,
-                  initialHasLiked: _actionStatus!.hasLiked,
-                  initialHasCollected: _actionStatus!.hasCollected,
+                  onVideoTap: _navigateToVideo,
                 ),
-                const SizedBox(height: 16),
-
-                // 作者信息
-                AuthorCard(
-                  author: _videoDetail!.author,
-                  initialRelationStatus: _actionStatus!.relationStatus,
-                  onAvatarTap: () {
-                    // TODO: 跳转到用户主页
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // 分P列表（手机端）
-                if (MediaQuery.of(context).size.width <= 900)
-                  PartList(
-                    resources: _videoDetail!.resources,
-                    currentPart: _currentPart,
-                    onPartChange: _changePart,
-                  ),
-
-                const SizedBox(height: 16),
-
-                // 推荐视频（手机端）
-                if (MediaQuery.of(context).size.width <= 900)
-                  RecommendList(
-                    vid: widget.vid,
-                    onVideoTap: _navigateToVideo,
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
       ],
