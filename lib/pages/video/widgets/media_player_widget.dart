@@ -361,18 +361,20 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   Widget _buildPlayer() {
     return Container(
       color: Colors.black,
-      child: Stack(
-        children: [
-          // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
-          Center(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: GestureDetector(
-                // 双击切换播放/暂停
-                onDoubleTap: _handleDoubleTap,
-                // 长按2倍速播放
-                onLongPressStart: (_) => _handleLongPressStart(),
-                onLongPressEnd: (_) => _handleLongPressEnd(),
+      child: GestureDetector(
+        // 双击切换播放/暂停
+        onDoubleTap: _handleDoubleTap,
+        // 长按2倍速播放
+        onLongPressStart: (_) => _handleLongPressStart(),
+        onLongPressEnd: (_) => _handleLongPressEnd(),
+        // 允许子widget接收手势事件
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
+            Center(
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
                 child: MaterialVideoControlsTheme(
                   normal: MaterialVideoControlsThemeData(
                   // 顶部按钮栏配置
@@ -525,7 +527,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
