@@ -441,7 +441,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     const MaterialFullscreenButton(),
                   ],
                   // 播放器样式配置
-                  bottomButtonBarMargin: const EdgeInsets.only(bottom: 2, left: 8, right: 8),
+                  bottomButtonBarMargin: const EdgeInsets.only(bottom: 0, left: 8, right: 8),
                   seekBarMargin: const EdgeInsets.only(bottom: 38),
                   seekBarThumbColor: Colors.blue, // 进度条滑块颜色改为蓝色
                   seekBarPositionColor: Colors.blue, // 进度条已播放部分颜色改为蓝色
