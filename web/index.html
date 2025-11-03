@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="alnitak_flutter">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>alnitak_flutter</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Add HLS.js library for HLS video playback support -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+  <!-- HLS播放器辅助函数 -->
+  <script>
+    // 存储HLS实例的Map
+    window.hlsInstances = new Map();
+
+    // 初始化HLS播放器
+    window.initHlsPlayer = function(videoElementId, videoUrl) {
+      console.log('🎬 初始化HLS播放器:', videoElementId, videoUrl);
+
+      const videoElement = document.getElementById(videoElementId);
+      if (!videoElement) {
+        console.error('❌ 找不到video元素:', videoElementId);
+        return false;
+      }
+
+      // 销毁旧的HLS实例
+      if (window.hlsInstances.has(videoElementId)) {
+        console.log('🗑️ 销毁旧的HLS实例');
+        window.hlsInstances.get(videoElementId).destroy();
+        window.hlsInstances.delete(videoElementId);
+      }
+
+      // 检查HLS支持
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          debug: false,
+          enableWorker: true,
+          lowLatencyMode: false,
+        });
+
+        hls.loadSource(videoUrl);
+        hls.attachMedia(videoElement);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          console.log('✅ HLS manifest解析完成');
+          videoElement.play().catch(e => {
+            console.log('⚠️ 自动播放被阻止:', e.message);
+          });
+        });
+
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          console.error('❌ HLS错误:', data.type, data.details, 'fatal:', data.fatal);
+
+          if (data.fatal) {
+            switch(data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('⚠️ 网络错误，尝试恢复...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('⚠️ 媒体错误，尝试恢复...');
+                hls.recoverMediaError();
+                break;
+              default:
+                console.error('❌ 无法恢复的致命错误');
+                hls.destroy();
+                break;
+            }
+          }
+        });
+
+        window.hlsInstances.set(videoElementId, hls);
+        return true;
+      }
+      // Safari原生HLS支持
+      else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+        console.log('🍎 使用Safari原生HLS');
+        videoElement.src = videoUrl;
+        videoElement.addEventListener('loadedmetadata', function() {
+          console.log('✅ 视频元数据加载完成');
+          videoElement.play().catch(e => {
+            console.log('⚠️ 自动播放被阻止:', e.message);
+          });
+        });
+        return true;
+      }
+      else {
+        console.error('❌ 浏览器不支持HLS');
+        return false;
+      }
+    };
+
+    // 销毁HLS播放器
+    window.destroyHlsPlayer = function(videoElementId) {
+      if (window.hlsInstances.has(videoElementId)) {
+        console.log('🗑️ 销毁HLS播放器:', videoElementId);
+        window.hlsInstances.get(videoElementId).destroy();
+        window.hlsInstances.delete(videoElementId);
+      }
+    };
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

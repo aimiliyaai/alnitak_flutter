@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许所有明文HTTP流量（仅用于开发环境） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 针对特定域名的配置 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">anime.ayypd.cn</domain>
+        <domain includeSubdomains="true">124.167.187.180</domain>
+    </domain-config>
+</network-security-config>

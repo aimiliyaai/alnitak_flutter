@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter run:*)",
+      "Bash(flutter devices:*)",
+      "Bash(ping:*)",
+      "Bash(nslookup:*)",
+      "Bash(mkdir:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Read(//e/web/alnitak/web/web-client/src/pages/video/**)",
+      "Read(//e/web/alnitak/web/web-client/src/pages/video/components/**)",
+      "Read(//e/web/alnitak/web/web-client/src/typings/**)",
+      "Read(//e/web/alnitak/web/web-client/src/api/**)",
+      "Read(//e/web/alnitak/web/web-client/src/components/video-player/**)",
+      "Read(//e/web/alnitak/web/web-client/src/components/video-player/components/**)",
+      "Bash(flutter pub get:*)",
+      "Bash(nc:*)",
+      "Read(//e/web/alnitak/web/web-client/src/pages/**)",
+      "Bash(flutter clean:*)",
+      "Read(//c/Users/anime/AppData/Local/Pub/Cache/hosted/pub.dev/fijkplayer-0.11.0/android/**)",
+      "Read(//e/animeko-main/animeko-main/**)",
+      "Read(//e/web/alnitak/web/web-client/src/**)",
+      "Read(//c/Users/anime/AppData/Local/Pub/Cache/hosted/pub.dev/better_player-0.0.84/android/**)",
+      "Read(//c/Users/anime/AppData/Local/Pub/Cache/hosted/pub.dev/better_player-0.0.84/lib/src/hls/hls_parser/**)",
+      "Read(//c/Users/anime/AppData/Local/Pub/Cache/hosted/pub.dev/fijkplayer-0.11.0/lib/**)",
+      "Bash(dir /s /b)",
+      "Bash(cat:*)",
+      "Bash(flutter analyze:*)",
+      "Bash(dir:*)",
+      "Bash(adb:*)",
+      "Bash(powershell -Command \"(Get-Item ''E:\\alnitak_flutter\\lib\\pages\\video\\widgets\\media_player_widget.dart'').LastWriteTime = Get-Date\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
