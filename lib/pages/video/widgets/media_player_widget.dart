@@ -54,10 +54,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
 
-  // 双击检测
-  DateTime? _lastTapTime;
-  static const Duration _doubleTapTimeout = Duration(milliseconds: 300);
-
   @override
   void initState() {
     super.initState();
@@ -323,25 +319,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     return _buildPlayer();
   }
 
-  /// 处理点击事件 - 双击播放/暂停
-  void _handleTap() {
-    final now = DateTime.now();
-    if (_lastTapTime != null && now.difference(_lastTapTime!) < _doubleTapTimeout) {
-      // 双击
-      if (_player.state.playing) {
-        _player.pause();
-        print('📹 双击暂停');
-      } else {
-        _player.play();
-        print('📹 双击播放');
-      }
-      _lastTapTime = null; // 重置，避免三击被识别为第二次双击
-    } else {
-      // 单击
-      _lastTapTime = now;
-    }
-  }
-
   /// 构建播放器主体 - 使用 media_kit 原生控制器
   Widget _buildPlayer() {
     return Container(
@@ -465,17 +442,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                 child: Video(
                   controller: _videoController,
                 ),
-              ),
-            ),
-          ),
-
-          // 双击检测层 - 透明覆盖层捕获双击事件
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _handleTap,
-              behavior: HitTestBehavior.translucent,
-              child: Container(
-                color: Colors.transparent,
               ),
             ),
           ),
