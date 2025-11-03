@@ -264,22 +264,33 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   /// 构建主内容区
   Widget _buildMainContent(VideoResource currentResource) {
-    return SingleChildScrollView(
-      controller: _scrollController,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 视频播放器 - 使用 GlobalKey 保持全屏切换时的状态
-          MediaPlayerWidget(
-            key: _playerKey,
-            resourceId: currentResource.id,
-            initialPosition: _initialProgress,
-            onVideoEnd: _onVideoEnded,
-            onProgressUpdate: _onProgressUpdate,
-          ),
+    // 计算播放器高度（16:9 比例）
+    final screenWidth = MediaQuery.of(context).size.width;
+    final playerHeight = screenWidth * 9 / 16;
 
-          // 视频信息
-          Padding(
+    return CustomScrollView(
+      controller: _scrollController,
+      slivers: [
+        // 固定播放器区域
+        SliverAppBar(
+          pinned: true,
+          expandedHeight: playerHeight,
+          automaticallyImplyLeading: false,
+          backgroundColor: Colors.black,
+          flexibleSpace: FlexibleSpaceBar(
+            background: MediaPlayerWidget(
+              key: _playerKey,
+              resourceId: currentResource.id,
+              initialPosition: _initialProgress,
+              onVideoEnd: _onVideoEnded,
+              onProgressUpdate: _onProgressUpdate,
+            ),
+          ),
+        ),
+
+        // 可滚动内容区域
+        SliverToBoxAdapter(
+          child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -330,8 +341,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
               ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
