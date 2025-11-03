@@ -54,10 +54,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
 
-  // 手势控制状态
-  double _normalPlaybackSpeed = 1.0; // 正常播放速度
-  bool _isLongPressing = false; // 是否正在长按
-
   @override
   void initState() {
     super.initState();
@@ -323,60 +319,18 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     return _buildPlayer();
   }
 
-  /// 双击切换播放/暂停
-  void _handleDoubleTap() {
-    if (_player.state.playing) {
-      _player.pause();
-      print('📹 双击暂停');
-    } else {
-      _player.play();
-      print('📹 双击播放');
-    }
-  }
-
-  /// 长按开始 - 2倍速播放
-  void _handleLongPressStart() {
-    if (!_isLongPressing) {
-      setState(() {
-        _isLongPressing = true;
-        _normalPlaybackSpeed = _player.state.rate;
-      });
-      _player.setRate(2.0);
-      print('📹 长按开始 - 2倍速播放');
-    }
-  }
-
-  /// 长按结束 - 恢复正常速度
-  void _handleLongPressEnd() {
-    if (_isLongPressing) {
-      setState(() {
-        _isLongPressing = false;
-      });
-      _player.setRate(_normalPlaybackSpeed);
-      print('📹 长按结束 - 恢复$_normalPlaybackSpeed倍速');
-    }
-  }
-
   /// 构建播放器主体 - 使用 media_kit 原生控制器
   Widget _buildPlayer() {
     return Container(
       color: Colors.black,
-      child: GestureDetector(
-        // 双击切换播放/暂停
-        onDoubleTap: _handleDoubleTap,
-        // 长按2倍速播放
-        onLongPressStart: (_) => _handleLongPressStart(),
-        onLongPressEnd: (_) => _handleLongPressEnd(),
-        // 允许子widget接收手势事件
-        behavior: HitTestBehavior.translucent,
-        child: Stack(
-          children: [
-            // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
-            Center(
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: MaterialVideoControlsTheme(
-                  normal: MaterialVideoControlsThemeData(
+      child: Stack(
+        children: [
+          // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
+          Center(
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: MaterialVideoControlsTheme(
+                normal: MaterialVideoControlsThemeData(
                   // 顶部按钮栏配置
                   topButtonBar: [
                     // 返回按钮
@@ -433,9 +387,15 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                   seekBarMargin: const EdgeInsets.only(bottom: 40),
                   seekBarThumbColor: Colors.blue, // 进度条滑块颜色改为蓝色
                   seekBarPositionColor: Colors.blue, // 进度条已播放部分颜色改为蓝色
+                  // 启用所有手势控制
                   volumeGesture: true,
                   brightnessGesture: true,
                   seekGesture: true,
+                  // 禁用中间的主按钮区域，让手势更容易触发
+                  primaryButtonBar: [],
+                  // 不自动显示跳过按钮
+                  automaticallyImplySkipNextButton: false,
+                  automaticallyImplySkipPreviousButton: false,
                   // 显示缓冲指示器
                   bufferingIndicatorBuilder: (context) => const Center(
                     child: CircularProgressIndicator(
@@ -462,37 +422,19 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                   seekBarThumbColor: Colors.blue, // 全屏时进度条滑块颜色也改为蓝色
                   seekBarPositionColor: Colors.blue, // 全屏时进度条已播放部分颜色也改为蓝色
                   displaySeekBar: true,
+                  // 全屏模式下也启用所有手势控制
+                  volumeGesture: true,
+                  brightnessGesture: true,
+                  seekGesture: true,
+                  // 禁用中间的主按钮区域，让手势更容易触发
+                  primaryButtonBar: [],
+                  // 不自动显示跳过按钮
+                  automaticallyImplySkipNextButton: false,
+                  automaticallyImplySkipPreviousButton: false,
                 ),
                 child: Video(
                   controller: _videoController,
                 ),
-              ),
-            ),
-          ),
-
-          // 长按倍速指示器
-          if (_isLongPressing)
-            Center(
-              child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.black87,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.fast_forward, color: Colors.white, size: 24),
-                  SizedBox(width: 8),
-                  Text(
-                    '2倍速播放中...',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
               ),
             ),
           ),
@@ -527,7 +469,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
               ),
             ),
         ],
-      ),
       ),
     );
   }
