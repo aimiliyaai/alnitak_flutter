@@ -214,6 +214,62 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     await Future.delayed(const Duration(milliseconds: 200));
   }
 
+  /// 获取清晰度的友好显示名称
+  /// 参考PC端逻辑: E:\web\alnitak\web\web-client\src\components\video-player\index.vue
+  String getQualityDisplayName(String quality) {
+    // 静态映射表 - 常见清晰度
+    const qualityMap = {
+      '640x360_1000k_30': '360p',
+      '854x480_1500k_30': '480p',
+      '1280x720_3000k_30': '720p',
+      '1920x1080_6000k_30': '1080p',
+      '1920x1080_8000k_60': '1080p60',
+    };
+
+    // 如果在静态映射表中，直接返回
+    if (qualityMap.containsKey(quality)) {
+      return qualityMap[quality]!;
+    }
+
+    // 解析格式: "widthxheight_bitratek_framerate"
+    try {
+      final parts = quality.split('_');
+      if (parts.isEmpty) return quality;
+
+      final resolution = parts[0]; // 如 "1280x720"
+      final fps = parts.length >= 3 ? int.tryParse(parts[2]) ?? 30 : 30;
+
+      if (resolution.contains('x')) {
+        final resolutionParts = resolution.split('x');
+        if (resolutionParts.length == 2) {
+          final height = int.tryParse(resolutionParts[1]);
+          if (height != null) {
+            final fpsSuffix = fps > 30 ? fps.toString() : '';
+
+            if (height <= 360) {
+              return fpsSuffix.isNotEmpty ? '360p$fpsSuffix' : '360p';
+            } else if (height <= 480) {
+              return fpsSuffix.isNotEmpty ? '480p$fpsSuffix' : '480p';
+            } else if (height <= 720) {
+              return fpsSuffix.isNotEmpty ? '720p$fpsSuffix' : '720p';
+            } else if (height <= 1080) {
+              return fpsSuffix.isNotEmpty ? '1080p$fpsSuffix' : '1080p';
+            } else if (height <= 1440) {
+              return fpsSuffix.isNotEmpty ? '2K$fpsSuffix' : '2K';
+            } else {
+              return fpsSuffix.isNotEmpty ? '4K$fpsSuffix' : '4K';
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('解析清晰度名称失败: $e');
+    }
+
+    // 无法解析时返回原始值
+    return quality;
+  }
+
   /// 切换清晰度（保持播放位置） - 优化版
   Future<void> changeQuality(String quality) async {
     if (_currentQuality == quality || _isSwitchingQuality) return;
@@ -355,8 +411,13 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                           ),
                         ),
                       ),
+                  ],
+                  // 底部按钮栏配置
+                  bottomButtonBar: [
+                    const MaterialPlayOrPauseButton(),
+                    const MaterialPositionIndicator(),
                     const Spacer(),
-                    // 清晰度切换按钮
+                    // 清晰度切换按钮（移到右下角）
                     if (_availableQualities.length > 1)
                       MaterialCustomButton(
                         icon: Container(
@@ -366,7 +427,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            _currentQuality ?? '画质',
+                            _currentQuality != null
+                                ? getQualityDisplayName(_currentQuality!)
+                                : '画质',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
@@ -375,18 +438,14 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                         ),
                         onPressed: () => _showQualityMenu(context),
                       ),
-                  ],
-                  // 底部按钮栏配置
-                  bottomButtonBar: [
-                    const MaterialPlayOrPauseButton(),
-                    const MaterialPositionIndicator(),
-                    const Spacer(),
                     const MaterialFullscreenButton(),
                   ],
                   // 播放器样式配置
                   seekBarMargin: const EdgeInsets.only(bottom: 40),
                   seekBarThumbColor: Colors.blue, // 进度条滑块颜色改为蓝色
                   seekBarPositionColor: Colors.blue, // 进度条已播放部分颜色改为蓝色
+                  // 移除UI显示时的暗淡遮罩
+                  backdropColor: Colors.transparent,
                   // 启用所有手势控制
                   volumeGesture: true,
                   brightnessGesture: true,
@@ -415,11 +474,57 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     left: 8,
                     right: 8,
                   ),
+                  // 顶部按钮栏配置（全屏模式）
+                  topButtonBar: [
+                    // 返回按钮
+                    MaterialCustomButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                    // 标题
+                    if (widget.title != null)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Text(
+                            widget.title!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                  ],
                   // 底部按钮栏配置（全屏模式）
                   bottomButtonBar: [
                     const MaterialPlayOrPauseButton(),
                     const MaterialPositionIndicator(),
                     const Spacer(),
+                    // 清晰度切换按钮（移到右下角）
+                    if (_availableQualities.length > 1)
+                      MaterialCustomButton(
+                        icon: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white70),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _currentQuality != null
+                                ? getQualityDisplayName(_currentQuality!)
+                                : '画质',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        onPressed: () => _showQualityMenu(context),
+                      ),
                     const MaterialFullscreenButton(),
                   ],
                   // 全屏时进度条位置往上移
@@ -429,6 +534,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                   seekBarThumbColor: Colors.blue, // 全屏时进度条滑块颜色也改为蓝色
                   seekBarPositionColor: Colors.blue, // 全屏时进度条已播放部分颜色也改为蓝色
                   displaySeekBar: true,
+                  // 移除UI显示时的暗淡遮罩
+                  backdropColor: Colors.transparent,
                   // 全屏模式下也启用所有手势控制
                   volumeGesture: true,
                   brightnessGesture: true,
@@ -486,44 +593,55 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       context: context,
       backgroundColor: Colors.black87,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text(
-                '选择清晰度',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const Divider(color: Colors.white24, height: 1),
-            ..._availableQualities.map((quality) {
-              final isSelected = quality == _currentQuality;
-              return ListTile(
-                leading: Icon(
-                  isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                  color: isSelected ? Colors.blue : Colors.white70,
-                ),
-                title: Text(
-                  quality,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.6, // 最大高度为屏幕的60%
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  '选择清晰度',
                   style: TextStyle(
-                    color: isSelected ? Colors.blue : Colors.white,
-                    fontSize: 16,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  changeQuality(quality);
-                },
-              );
-            }),
-            const SizedBox(height: 8),
-          ],
+              ),
+              const Divider(color: Colors.white24, height: 1),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: _availableQualities.map((quality) {
+                    final isSelected = quality == _currentQuality;
+                    final displayName = getQualityDisplayName(quality);
+                    return ListTile(
+                      leading: Icon(
+                        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                        color: isSelected ? Colors.blue : Colors.white70,
+                      ),
+                      title: Text(
+                        displayName,
+                        style: TextStyle(
+                          color: isSelected ? Colors.blue : Colors.white,
+                          fontSize: 16,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        changeQuality(quality);
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
