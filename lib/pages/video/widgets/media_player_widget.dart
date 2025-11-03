@@ -463,9 +463,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                   seekBarPositionColor: Colors.blue, // 全屏时进度条已播放部分颜色也改为蓝色
                   displaySeekBar: true,
                 ),
-                  child: Video(
-                    controller: _videoController,
-                  ),
+                child: Video(
+                  controller: _videoController,
                 ),
               ),
             ),
@@ -475,28 +474,28 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
           if (_isLongPressing)
             Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.black87,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.fast_forward, color: Colors.white, size: 24),
-                    SizedBox(width: 8),
-                    Text(
-                      '2倍速播放中...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.fast_forward, color: Colors.white, size: 24),
+                  SizedBox(width: 8),
+                  Text(
+                    '2倍速播放中...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
+          ),
 
           // 加载中指示器（切换清晰度时）
           if (_isSwitchingQuality)
@@ -527,8 +526,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                 ),
               ),
             ),
-          ],
-        ),
+        ],
+      ),
       ),
     );
   }
