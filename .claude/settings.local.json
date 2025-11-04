@@ -32,7 +32,11 @@
       "Bash(powershell -Command \"(Get-Item ''E:\\alnitak_flutter\\lib\\pages\\video\\widgets\\media_player_widget.dart'').LastWriteTime = Get-Date\")",
       "Bash(timeout 30 adb logcat:*)",
       "Bash(flutter attach:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(git checkout:*)",
+      "Bash(tee:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(./gradlew:*)"
     ],
     "deny": [],
     "ask": []

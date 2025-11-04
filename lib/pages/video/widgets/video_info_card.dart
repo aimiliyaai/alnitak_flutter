@@ -32,20 +32,6 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
     return number.toString();
   }
 
-  /// 格式化时长
-  String _formatDuration(double seconds) {
-    final duration = Duration(seconds: seconds.toInt());
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    final secs = duration.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '$hours:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
-    } else {
-      return '$minutes:${secs.toString().padLeft(2, '0')}';
-    }
-  }
-
   /// 格式化相对时间
   String _formatRelativeTime(DateTime dateTime) {
     final now = DateTime.now();
