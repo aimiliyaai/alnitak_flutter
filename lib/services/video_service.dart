@@ -221,24 +221,53 @@ class VideoService {
     }
   }
 
-  /// 发表评论
+  /// 发表评论或回复
+  /// [cid] 视频ID
+  /// [content] 评论内容
+  /// [parentID] 所属评论ID（回复时必填）
+  /// [replyUserID] 回复用户的ID（回复时必填）
+  /// [replyUserName] 回复用户的用户名（回复时必填）
+  /// [replyContent] 回复的评论或回复的内容（可选，用于发送通知）
+  /// [at] @的用户名数组（可选）
   Future<bool> postComment({
-    required int vid,
+    required int cid,
     required String content,
-    int? replyToId, // 回复的评论ID，如果为null则是直接评论视频
+    int? parentID,
+    int? replyUserID,
+    String? replyUserName,
+    String? replyContent,
+    List<String>? at,
   }) async {
     try {
       final response = await _dio.post(
-        '/api/v1/comment/video',
+        '/api/v1/comment/video/addComment',
         data: {
-          'vid': vid,
+          'cid': cid,
           'content': content,
-          if (replyToId != null) 'reply_to': replyToId,
+          if (parentID != null) 'parentID': parentID,
+          if (replyUserID != null) 'replyUserID': replyUserID,
+          if (replyUserName != null) 'replyUserName': replyUserName,
+          if (replyContent != null) 'replyContent': replyContent,
+          if (at != null && at.isNotEmpty) 'at': at,
         },
       );
       return response.data['code'] == 200;
     } catch (e) {
       print('发表评论失败: $e');
+      return false;
+    }
+  }
+
+  /// 删除评论或回复
+  /// [commentId] 评论或回复的ID
+  Future<bool> deleteComment(int commentId) async {
+    try {
+      final response = await _dio.delete(
+        '/api/v1/comment/video/deleteComment/$commentId',
+      );
+      return response.data['code'] == 200;
+    } catch (e) {
+      print('删除评论失败: $e');
       return false;
     }
   }

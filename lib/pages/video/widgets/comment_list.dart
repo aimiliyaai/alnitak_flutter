@@ -42,6 +42,7 @@ class _CommentListContentState extends State<CommentListContent> {
   final VideoService _videoService = VideoService();
   late final ScrollController _scrollController;
   final TextEditingController _commentController = TextEditingController();
+  final Map<int, TextEditingController> _replyControllers = {}; // 每个评论的回复输入框
 
   List<Comment> _comments = [];
   bool _isLoading = false;
@@ -49,8 +50,13 @@ class _CommentListContentState extends State<CommentListContent> {
   int _currentPage = 1;
   int _totalComments = 0;
 
+  // 当前登录用户ID（TODO: 从用户服务获取）
+  int? _currentUserId;
+
   // 展开回复的评论ID集合
   final Set<int> _expandedReplies = {};
+  // 显示回复输入框的评论ID集合
+  final Set<int> _showReplyInputs = {};
   final Map<int, List<Comment>> _loadedReplies = {};
   final Map<int, bool> _loadingReplies = {};
 
@@ -59,8 +65,18 @@ class _CommentListContentState extends State<CommentListContent> {
     super.initState();
     // 使用外部提供的 ScrollController 或创建新的
     _scrollController = widget.scrollController ?? ScrollController();
+    _loadCurrentUserId(); // 加载当前用户ID
     _loadComments();
     _scrollController.addListener(_onScroll);
+  }
+
+  /// 加载当前登录用户ID（TODO: 从用户服务或SharedPreferences获取）
+  Future<void> _loadCurrentUserId() async {
+    // TODO: 从用户服务获取当前登录用户ID
+    // 暂时使用占位值，实际应该从认证服务获取
+    setState(() {
+      _currentUserId = null; // 未登录时为null
+    });
   }
 
   @override
@@ -70,6 +86,11 @@ class _CommentListContentState extends State<CommentListContent> {
       _scrollController.dispose();
     }
     _commentController.dispose();
+    // 销毁所有回复输入框
+    for (var controller in _replyControllers.values) {
+      controller.dispose();
+    }
+    _replyControllers.clear();
     super.dispose();
   }
 
@@ -192,14 +213,16 @@ class _CommentListContentState extends State<CommentListContent> {
     );
 
     final success = await _videoService.postComment(
-      vid: widget.vid,
+      cid: widget.vid,
       content: content,
     );
 
     if (success) {
       _commentController.clear();
       // 刷新评论列表
-      await _loadComments(refresh: true);
+      _currentPage = 1;
+      _comments.clear();
+      await _loadComments();
       if (mounted) {
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('评论发表成功')),
@@ -212,6 +235,206 @@ class _CommentListContentState extends State<CommentListContent> {
         );
       }
     }
+  }
+
+  /// 提交回复
+  Future<void> _submitReply(int commentId, Comment parentComment) async {
+    final controller = _replyControllers[commentId];
+    if (controller == null) return;
+
+    final content = controller.text.trim();
+    if (content.isEmpty) return;
+
+    setState(() {
+      _loadingReplies[commentId] = true;
+    });
+
+    try {
+      final success = await _videoService.postComment(
+        cid: widget.vid,
+        content: content,
+        parentID: commentId,
+        replyUserID: parentComment.uid,
+        replyUserName: parentComment.username,
+        replyContent: parentComment.content,
+      );
+
+      if (success) {
+        controller.clear();
+        // 隐藏回复输入框
+        setState(() {
+          _showReplyInputs.remove(commentId);
+          _loadingReplies[commentId] = false;
+        });
+        // 重新加载评论以获取最新回复
+        _currentPage = 1;
+        _comments.clear();
+        await _loadComments();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('回复发表成功')),
+          );
+        }
+      } else {
+        setState(() {
+          _loadingReplies[commentId] = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('回复发表失败')),
+          );
+        }
+      }
+    } catch (e) {
+      print('发表回复失败: $e');
+      setState(() {
+        _loadingReplies[commentId] = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发表回复失败: $e')),
+        );
+      }
+    }
+  }
+
+  /// 删除评论或回复
+  Future<void> _deleteComment(int commentId) async {
+    // 确认删除对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: const Text('确定要删除这条评论吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final success = await _videoService.deleteComment(commentId);
+
+      if (success) {
+        // 重新加载评论
+        _currentPage = 1;
+        _comments.clear();
+        await _loadComments();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('删除成功')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('删除失败')),
+          );
+        }
+      }
+    } catch (e) {
+      print('删除评论失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除评论失败: $e')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 删除回复
+  Future<void> _deleteReply(int replyId) async {
+    // 确认删除对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: const Text('确定要删除这条回复吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final success = await _videoService.deleteComment(replyId);
+
+      if (success) {
+        // 重新加载评论
+        _currentPage = 1;
+        _comments.clear();
+        await _loadComments();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('删除成功')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('删除失败')),
+          );
+        }
+      }
+    } catch (e) {
+      print('删除回复失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除回复失败: $e')),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// 显示回复输入框
+  void _showReplyInput(int commentId) {
+    if (!_replyControllers.containsKey(commentId)) {
+      _replyControllers[commentId] = TextEditingController();
+    }
+    setState(() {
+      // 显示回复输入框
+      _showReplyInputs.add(commentId);
+      // 同时展开回复列表以便查看
+      _expandedReplies.add(commentId);
+      // 如果还没有加载回复，则加载
+      if (!_loadedReplies.containsKey(commentId)) {
+        _loadReplies(commentId);
+      }
+    });
   }
 
 
@@ -290,15 +513,23 @@ class _CommentListContentState extends State<CommentListContent> {
                       );
                     }
 
-                    final comment = _comments[index];
-                    return _CommentItem(
-                      comment: comment,
-                      onToggleReplies: () => _toggleReplies(comment.id),
-                      showReplies: _expandedReplies.contains(comment.id),
-                      replies: _loadedReplies[comment.id],
-                      isLoadingReplies: _loadingReplies[comment.id] ?? false,
-                      formatTime: _formatTime,
-                    );
+                     final comment = _comments[index];
+                     return _CommentItem(
+                       comment: comment,
+                       onToggleReplies: () => _toggleReplies(comment.id),
+                       onReply: () => _showReplyInput(comment.id),
+                       onDelete: () => _deleteComment(comment.id),
+                       onDeleteReply: _deleteReply,
+                       showReplies: _expandedReplies.contains(comment.id),
+                       replies: _loadedReplies[comment.id],
+                       isLoadingReplies: _loadingReplies[comment.id] ?? false,
+                       formatTime: _formatTime,
+                       currentUserId: _currentUserId,
+                       replyController: _replyControllers[comment.id],
+                       showReplyInput: _showReplyInputs.contains(comment.id),
+                       onSubmitReply: () => _submitReply(comment.id, comment),
+                       isSubmittingReply: _loadingReplies[comment.id] ?? false,
+                     );
                   },
                 ),
         ),
@@ -366,19 +597,39 @@ class _CommentListContentState extends State<CommentListContent> {
 class _CommentItem extends StatelessWidget {
   final Comment comment;
   final VoidCallback onToggleReplies;
+  final VoidCallback onReply;
+  final VoidCallback onDelete;
+  final Function(int) onDeleteReply; // 删除回复回调
   final bool showReplies;
   final List<Comment>? replies;
   final bool isLoadingReplies;
   final String Function(DateTime) formatTime;
+  final int? currentUserId; // 当前登录用户ID
+  final TextEditingController? replyController; // 回复输入框控制器
+  final bool showReplyInput; // 是否显示回复输入框
+  final VoidCallback? onSubmitReply; // 提交回复回调
+  final bool isSubmittingReply; // 是否正在提交回复
 
   const _CommentItem({
     required this.comment,
     required this.onToggleReplies,
+    required this.onReply,
+    required this.onDelete,
+    required this.onDeleteReply,
     required this.showReplies,
     this.replies,
     required this.isLoadingReplies,
     required this.formatTime,
+    this.currentUserId,
+    this.replyController,
+    this.showReplyInput = false,
+    this.onSubmitReply,
+    this.isSubmittingReply = false,
   });
+
+  /// 判断是否为当前用户的评论
+  bool get isOwnComment => currentUserId != null && comment.uid == currentUserId;
+
 
   @override
   Widget build(BuildContext context) {
@@ -449,13 +700,35 @@ class _CommentItem extends StatelessWidget {
                     Row(
                       children: [
                         // 回复按钮
+                        InkWell(
+                          onTap: onReply,
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.reply,
+                                size: 16,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '回复',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        // 查看回复按钮（如果有回复）
                         if (comment.replyCount > 0)
                           InkWell(
                             onTap: onToggleReplies,
                             child: Row(
                               children: [
                                 Icon(
-                                  Icons.reply,
+                                  showReplies ? Icons.expand_less : Icons.expand_more,
                                   size: 16,
                                   color: Colors.grey[600],
                                 ),
@@ -470,8 +743,73 @@ class _CommentItem extends StatelessWidget {
                               ],
                             ),
                           ),
+                        const Spacer(),
+                        // 删除按钮（仅当前用户的评论显示）
+                        if (isOwnComment)
+                          InkWell(
+                            onTap: onDelete,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  size: 16,
+                                  color: Colors.red[400],
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '删除',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.red[400],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
+                    // 回复输入框（当点击回复按钮时显示）
+                    if (showReplyInput && replyController != null) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: replyController,
+                              decoration: InputDecoration(
+                                hintText: '回复 ${comment.username}...',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[200],
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                              ),
+                              maxLines: null,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => onSubmitReply?.call(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: isSubmittingReply
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.send),
+                            onPressed: isSubmittingReply ? null : onSubmitReply,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -548,6 +886,41 @@ class _CommentItem extends StatelessWidget {
                                                 TextSpan(text: reply.content),
                                               ],
                                             ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          // 回复的操作按钮
+                                          Row(
+                                            children: [
+                                              InkWell(
+                                                onTap: () {
+                                                  // 回复回复：使用父评论的ID作为parentID
+                                                  // TODO: 可以添加回复回复的输入框
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(content: Text('回复回复功能待实现')),
+                                                  );
+                                                },
+                                                child: Text(
+                                                  '回复',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              // 删除按钮（仅当前用户的回复显示）
+                                              if (currentUserId != null && reply.uid == currentUserId)
+                                                InkWell(
+                                                  onTap: () => onDeleteReply(reply.id),
+                                                  child: Text(
+                                                    '删除',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.red[400],
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ],
                                       ),
