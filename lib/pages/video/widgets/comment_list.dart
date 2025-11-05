@@ -16,9 +16,31 @@ class CommentList extends StatefulWidget {
   State<CommentList> createState() => _CommentListState();
 }
 
+/// 评论列表内容（可复用，支持外部 ScrollController）
+class CommentListContent extends StatefulWidget {
+  final int vid;
+  final ScrollController? scrollController; // 可选的 ScrollController
+
+  const CommentListContent({
+    super.key,
+    required this.vid,
+    this.scrollController,
+  });
+
+  @override
+  State<CommentListContent> createState() => _CommentListContentState();
+}
+
 class _CommentListState extends State<CommentList> {
+  @override
+  Widget build(BuildContext context) {
+    return CommentListContent(vid: widget.vid);
+  }
+}
+
+class _CommentListContentState extends State<CommentListContent> {
   final VideoService _videoService = VideoService();
-  final ScrollController _scrollController = ScrollController();
+  late final ScrollController _scrollController;
   final TextEditingController _commentController = TextEditingController();
 
   List<Comment> _comments = [];
@@ -35,13 +57,18 @@ class _CommentListState extends State<CommentList> {
   @override
   void initState() {
     super.initState();
+    // 使用外部提供的 ScrollController 或创建新的
+    _scrollController = widget.scrollController ?? ScrollController();
     _loadComments();
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    // 只销毁我们自己创建的 ScrollController
+    if (widget.scrollController == null) {
+      _scrollController.dispose();
+    }
     _commentController.dispose();
     super.dispose();
   }
@@ -209,72 +236,28 @@ class _CommentListState extends State<CommentList> {
 
   @override
   Widget build(BuildContext context) {
+    // 判断是否在面板中使用（通过是否有外部 ScrollController）
+    final isInPanel = widget.scrollController != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 评论头部：标题
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Text(
-            '评论 $_totalComments',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+        // 评论头部：标题（仅在独立使用时显示）
+        if (!isInPanel) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Text(
+              '评论 $_totalComments',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-        ),
+          const Divider(height: 1),
+        ],
 
-        const Divider(height: 1),
-
-        // 评论输入框
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 用户头像（占位）
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: Colors.grey[300],
-                child: const Icon(Icons.person, color: Colors.grey),
-              ),
-              const SizedBox(width: 12),
-              // 输入框
-              Expanded(
-                child: TextField(
-                  controller: _commentController,
-                  decoration: InputDecoration(
-                    hintText: '添加公开评论...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Colors.grey[200],
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                  ),
-                  maxLines: null,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _submitComment(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 发送按钮
-              IconButton(
-                icon: const Icon(Icons.send),
-                onPressed: _submitComment,
-                color: Theme.of(context).primaryColor,
-              ),
-            ],
-          ),
-        ),
-
-        const Divider(height: 1),
-
-        // 评论列表
+        // 评论列表（可滚动区域）
         Expanded(
           child: _comments.isEmpty && !_isLoading
               ? Center(
@@ -293,6 +276,9 @@ class _CommentListState extends State<CommentList> {
                 )
               : ListView.builder(
                   controller: _scrollController,
+                  padding: EdgeInsets.only(
+                    bottom: isInPanel ? 80 : 0, // 在面板中为底部输入框留出空间
+                  ),
                   itemCount: _comments.length + (_hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (index == _comments.length) {
@@ -315,6 +301,61 @@ class _CommentListState extends State<CommentList> {
                     );
                   },
                 ),
+        ),
+
+        // 评论输入框（固定在底部）
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            border: Border(
+              top: BorderSide(color: Colors.grey[300]!, width: 0.5),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 当前登录用户头像（占位，实际应该从用户服务获取）
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Colors.grey[300],
+                  child: const Icon(Icons.person, color: Colors.grey),
+                ),
+                const SizedBox(width: 12),
+                // 输入框
+                Expanded(
+                  child: TextField(
+                    controller: _commentController,
+                    decoration: InputDecoration(
+                      hintText: '添加公开评论...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[200],
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
+                    maxLines: null,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submitComment(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 发送按钮
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: _submitComment,
+                  color: Theme.of(context).primaryColor,
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );

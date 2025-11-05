@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/video_detail.dart';
+import '../../models/comment.dart';
 import '../../services/video_service.dart';
 import '../../services/hls_service.dart';
 import 'widgets/media_player_widget.dart';
@@ -8,7 +9,7 @@ import 'widgets/video_info_card.dart';
 import 'widgets/video_action_buttons.dart';
 import 'widgets/part_list.dart';
 import 'widgets/recommend_list.dart';
-import 'widgets/comment_list.dart';
+import 'widgets/comment_preview_card.dart';
 
 /// 视频播放页面
 class VideoPlayPage extends StatefulWidget {
@@ -41,6 +42,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   late int _currentPart;
   double? _initialProgress; // 改为 double 类型（秒）
+
+  // 评论相关
+  int _totalComments = 0;
+  Comment? _latestComment;
 
   @override
   void initState() {
@@ -91,6 +96,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
         widget.vid,
         videoDetail.author.uid,
       );
+
+      // 获取评论信息（仅获取第一页的第一条评论作为预览）
+      await _loadCommentPreview();
 
       setState(() {
         _videoDetail = videoDetail;
@@ -157,6 +165,27 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     // 每5秒上报一次播放进度，减少请求频率
     if (seconds % 5 == 0) {
       _videoService.reportPlayProgress(widget.vid, _currentPart, seconds);
+    }
+  }
+
+  /// 加载评论预览（仅加载第一条评论和总数）
+  Future<void> _loadCommentPreview() async {
+    try {
+      final response = await _videoService.getComments(
+        vid: widget.vid,
+        page: 1,
+        pageSize: 1, // 只获取第一条评论
+      );
+
+      if (response != null) {
+        setState(() {
+          _totalComments = response.total;
+          _latestComment = response.comments.isNotEmpty ? response.comments.first : null;
+        });
+      }
+    } catch (e) {
+      print('加载评论预览失败: $e');
+      // 失败时不影响主流程
     }
   }
 
@@ -327,14 +356,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
               const SizedBox(height: 16),
 
-              // 评论区
-              Container(
-                height: 600, // 固定高度，可以根据需要调整
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: CommentList(vid: widget.vid),
+              // 评论预览卡片（YouTube 风格）
+              CommentPreviewCard(
+                vid: widget.vid,
+                totalComments: _totalComments,
+                latestComment: _latestComment,
               ),
               const SizedBox(height: 16),
 
