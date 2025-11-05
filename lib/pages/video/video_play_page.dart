@@ -8,6 +8,7 @@ import 'widgets/video_info_card.dart';
 import 'widgets/video_action_buttons.dart';
 import 'widgets/part_list.dart';
 import 'widgets/recommend_list.dart';
+import 'widgets/comment_list.dart';
 
 /// 视频播放页面
 class VideoPlayPage extends StatefulWidget {
@@ -324,6 +325,17 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
                   onPartChange: _changePart,
                 ),
 
+              const SizedBox(height: 16),
+
+              // 评论区
+              Container(
+                height: 600, // 固定高度，可以根据需要调整
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: CommentList(vid: widget.vid),
+              ),
               const SizedBox(height: 16),
 
               // 推荐视频（手机端）
