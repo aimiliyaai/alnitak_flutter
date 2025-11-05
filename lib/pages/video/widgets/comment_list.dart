@@ -420,19 +420,31 @@ class _CommentListContentState extends State<CommentListContent> {
     }
   }
 
-  /// 显示回复输入框
+  /// 显示回复输入框（只能激活一个）
   void _showReplyInput(int commentId) {
-    if (!_replyControllers.containsKey(commentId)) {
-      _replyControllers[commentId] = TextEditingController();
-    }
     setState(() {
-      // 显示回复输入框
-      _showReplyInputs.add(commentId);
-      // 同时展开回复列表以便查看
-      _expandedReplies.add(commentId);
-      // 如果还没有加载回复，则加载
-      if (!_loadedReplies.containsKey(commentId)) {
-        _loadReplies(commentId);
+      // 如果点击的是已激活的评论，则关闭回复输入框
+      if (_showReplyInputs.contains(commentId)) {
+        _showReplyInputs.remove(commentId);
+        // 可选：同时关闭回复列表
+        // _expandedReplies.remove(commentId);
+      } else {
+        // 如果点击的是其他评论，先关闭之前的回复输入框
+        _showReplyInputs.clear();
+        // 激活新的回复输入框
+        _showReplyInputs.add(commentId);
+        
+        // 确保有对应的输入框控制器
+        if (!_replyControllers.containsKey(commentId)) {
+          _replyControllers[commentId] = TextEditingController();
+        }
+        
+        // 同时展开回复列表以便查看
+        _expandedReplies.add(commentId);
+        // 如果还没有加载回复，则加载
+        if (!_loadedReplies.containsKey(commentId)) {
+          _loadReplies(commentId);
+        }
       }
     });
   }
