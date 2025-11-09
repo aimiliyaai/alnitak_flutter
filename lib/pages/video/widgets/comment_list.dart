@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../models/comment.dart';
 import '../../../services/video_service.dart';
+import '../../../widgets/cached_image_widget.dart';
 
 /// 评论列表组件 - 参考 YouTube 设计
 class CommentList extends StatefulWidget {
@@ -654,15 +654,16 @@ class _CommentItem extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 用户头像
-              CircleAvatar(
-                radius: 20,
-                backgroundImage: comment.avatar.isNotEmpty
-                    ? NetworkImage(comment.avatar)
-                    : null,
-                child: comment.avatar.isEmpty
-                    ? const Icon(Icons.person, size: 20)
-                    : null,
-              ),
+              comment.avatar.isNotEmpty
+                  ? CachedCircleAvatar(
+                      imageUrl: comment.avatar,
+                      radius: 20,
+                    )
+                  : CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.grey[200],
+                      child: const Icon(Icons.person, size: 20),
+                    ),
               const SizedBox(width: 12),
               // 评论内容
               Expanded(
@@ -846,16 +847,16 @@ class _CommentItem extends StatelessWidget {
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    CircleAvatar(
-                                      radius: 16,
-                                      backgroundImage:
-                                          reply.avatar.isNotEmpty
-                                              ? NetworkImage(reply.avatar)
-                                              : null,
-                                      child: reply.avatar.isEmpty
-                                          ? const Icon(Icons.person, size: 16)
-                                          : null,
-                                    ),
+                                    reply.avatar.isNotEmpty
+                                        ? CachedCircleAvatar(
+                                            imageUrl: reply.avatar,
+                                            radius: 16,
+                                          )
+                                        : CircleAvatar(
+                                            radius: 16,
+                                            backgroundColor: Colors.grey[200],
+                                            child: const Icon(Icons.person, size: 16),
+                                          ),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(

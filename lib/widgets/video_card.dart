@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/video_item.dart';
+import 'cached_image_widget.dart';
 
 class VideoCard extends StatelessWidget {
   final VideoItem video;
@@ -23,38 +24,12 @@ class VideoCard extends StatelessWidget {
           // 封面图片
           Stack(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.network(
-                    video.coverUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.grey[300],
-                        child: const Icon(
-                          Icons.broken_image,
-                          size: 48,
-                          color: Colors.grey,
-                        ),
-                      );
-                    },
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Container(
-                        color: Colors.grey[200],
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                    loadingProgress.expectedTotalBytes!
-                                : null,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: CachedImage(
+                  imageUrl: video.coverUrl,
+                  fit: BoxFit.cover,
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
               // 时长标签
@@ -99,24 +74,9 @@ class VideoCard extends StatelessWidget {
           Row(
             children: [
               if (video.authorAvatar != null)
-                ClipOval(
-                  child: Image.network(
-                    video.authorAvatar!,
-                    width: 16,
-                    height: 16,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: Icon(
-                          Icons.person,
-                          size: 12,
-                          color: Colors.grey,
-                        ),
-                      );
-                    },
-                  ),
+                CachedCircleAvatar(
+                  imageUrl: video.authorAvatar!,
+                  radius: 8,
                 ),
               if (video.authorAvatar != null) const SizedBox(width: 4),
               Expanded(

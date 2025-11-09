@@ -54,6 +54,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
 
+  // 使用 ValueNotifier 来管理清晰度状态，确保UI能够响应变化
+  final ValueNotifier<String?> _qualityNotifier = ValueNotifier<String?>(null);
+
   @override
   void initState() {
     super.initState();
@@ -135,6 +138,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       // 2. 选择默认清晰度（720P优先）
       _currentQuality = HlsService.getDefaultQuality(_availableQualities);
+      _qualityNotifier.value = _currentQuality; // 同步到 notifier
 
       // 3. 加载视频
       await _loadVideo(_currentQuality!, isInitialLoad: true);
@@ -315,6 +319,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       setState(() {
         _currentQuality = quality;
+        _qualityNotifier.value = quality; // 同步到 notifier
         _isSwitchingQuality = false;
       });
 
@@ -347,6 +352,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   void dispose() {
     print('📹 [dispose] 销毁播放器');
     _player.dispose();
+    _qualityNotifier.dispose(); // 销毁 ValueNotifier
     // 退出时恢复系统UI
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -417,26 +423,31 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     const MaterialPlayOrPauseButton(),
                     const MaterialPositionIndicator(),
                     const Spacer(),
-                    // 清晰度切换按钮（移到右下角）
+                    // 清晰度切换按钮（移到右下角）- 使用 ValueListenableBuilder 监听状态变化
                     if (_availableQualities.length > 1)
-                      MaterialCustomButton(
-                        icon: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white60, width: 0.8),
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                          child: Text(
-                            _currentQuality != null
-                                ? getQualityDisplayName(_currentQuality!)
-                                : '画质',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
+                      ValueListenableBuilder<String?>(
+                        valueListenable: _qualityNotifier,
+                        builder: (context, currentQuality, child) {
+                          return MaterialCustomButton(
+                            icon: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.white60, width: 0.8),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                currentQuality != null
+                                    ? getQualityDisplayName(currentQuality)
+                                    : '画质',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        onPressed: () => _showQualityMenu(context),
+                            onPressed: () => _showQualityMenu(context),
+                          );
+                        },
                       ),
                     const MaterialFullscreenButton(),
                   ],
@@ -505,26 +516,31 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     const MaterialPlayOrPauseButton(),
                     const MaterialPositionIndicator(),
                     const Spacer(),
-                    // 清晰度切换按钮（移到右下角）
+                    // 清晰度切换按钮（移到右下角）- 使用 ValueListenableBuilder 监听状态变化
                     if (_availableQualities.length > 1)
-                      MaterialCustomButton(
-                        icon: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.white70),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            _currentQuality != null
-                                ? getQualityDisplayName(_currentQuality!)
-                                : '画质',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
+                      ValueListenableBuilder<String?>(
+                        valueListenable: _qualityNotifier,
+                        builder: (context, currentQuality, child) {
+                          return MaterialCustomButton(
+                            icon: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.white70),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                currentQuality != null
+                                    ? getQualityDisplayName(currentQuality)
+                                    : '画质',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        onPressed: () => _showQualityMenu(context),
+                            onPressed: () => _showQualityMenu(context),
+                          );
+                        },
                       ),
                     const MaterialFullscreenButton(),
                   ],

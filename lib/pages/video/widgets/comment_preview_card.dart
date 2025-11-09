@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
-import '../../../utils/image_utils.dart';
+import '../../../widgets/cached_image_widget.dart';
 import 'comment_list.dart';
 
 /// 评论预览卡片 - 参考 YouTube 设计
@@ -55,15 +55,16 @@ class CommentPreviewCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // 评论者头像
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundImage: latestComment!.avatar.isNotEmpty
-                        ? NetworkImage(latestComment!.avatar)
-                        : null,
-                    child: latestComment!.avatar.isEmpty
-                        ? const Icon(Icons.person, size: 20)
-                        : null,
-                  ),
+                  latestComment!.avatar.isNotEmpty
+                      ? CachedCircleAvatar(
+                          imageUrl: latestComment!.avatar,
+                          radius: 20,
+                        )
+                      : CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.grey[200],
+                          child: const Icon(Icons.person, size: 20),
+                        ),
                   const SizedBox(width: 12),
                   // 评论内容
                   Expanded(

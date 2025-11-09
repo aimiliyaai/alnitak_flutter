@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/video_detail.dart';
 import '../../../services/video_service.dart';
+import '../../../widgets/cached_image_widget.dart';
 
 /// 作者信息卡片
 class AuthorCard extends StatefulWidget {
@@ -136,15 +137,16 @@ class _AuthorCardState extends State<AuthorCard> {
             // 头像
             GestureDetector(
               onTap: widget.onAvatarTap,
-              child: CircleAvatar(
-                radius: 28,
-                backgroundImage: widget.author.avatar.isNotEmpty
-                    ? NetworkImage(widget.author.avatar)
-                    : null,
-                child: widget.author.avatar.isEmpty
-                    ? const Icon(Icons.person, size: 32)
-                    : null,
-              ),
+              child: widget.author.avatar.isNotEmpty
+                  ? CachedCircleAvatar(
+                      imageUrl: widget.author.avatar,
+                      radius: 28,
+                    )
+                  : CircleAvatar(
+                      radius: 28,
+                      backgroundColor: Colors.grey[200],
+                      child: const Icon(Icons.person, size: 32),
+                    ),
             ),
             const SizedBox(width: 12),
 

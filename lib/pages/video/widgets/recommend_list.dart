@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/video_service.dart';
 import '../../../utils/image_utils.dart';
+import '../../../widgets/cached_image_widget.dart';
 
 /// 视频推荐列表
 class RecommendList extends StatefulWidget {
@@ -208,24 +209,21 @@ class _RecommendListState extends State<RecommendList> {
             child: Stack(
               children: [
                 // 封面图片
-                Container(
+                SizedBox(
                   width: 160,
                   height: 90,
-                  color: Colors.grey[300],
                   child: cover.isNotEmpty
-                      ? Image.network(
-                          cover,
+                      ? CachedImage(
+                          imageUrl: cover,
                           width: 160,
                           height: 90,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Center(
-                              child: Icon(Icons.error, color: Colors.grey),
-                            );
-                          },
                         )
-                      : const Center(
-                          child: Icon(Icons.videocam, color: Colors.grey, size: 40),
+                      : Container(
+                          color: Colors.grey[300],
+                          child: const Center(
+                            child: Icon(Icons.videocam, color: Colors.grey, size: 40),
+                          ),
                         ),
                 ),
 

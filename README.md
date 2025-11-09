@@ -72,10 +72,11 @@
   - `media_kit`: ^1.1.10 - 核心播放器
   - `media_kit_video`: ^1.2.4 - 视频 UI 组件
   - `media_kit_libs_video`: ^1.0.4 - 原生 libmpv 库
-- **网络请求**: 
+- **网络请求**:
   - `http`: ^1.2.0 - HTTP 客户端
-  - `dio`: ^5.4.0 - 高级网络库
-- **本地存储**: 
+  - `dio`: ^5.4.0 - 高级网络库（带重试机制）
+- **图片缓存**: `cached_network_image`: ^3.3.1 - 网络图片缓存
+- **本地存储**:
   - `shared_preferences`: ^2.2.0 - 轻量级键值存储
   - `path_provider`: ^2.1.1 - 路径获取
 - **分享功能**: `share_plus`: ^7.2.0
@@ -238,6 +239,15 @@ android.enableJetifier=true
 **问题**: 切换全屏后画面不显示
 
 **解决方案**: 已通过正确配置 `SystemChrome` 和 Widget 生命周期管理解决
+
+### 4. 弱网环境播放卡顿
+**问题**: 网络不稳定时视频加载失败或图片加载缓慢
+
+**解决方案**: 已实施网络优化，详见 [NETWORK_OPTIMIZATION.md](NETWORK_OPTIMIZATION.md)
+- ✅ HTTP 请求自动重试机制（最多3次）
+- ✅ 超时时间优化（15s 连接，30s 接收）
+- ✅ 图片智能缓存（内存+磁盘双层缓存）
+- ✅ HLS 分片下载自动重试
 
 ## 📦 依赖说明
 
