@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../widgets/cached_image_widget.dart';
+import '../services/auth_service.dart';
+import '../services/user_service.dart';
+import '../models/user_model.dart';
+import 'login_page.dart';
+import 'edit_profile_page.dart';
 
 /// 个人中心页面 - 简洁列表式设计
 class ProfilePage extends StatefulWidget {
@@ -10,12 +15,122 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // 模拟用户数据（实际应从API获取）
-  final String _userName = 'Ethan';
-  final String _userId = 'UID:123456789';
-  final int _fansCount = 500;
-  final int _videoCount = 100;
-  String? _avatarUrl; // 用户头像URL，null表示使用默认头像
+  final AuthService _authService = AuthService();
+  final UserService _userService = UserService();
+
+  // 用户数据
+  UserBaseInfo? _userInfo;
+  bool _isLoggedIn = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  /// 加载用户数据
+  Future<void> _loadUserData() async {
+    setState(() => _isLoading = true);
+
+    // 检查是否登录
+    final isLoggedIn = await _authService.isLoggedIn();
+    setState(() => _isLoggedIn = isLoggedIn);
+
+    if (isLoggedIn) {
+      // 获取用户信息
+      final userInfo = await _userService.getUserInfo();
+      if (userInfo != null) {
+        setState(() {
+          _userInfo = userInfo.userInfo;
+          _isLoading = false;
+        });
+      } else {
+        // Token 可能过期，尝试刷新
+        final newToken = await _authService.updateToken();
+        if (newToken != null) {
+          // 重试获取用户信息
+          final retryUserInfo = await _userService.getUserInfo();
+          setState(() {
+            _userInfo = retryUserInfo?.userInfo;
+            _isLoading = false;
+          });
+        } else {
+          // Token 失效，清除登录状态
+          setState(() {
+            _isLoggedIn = false;
+            _isLoading = false;
+          });
+        }
+      }
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  /// 退出登录
+  Future<void> _handleLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认退出'),
+        content: const Text('确定要退出登录吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _authService.logout();
+      setState(() {
+        _isLoggedIn = false;
+        _userInfo = null;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已退出登录')),
+        );
+      }
+    }
+  }
+
+  /// 跳转到登录页面
+  Future<void> _navigateToLogin() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginPage()),
+    );
+
+    // 如果登录成功，刷新用户数据
+    if (result == true) {
+      _loadUserData();
+    }
+  }
+
+  /// 跳转到编辑个人资料页面
+  Future<void> _navigateToEditProfile() async {
+    if (_userInfo == null) return;
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditProfilePage(userInfo: _userInfo!),
+      ),
+    );
+
+    // 如果编辑成功，刷新用户数据
+    if (result == true) {
+      _loadUserData();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,18 +183,88 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.settings_outlined, color: Colors.black),
-          onPressed: () {
-            // TODO: 打开设置页面
-          },
-        ),
+        if (_isLoggedIn)
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.black),
+            onPressed: _handleLogout,
+          )
+        else
+          IconButton(
+            icon: const Icon(Icons.login, color: Colors.black),
+            onPressed: _navigateToLogin,
+          ),
       ],
     );
   }
 
   /// 构建用户信息卡片
   Widget _buildUserInfoCard() {
+    // 加载中状态
+    if (_isLoading) {
+      return Container(
+        margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    // 未登录状态
+    if (!_isLoggedIn || _userInfo == null) {
+      return Container(
+        margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            // 默认头像
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: const Color(0xFFE8D5C4),
+              child: const Icon(
+                Icons.person,
+                size: 60,
+                color: Color(0xFF8B7355),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 未登录提示
+            Text(
+              '未登录',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 登录按钮
+            ElevatedButton(
+              onPressed: _navigateToLogin,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text('立即登录'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 已登录状态
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       padding: const EdgeInsets.all(20),
@@ -90,9 +275,9 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         children: [
           // 头像
-          _avatarUrl != null && _avatarUrl!.isNotEmpty
+          _userInfo!.avatar.isNotEmpty
               ? CachedCircleAvatar(
-                  imageUrl: _avatarUrl!,
+                  imageUrl: _userInfo!.avatar,
                   radius: 50,
                 )
               : CircleAvatar(
@@ -108,7 +293,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
           // 用户名
           Text(
-            _userName,
+            _userInfo!.name,
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -119,39 +304,46 @@ class _ProfilePageState extends State<ProfilePage> {
 
           // UID
           Text(
-            _userId,
+            'UID: ${_userInfo!.uid}',
             style: TextStyle(
               fontSize: 13,
               color: Colors.grey[600],
             ),
           ),
-          const SizedBox(height: 12),
 
-          // 粉丝和视频数
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$_fansCount粉丝',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[700],
-                ),
+          // 个性签名
+          if (_userInfo!.sign.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              _userInfo!.sign,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[500],
               ),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 12),
-                width: 1,
-                height: 12,
-                color: Colors.grey[300],
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+
+          // 编辑按钮
+          const SizedBox(height: 16),
+          OutlinedButton(
+            onPressed: _navigateToEditProfile,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              Text(
-                '$_videoCount个视频',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[700],
-                ),
+              side: BorderSide(color: Colors.grey[300]!),
+            ),
+            child: const Text(
+              '编辑资料',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.black87,
               ),
-            ],
+            ),
           ),
         ],
       ),

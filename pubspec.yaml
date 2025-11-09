@@ -45,6 +45,8 @@ dependencies:
   share_plus: ^7.2.0
   intl: ^0.18.1
   cached_network_image: ^3.3.1
+  image_picker: ^1.0.7
+  uuid: ^4.2.0
 
 dev_dependencies:
   flutter_test:

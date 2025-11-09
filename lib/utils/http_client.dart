@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// HTTP 客户端单例
 class HttpClient {
@@ -19,6 +20,11 @@ class HttpClient {
           'Content-Type': 'application/json',
         },
       ),
+    );
+
+    // 添加认证拦截器（第一个添加，确保优先执行）
+    dio.interceptors.add(
+      AuthInterceptor(),
     );
 
     // 添加重试拦截器(在请求拦截器之前)
@@ -52,6 +58,35 @@ class HttpClient {
         },
       ),
     );
+  }
+}
+
+/// 认证拦截器 - 自动添加 Authorization header
+class AuthInterceptor extends Interceptor {
+  static const String _tokenKey = 'auth_token';
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    // 如果请求已经包含 Authorization header，不覆盖
+    if (options.headers.containsKey('Authorization')) {
+      return handler.next(options);
+    }
+
+    // 从 SharedPreferences 获取 token
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString(_tokenKey);
+
+      if (token != null && token.isNotEmpty) {
+        // 添加 Authorization header
+        options.headers['Authorization'] = token;
+        print('🔑 添加 Authorization: $token');
+      }
+    } catch (e) {
+      print('⚠️ 获取 token 失败: $e');
+    }
+
+    return handler.next(options);
   }
 }
 
