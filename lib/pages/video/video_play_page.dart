@@ -33,8 +33,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   final HistoryService _historyService = HistoryService();
   final ScrollController _scrollController = ScrollController();
 
-  // 使用稳定的 GlobalKey 保持播放器状态
-  late final GlobalKey _playerKey;
+  // 使用 GlobalKey 保持播放器状态（需要可变以支持切换分P）
+  late GlobalKey _playerKey;
 
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
@@ -44,6 +44,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   late int _currentPart;
   double? _initialProgress; // 改为 double 类型（秒）
+  Duration? _lastReportedPosition; // 最后上报的播放位置（用于切换分P前上报）
 
   // 评论相关
   int _totalComments = 0;
@@ -60,6 +61,16 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   @override
   void dispose() {
+    // 页面关闭前上报最后播放进度（参考PC端逻辑）
+    if (_lastReportedPosition != null) {
+      print('📊 页面关闭前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+      _historyService.addHistory(
+        vid: widget.vid,
+        part: _currentPart,
+        time: _lastReportedPosition!.inSeconds.toDouble(),
+      );
+    }
+
     _scrollController.dispose();
     // 清理临时 m3u8 文件
     _hlsService.cleanupTempFiles();
@@ -138,6 +149,16 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       return;
     }
 
+    // 在切换前，先上报当前分P的最后播放进度（参考PC端逻辑）
+    if (_lastReportedPosition != null) {
+      print('📊 切换分集前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+      await _historyService.addHistory(
+        vid: widget.vid,
+        part: _currentPart,
+        time: _lastReportedPosition!.inSeconds.toDouble(),
+      );
+    }
+
     // 获取新分P的播放进度
     var progress = await _historyService.getProgress(vid: widget.vid, part: part);
 
@@ -149,6 +170,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     setState(() {
       _currentPart = part;
       _initialProgress = progress;
+      // 切换分P时清空上次播放位置，准备记录新分P的播放位置
+      _lastReportedPosition = null;
       // 切换分P时更新播放器 key
       _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
     });
@@ -173,6 +196,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position) {
+    // 记录最后播放位置（用于切换分P前上报）
+    _lastReportedPosition = position;
+
     final seconds = position.inSeconds.toDouble();
     // 每5秒上报一次播放进度，减少请求频率
     if (position.inSeconds % 5 == 0) {

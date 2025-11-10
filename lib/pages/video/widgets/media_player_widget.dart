@@ -312,43 +312,77 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       // 1. 立即暂停并记录精确的当前位置
       final wasPlaying = _player.state.playing;
-      if (wasPlaying) {
-        await _player.pause();
-        // 暂停后稍等确保位置稳定
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
+      await _player.pause();
+      // 暂停后多等待一些时间确保位置完全稳定
+      await Future.delayed(const Duration(milliseconds: 200));
 
-      // 2. 再次读取位置（确保是暂停后的准确位置）
+      // 2. 读取当前精确位置
       final currentPosition = _player.state.position;
       print('🔄 切换清晰度: $quality，保存位置: ${currentPosition.inSeconds}秒 (毫秒: ${currentPosition.inMilliseconds})');
 
-      // 3. 加载新清晰度的视频（不自动播放）
-      await _loadVideo(quality);
+      // 3. 获取新清晰度的 m3u8 文件路径（不通过 _loadVideo，直接控制）
+      final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
 
-      // 4. 等待一小段时间让新视频完全加载
-      await Future.delayed(const Duration(milliseconds: 100));
+      // 4. 打开新视频，明确指定不自动播放
+      await _player.open(
+        Media(
+          m3u8FilePath,
+          httpHeaders: {
+            'User-Agent': 'AlnitakFlutterPlayer/1.0',
+            'Connection': 'keep-alive',
+          },
+          extras: {
+            'network-timeout': '60',
+            'http-reconnect': 'yes',
+            'cache': 'yes',
+            'cache-secs': '300',
+            'demuxer-max-bytes': '128MiB',
+            'demuxer-max-back-bytes': '64MiB',
+          },
+        ),
+        play: false, // 明确不自动播放
+      );
 
-      // 5. 精确跳转到之前的播放位置
+      // 5. 等待播放器准备就绪
+      await _waitForPlayerReady();
+
+      // 6. 立即 seek 到保存的位置（在播放器准备好后第一时间执行）
       await _player.seek(currentPosition);
-      print('🎯 Seek到位置: ${currentPosition.inSeconds}秒');
+      print('🎯 Seek到位置: ${currentPosition.inSeconds}秒 (毫秒: ${currentPosition.inMilliseconds})');
 
-      // 6. 再次等待seek完成
-      await Future.delayed(const Duration(milliseconds: 150));
+      // 7. 等待 seek 完成
+      await Future.delayed(const Duration(milliseconds: 300));
 
-      // 7. 验证位置是否正确
+      // 8. 验证位置是否正确
       final actualPosition = _player.state.position;
-      print('📍 实际位置: ${actualPosition.inSeconds}秒 (差异: ${(actualPosition - currentPosition).inSeconds}秒)');
+      final positionDiff = (actualPosition - currentPosition).inMilliseconds.abs();
+      print('📍 实际位置: ${actualPosition.inSeconds}秒 (毫秒: ${actualPosition.inMilliseconds})');
+      print('   位置差异: ${positionDiff}毫秒');
 
-      // 8. 如果之前在播放，继续播放
-      if (wasPlaying) {
-        await _player.play();
+      // 9. 如果位置有任何差异（超过100毫秒），再次精确 seek
+      if (positionDiff > 100) {
+        print('⚠️ 位置差异${positionDiff}毫秒，重新精确seek');
+        await _player.seek(currentPosition);
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        // 再次验证
+        final finalPosition = _player.state.position;
+        final finalDiff = (finalPosition - currentPosition).inMilliseconds.abs();
+        print('📍 最终位置: ${finalPosition.inSeconds}秒 (毫秒: ${finalPosition.inMilliseconds})');
+        print('   最终差异: ${finalDiff}毫秒');
       }
 
+      // 10. 先重置切换标志，确保后续的进度回调能正常工作
       setState(() {
         _currentQuality = quality;
         _qualityNotifier.value = quality; // 同步到 notifier
         _isSwitchingQuality = false;
       });
+
+      // 11. 如果之前在播放，继续播放（在标志重置后）
+      if (wasPlaying) {
+        await _player.play();
+      }
 
       widget.onQualityChanged?.call(quality);
       print('✅ 清晰度已切换: $quality');
