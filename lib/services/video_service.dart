@@ -125,37 +125,8 @@ class VideoService {
     }
   }
 
-  /// 获取播放进度
-  Future<int?> getPlayProgress(int vid, int part) async {
-    try {
-      final response = await _dio.get(
-        '/api/v1/history/video/getProgress',
-        queryParameters: {'vid': vid, 'part': part},
-      );
-      if (response.data['code'] == 200) {
-        return response.data['data']['progress'];
-      }
-      return null;
-    } catch (e) {
-      print('获取播放进度失败: $e');
-      return null;
-    }
-  }
-
-  /// 上报播放进度
-  Future<bool> reportPlayProgress(int vid, int part, int time) async {
-    try {
-      final response = await _dio.post('/api/v1/history/video/addHistory', data: {
-        'vid': vid,
-        'part': part,
-        'time': time,
-      });
-      return response.data['code'] == 200;
-    } catch (e) {
-      print('上报播放进度失败: $e');
-      return false;
-    }
-  }
+  // 历史记录相关功能已移至 HistoryService
+  // 请使用 HistoryService().getProgress() 和 HistoryService().addHistory()
 
   /// 获取视频文件URL
   /// 根据参考项目，视频URL格式为: /api/v1/video/getVideoFile?resourceId=xxx&quality=xxx

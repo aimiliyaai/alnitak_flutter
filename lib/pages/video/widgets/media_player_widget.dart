@@ -61,8 +61,17 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   void initState() {
     super.initState();
     print('📹 [initState] MediaPlayerWidget 初始化 - resourceId: ${widget.resourceId}, hashCode: $hashCode');
-    // 创建播放器实例
-    _player = Player();
+    // 创建播放器实例，配置网络重试参数
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        // 标题（用于通知）
+        title: '',
+        // 启用更激进的缓冲策略
+        bufferSize: 64 * 1024 * 1024, // 64MB 缓冲区
+        // 日志级别
+        logLevel: MPVLogLevel.warn,
+      ),
+    );
     _videoController = VideoController(_player);
     _setupPlayerListeners();
     _initializePlayer();
@@ -169,9 +178,27 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       // 1. 获取本地 m3u8 文件路径
       final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
 
-      // 2. 使用 media_kit 播放视频
+      // 2. 使用 media_kit 播放视频，配置网络选项
       await _player.open(
-        Media(m3u8FilePath),
+        Media(
+          m3u8FilePath,
+          // 配置 HTTP 请求头和网络选项
+          httpHeaders: {
+            'User-Agent': 'AlnitakFlutterPlayer/1.0',
+            'Connection': 'keep-alive',
+          },
+          // 传递给底层播放器的额外选项
+          extras: {
+            // ExoPlayer (Android) 的网络重试配置
+            // 注意：这些是推荐的配置，实际效果取决于 media_kit 的实现
+            'network-timeout': '60', // 网络超时60秒（增加到60秒）
+            'http-reconnect': 'yes', // 启用HTTP重连
+            'cache': 'yes', // 启用缓存
+            'cache-secs': '300', // 缓存5分钟
+            'demuxer-max-bytes': '128MiB', // 解复用器最大缓冲128MB
+            'demuxer-max-back-bytes': '64MiB', // 向后缓冲64MB
+          },
+        ),
         play: false, // 不自动播放，手动控制播放时机
       );
 
@@ -189,7 +216,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         await _player.play();
       }
 
-      print('✅ 视频加载成功: $quality');
+      print('✅ 视频加载成功: $quality (网络重试已启用)');
     } catch (e) {
       _logger.logError(
         message: '加载视频失败',

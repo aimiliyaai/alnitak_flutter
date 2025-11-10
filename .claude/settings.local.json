@@ -36,7 +36,11 @@
       "Bash(git checkout:*)",
       "Bash(tee:*)",
       "Bash(./gradlew clean:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(nul)",
+      "Bash(/dev/null)",
+      "Bash(xargs cat:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

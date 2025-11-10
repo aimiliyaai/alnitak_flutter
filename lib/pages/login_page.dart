@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../services/captcha_service.dart';
 import '../widgets/slider_captcha_widget.dart';
 import 'register_page.dart';
 
@@ -14,7 +13,6 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
-  final CaptchaService _captchaService = CaptchaService();
 
   // Tab 控制器
   late TabController _tabController;
@@ -81,19 +79,17 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       } else {
         _showMessage('登录失败，请检查邮箱和密码');
       }
-    } catch (e) {
-      if (e.toString().contains('需要人机验证')) {
-        // 显示人机验证对话框
-        if (mounted) {
-          setState(() => _isLoading = false);
-          await _showCaptchaDialog();
-          // 验证成功后重试登录
-          _handlePasswordLogin();
-        }
-        return;
-      } else {
-        _showMessage('登录失败：${e.toString()}');
+    } on CaptchaRequiredException catch (e) {
+      // 捕获需要人机验证异常，使用服务端返回的 captchaId
+      if (mounted) {
+        setState(() => _isLoading = false);
+        await _showCaptchaDialog(e.captchaId);
+        // 验证成功后重试登录
+        _handlePasswordLogin();
       }
+      return;
+    } catch (e) {
+      _showMessage('登录失败：${e.toString()}');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -102,18 +98,16 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   }
 
   /// 显示人机验证对话框
-  Future<void> _showCaptchaDialog() async {
-    // 生成验证码ID
-    final captchaId = _captchaService.generateCaptchaId();
-
+  /// [serverCaptchaId] 服务端返回的验证码ID
+  Future<void> _showCaptchaDialog(String serverCaptchaId) async {
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => SliderCaptchaWidget(
-        captchaId: captchaId,
+        captchaId: serverCaptchaId,
         onSuccess: () {
           // 验证成功，保存captchaId
-          setState(() => _captchaId = captchaId);
+          setState(() => _captchaId = serverCaptchaId);
         },
         onCancel: () {
           // 取消验证

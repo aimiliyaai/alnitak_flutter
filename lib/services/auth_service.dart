@@ -3,6 +3,16 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../models/auth_models.dart';
 
+/// 需要人机验证异常
+class CaptchaRequiredException implements Exception {
+  final String captchaId;
+
+  CaptchaRequiredException(this.captchaId);
+
+  @override
+  String toString() => '需要人机验证';
+}
+
 /// 认证服务
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -59,8 +69,9 @@ class AuthService {
         await _saveTokens(loginResponse);
         return loginResponse;
       } else if (response.data['code'] == -1) {
-        // 需要人机验证
-        throw Exception('需要人机验证');
+        // 需要人机验证，从服务端返回的 data 中获取 captchaId
+        final serverCaptchaId = response.data['data']?['captchaId'] as String? ?? '';
+        throw CaptchaRequiredException(serverCaptchaId);
       }
       return null;
     } catch (e) {

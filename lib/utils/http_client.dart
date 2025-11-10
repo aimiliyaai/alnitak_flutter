@@ -12,10 +12,10 @@ class HttpClient {
     dio = Dio(
       BaseOptions(
         baseUrl: 'http://anime.ayypd.cn:3000',
-        // 增加超时时间,适应弱网环境
-        connectTimeout: const Duration(seconds: 15),  // 连接超时 15秒
-        receiveTimeout: const Duration(seconds: 30),  // 接收超时 30秒
-        sendTimeout: const Duration(seconds: 15),     // 发送超时 15秒
+        // 大幅增加超时时间,确保HLS分片请求在弱网环境下也能成功
+        connectTimeout: const Duration(seconds: 30),  // 连接超时 30秒（提高到30秒）
+        receiveTimeout: const Duration(seconds: 60),  // 接收超时 60秒（提高到60秒）
+        sendTimeout: const Duration(seconds: 30),     // 发送超时 30秒（提高到30秒）
         headers: {
           'Content-Type': 'application/json',
         },
@@ -32,11 +32,18 @@ class HttpClient {
       RetryInterceptor(
         dio: dio,
         logPrint: print,
-        retries: 3,  // 最多重试 3 次
+        retries: 10,  // 最多重试 10 次（提高重试次数，确保HLS分片请求成功）
         retryDelays: const [
-          Duration(seconds: 1),   // 第一次重试等待 1 秒
-          Duration(seconds: 2),   // 第二次重试等待 2 秒
-          Duration(seconds: 3),   // 第三次重试等待 3 秒
+          Duration(seconds: 1),   // 第1次重试等待 1 秒
+          Duration(seconds: 2),   // 第2次重试等待 2 秒
+          Duration(seconds: 3),   // 第3次重试等待 3 秒
+          Duration(seconds: 3),   // 第4次重试等待 3 秒
+          Duration(seconds: 5),   // 第5次重试等待 5 秒
+          Duration(seconds: 5),   // 第6次重试等待 5 秒
+          Duration(seconds: 8),   // 第7次重试等待 8 秒
+          Duration(seconds: 8),   // 第8次重试等待 8 秒
+          Duration(seconds: 10),  // 第9次重试等待 10 秒
+          Duration(seconds: 10),  // 第10次重试等待 10 秒
         ],
       ),
     );

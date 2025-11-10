@@ -3,6 +3,7 @@ import '../../models/video_detail.dart';
 import '../../models/comment.dart';
 import '../../services/video_service.dart';
 import '../../services/hls_service.dart';
+import '../../services/history_service.dart';
 import 'widgets/media_player_widget.dart';
 import 'widgets/author_card.dart';
 import 'widgets/video_info_card.dart';
@@ -29,6 +30,7 @@ class VideoPlayPage extends StatefulWidget {
 class _VideoPlayPageState extends State<VideoPlayPage> {
   final VideoService _videoService = VideoService();
   final HlsService _hlsService = HlsService();
+  final HistoryService _historyService = HistoryService();
   final ScrollController _scrollController = ScrollController();
 
   // 使用稳定的 GlobalKey 保持播放器状态
@@ -76,12 +78,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       final results = await Future.wait([
         _videoService.getVideoDetail(widget.vid),
         _videoService.getVideoStat(widget.vid),
-        _videoService.getPlayProgress(widget.vid, _currentPart),
+        _historyService.getProgress(vid: widget.vid, part: _currentPart),
       ]);
 
       final videoDetail = results[0] as VideoDetail?;
       final videoStat = results[1] as VideoStat?;
-      final progress = results[2] as int?; // 进度单位为秒
+      var progress = results[2] as double?; // 进度单位为秒
 
       if (videoDetail == null) {
         setState(() {
@@ -89,6 +91,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
           _isLoading = false;
         });
         return;
+      }
+
+      // 如果进度为-1，表示已看完，应该从头开始播放
+      if (progress != null && progress == -1) {
+        progress = null; // 设为null表示从头播放
       }
 
       // 获取用户操作状态
@@ -108,7 +115,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
           hasCollected: false,
           relationStatus: 0,
         );
-        _initialProgress = progress?.toDouble(); // 转换为 double
+        _initialProgress = progress;
         _isLoading = false;
       });
     } catch (e) {
@@ -132,11 +139,16 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     }
 
     // 获取新分P的播放进度
-    final progress = await _videoService.getPlayProgress(widget.vid, part);
+    var progress = await _historyService.getProgress(vid: widget.vid, part: part);
+
+    // 如果进度为-1，表示已看完，应该从头开始播放
+    if (progress != null && progress == -1) {
+      progress = null;
+    }
 
     setState(() {
       _currentPart = part;
-      _initialProgress = progress?.toDouble();
+      _initialProgress = progress;
       // 切换分P时更新播放器 key
       _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
     });
@@ -161,10 +173,14 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position) {
-    final seconds = position.inSeconds;
+    final seconds = position.inSeconds.toDouble();
     // 每5秒上报一次播放进度，减少请求频率
-    if (seconds % 5 == 0) {
-      _videoService.reportPlayProgress(widget.vid, _currentPart, seconds);
+    if (position.inSeconds % 5 == 0) {
+      _historyService.addHistory(
+        vid: widget.vid,
+        part: _currentPart,
+        time: seconds,
+      );
     }
   }
 
@@ -191,24 +207,27 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   /// 播放结束回调
   void _onVideoEnded() {
-    // 上报最终播放进度
-    final currentResource = _videoDetail?.resources[_currentPart - 1];
-    if (currentResource != null) {
-      _videoService.reportPlayProgress(
-        widget.vid,
-        _currentPart,
-        currentResource.duration.toInt(),
-      );
-    }
+    print('📺 视频播放结束');
 
-    // 检查是否有下一P，并自动播放
+    // 播放完成后上报进度为 -1，表示已看完
+    _historyService.addHistory(
+      vid: widget.vid,
+      part: _currentPart,
+      time: -1,
+    );
+
+    // 检查是否有下一P，并自动播放（需要参考PC端逻辑，从PartList组件获取自动连播状态）
+    // 这里暂时保持简单实现，后续可以通过PartList的回调来控制
     if (_videoDetail != null && _currentPart < _videoDetail!.resources.length) {
-      // 延迟2秒后自动播放下一P
-      Future.delayed(const Duration(seconds: 2), () {
+      print('🎬 存在下一集，准备自动播放: P${_currentPart + 1}');
+      // 延迟1秒后自动播放下一P（参考PC端的1秒延迟）
+      Future.delayed(const Duration(seconds: 1), () {
         if (mounted) {
           _changePart(_currentPart + 1);
         }
       });
+    } else {
+      print('✅ 已是最后一集');
     }
   }
 

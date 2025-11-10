@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/user_model.dart';
 import '../services/user_service.dart';
 import '../widgets/cached_image_widget.dart';
+import '../utils/image_utils.dart';
 
 /// 编辑个人资料页面
 class EditProfilePage extends StatefulWidget {
@@ -155,17 +156,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String _getGenderText() {
     switch (_selectedGender) {
       case 1:
-        return 'Male';
+        return '男';
       case 2:
-        return 'Female';
+        return '女';
       default:
-        return 'Unknown';
+        return '未知';
     }
   }
 
   /// 格式化日期
   String _formatDate(DateTime? date) {
-    if (date == null) return 'Not set';
+    if (date == null) return '未设置';
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
@@ -237,7 +238,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          'Edit Profile',
+          '编辑资料',
           style: TextStyle(
             color: Colors.black,
             fontSize: 18,
@@ -257,7 +258,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
             // 昵称
             _buildProfileItem(
-              label: 'Nickname',
+              label: '昵称',
               value: _nicknameController.text,
               onTap: null, // 直接在输入框中编辑
               trailing: SizedBox(
@@ -282,7 +283,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
             // 性别
             _buildProfileItem(
-              label: 'Gender',
+              label: '性别',
               value: _getGenderText(),
               onTap: _selectGender,
             ),
@@ -290,7 +291,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
             // 生日
             _buildProfileItem(
-              label: 'Birthday',
+              label: '生日',
               value: _formatDate(_selectedBirthday),
               onTap: _selectBirthday,
             ),
@@ -298,7 +299,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
             // 个性签名
             _buildProfileItem(
-              label: 'Signature',
+              label: '个性签名',
               value: _signatureController.text.isEmpty
                   ? '添加个性签名'
                   : _signatureController.text,
@@ -356,7 +357,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       child: Row(
         children: [
           const Text(
-            'Profile Photo',
+            '头像',
             style: TextStyle(
               fontSize: 15,
               color: Colors.black87,
@@ -375,7 +376,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               else if (_avatarUrl != null && _avatarUrl!.isNotEmpty)
                 // 网络头像
                 CachedCircleAvatar(
-                  imageUrl: _avatarUrl!,
+                  imageUrl: ImageUtils.getFullImageUrl(_avatarUrl!),
                   radius: 24,
                 )
               else

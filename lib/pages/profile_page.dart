@@ -3,6 +3,7 @@ import '../widgets/cached_image_widget.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../models/user_model.dart';
+import '../utils/image_utils.dart';
 import 'login_page.dart';
 import 'edit_profile_page.dart';
 
@@ -277,7 +278,7 @@ class _ProfilePageState extends State<ProfilePage> {
           // 头像
           _userInfo!.avatar.isNotEmpty
               ? CachedCircleAvatar(
-                  imageUrl: _userInfo!.avatar,
+                  imageUrl: ImageUtils.getFullImageUrl(_userInfo!.avatar),
                   radius: 50,
                 )
               : CircleAvatar(
