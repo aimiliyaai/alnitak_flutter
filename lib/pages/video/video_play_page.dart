@@ -65,12 +65,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   void dispose() {
     // 页面关闭前上报最后播放进度（参考PC端逻辑）
     if (_lastReportedPosition != null) {
-      print('📊 页面关闭前上报进度: ${_lastReportedPosition!.inSeconds}秒');
-      _historyService.addHistory(
-        vid: widget.vid,
-        part: _currentPart,
-        time: _lastReportedPosition!.inSeconds.toDouble(),
-      );
+      // 如果已经完播，退出时应该上报-1而不是总时长
+      if (_hasReportedCompleted) {
+        print('📊 页面关闭前上报进度: -1 (已完播)');
+        _historyService.addHistory(
+          vid: widget.vid,
+          part: _currentPart,
+          time: -1,
+        );
+      } else {
+        print('📊 页面关闭前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+        _historyService.addHistory(
+          vid: widget.vid,
+          part: _currentPart,
+          time: _lastReportedPosition!.inSeconds.toDouble(),
+        );
+      }
     }
 
     _scrollController.dispose();
