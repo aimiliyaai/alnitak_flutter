@@ -228,7 +228,15 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       // 4. 如果是初始加载且有初始播放位置，跳转到该位置
       if (isInitialLoad && widget.initialPosition != null) {
         final initialDuration = Duration(seconds: widget.initialPosition!.toInt());
-        await _player.seek(initialDuration);
+        // 如果初始位置接近视频末尾（距离结束<2秒），说明上次已看完，应该从头开始
+        if (_player.state.duration.inSeconds > 0 &&
+            initialDuration.inSeconds >= _player.state.duration.inSeconds - 2) {
+          print('📺 检测到位置接近末尾(${initialDuration.inSeconds}s/${_player.state.duration.inSeconds}s)，从头开始');
+          await _player.seek(Duration.zero);
+          _hasTriggeredCompletion = false; // 重置完播标志
+        } else {
+          await _player.seek(initialDuration);
+        }
       }
 
       // 5. 开始播放
@@ -335,19 +343,25 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       print('🔄 切换清晰度: $quality');
 
-      // 【行业级方案】先暂停→等待暂停生效→读取位置→切换源→定位→恢复
+      // 【完全冻结方案】立即读取→强制暂停→等待→二次读取→取最小值
       final wasPlaying = _player.state.playing;
 
-      // 1. 先暂停（如果在播放）
+      // 1. 立即读取第一次位置（播放时可能不准）
+      final pos1 = _player.state.position;
+
+      // 2. 强制暂停
       if (wasPlaying) {
         await _player.pause();
-        // 等待暂停完全生效（关键！让播放器停止渲染）
-        await Future.delayed(const Duration(milliseconds: 50));
+        // 等待暂停生效
+        await Future.delayed(const Duration(milliseconds: 100));
       }
 
-      // 2. 暂停生效后读取位置（此时位置已冻结，不会再漂移）
-      final targetPosition = _player.state.position;
-      print('📍 目标位置: ${targetPosition.inSeconds}s');
+      // 3. 暂停后再次读取位置
+      final pos2 = _player.state.position;
+
+      // 4. 取两次读取的最小值（防止位置前移）
+      final targetPosition = pos1.inSeconds <= pos2.inSeconds ? pos1 : pos2;
+      print('📍 位置冻结: pos1=${pos1.inSeconds}s, pos2=${pos2.inSeconds}s, 使用=${targetPosition.inSeconds}s');
 
       // 3. 获取新清晰度
       final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
@@ -728,7 +742,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     showMenu(
       context: context,
       position: position,
-      color: Colors.black.withOpacity(0.7),
+      color: Colors.black.withOpacity(0.5), // 更透明（从0.7降到0.5）
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       items: _availableQualities.map((quality) {
         final isSelected = quality == _currentQuality;
