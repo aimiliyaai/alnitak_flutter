@@ -46,6 +46,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   double? _initialProgress; // 改为 double 类型（秒）
   Duration? _lastReportedPosition; // 最后上报的播放位置（用于切换分P前上报）
   bool _hasReportedCompleted = false; // 是否已上报播放完成(-1)
+  int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
 
   // 评论相关
   int _totalComments = 0;
@@ -177,6 +178,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       _lastReportedPosition = null;
       // 切换分P时重置已看完标记
       _hasReportedCompleted = false;
+      // 切换分P时重置上次保存的秒数，允许新分P立即上报首次进度
+      _lastSavedSeconds = null;
       // 切换分P时更新播放器 key
       _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
     });
@@ -204,14 +207,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     // 记录最后播放位置（用于切换分P前上报）
     _lastReportedPosition = position;
 
-    final seconds = position.inSeconds.toDouble();
-    // 每5秒上报一次播放进度，减少请求频率
-    if (position.inSeconds % 5 == 0 && !_hasReportedCompleted) {
+    // 使用节流机制：只有当播放进度与上次保存相差5秒以上时才上报
+    final currentSeconds = position.inSeconds;
+
+    if (_hasReportedCompleted) {
+      return; // 已上报完成标记，不再上报进度
+    }
+
+    // 首次上报 或 距离上次上报已经过了5秒
+    if (_lastSavedSeconds == null || (currentSeconds - _lastSavedSeconds!) >= 5) {
+      print('📊 上报播放进度: ${currentSeconds}秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})');
       _historyService.addHistory(
         vid: widget.vid,
         part: _currentPart,
-        time: seconds,
+        time: currentSeconds.toDouble(),
       );
+      _lastSavedSeconds = currentSeconds;
     }
   }
 

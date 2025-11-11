@@ -159,6 +159,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         throw Exception('没有可用的清晰度');
       }
 
+      // 1.5. 对清晰度列表进行排序(从高到低)
+      _availableQualities = _sortQualitiesDescending(_availableQualities);
+
       // 2. 选择默认清晰度（720P优先）
       _currentQuality = HlsService.getDefaultQuality(_availableQualities);
       _qualityNotifier.value = _currentQuality; // 同步到 notifier
@@ -330,34 +333,26 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         _isSwitchingQuality = true;
       });
 
-      print('═══════════════════════════════════════════════════════');
-      print('🔄 [清晰度切换] 开始切换到: $quality');
-      print('───────────────────────────────────────────────────────');
+      print('🔄 切换清晰度: $quality');
 
-      // 1. 立即暂停并记录当前位置
+      // 【行业级方案】先暂停→等待暂停生效→读取位置→切换源→定位→恢复
       final wasPlaying = _player.state.playing;
-      print('📊 [步骤1] 当前播放状态: ${wasPlaying ? "播放中" : "已暂停"}');
 
-      final positionBeforePause = _player.state.position;
-      print('📊 [步骤1] 暂停前位置: ${positionBeforePause.inMilliseconds}ms (${positionBeforePause.inSeconds}秒)');
+      // 1. 先暂停（如果在播放）
+      if (wasPlaying) {
+        await _player.pause();
+        // 等待暂停完全生效（关键！让播放器停止渲染）
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
 
-      await _player.pause();
-      await Future.delayed(const Duration(milliseconds: 500));
+      // 2. 暂停生效后读取位置（此时位置已冻结，不会再漂移）
+      final targetPosition = _player.state.position;
+      print('📍 目标位置: ${targetPosition.inSeconds}s');
 
-      final positionAfterPause = _player.state.position;
-      print('📊 [步骤1] 暂停后位置: ${positionAfterPause.inMilliseconds}ms (${positionAfterPause.inSeconds}秒)');
-
-      // 2. 读取当前位置(HLS只能精确到秒级,不要期望毫秒级精度)
-      final currentPosition = _player.state.position;
-      print('📊 [步骤2] 记录的目标位置: ${currentPosition.inMilliseconds}ms (${currentPosition.inSeconds}秒)');
-
-      // 3. 获取新清晰度的 m3u8 文件路径
-      print('📊 [步骤3] 开始获取新清晰度的 m3u8 文件...');
+      // 3. 获取新清晰度
       final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
-      print('📊 [步骤3] m3u8 文件路径: $m3u8FilePath');
 
-      // 4. 打开新视频，明确指定不自动播放
-      print('📊 [步骤4] 打开新清晰度视频 (play=false)...');
+      // 4. 快速切换源
       await _player.open(
         Media(
           m3u8FilePath,
@@ -374,71 +369,32 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
             'demuxer-max-back-bytes': '64MiB',
           },
         ),
-        play: false, // 明确不自动播放
+        play: false,
       );
 
-      final positionAfterOpen = _player.state.position;
-      print('📊 [步骤4] 打开后位置: ${positionAfterOpen.inMilliseconds}ms (${positionAfterOpen.inSeconds}秒)');
-
-      // 5. 等待播放器准备就绪
-      print('📊 [步骤5] 等待播放器准备就绪...');
+      // 5. 等待准备就绪
       await _waitForPlayerReady();
 
-      final positionAfterReady = _player.state.position;
-      print('📊 [步骤5] 准备就绪后位置: ${positionAfterReady.inMilliseconds}ms (${positionAfterReady.inSeconds}秒)');
+      // 6. 精确seek
+      await _player.seek(targetPosition);
 
-      // 6. 使用时间记录法直接seek到目标位置
-      // 不使用关键帧偏移补偿，直接seek到记录的位置
-      // HLS会自动对齐到最近的关键帧，但我们记录的是精确时间
-      print('📊 [步骤6] 时间记录法 - 目标位置: ${currentPosition.inMilliseconds}ms (${currentPosition.inSeconds}秒)');
-      await _player.seek(currentPosition);
+      // 7. 等待seek完成
+      await Future.delayed(const Duration(milliseconds: 200));
 
-      final positionAfterSeek = _player.state.position;
-      print('📊 [步骤6] Seek后立即读取位置: ${positionAfterSeek.inMilliseconds}ms (${positionAfterSeek.inSeconds}秒)');
-
-      // 等待更长时间让播放器完成seek
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      final positionAfterDelay = _player.state.position;
-      print('📊 [步骤6] 延迟800ms后位置: ${positionAfterDelay.inMilliseconds}ms (${positionAfterDelay.inSeconds}秒)');
-
-      // 计算偏移量
-      final offsetMs = positionAfterDelay.inMilliseconds - currentPosition.inMilliseconds;
-      final offsetSeconds = offsetMs / 1000.0;
-      print('───────────────────────────────────────────────────────');
-      print('📊 [结果分析]');
-      print('   目标位置: ${currentPosition.inSeconds}秒 (${currentPosition.inMilliseconds}ms)');
-      print('   实际位置: ${positionAfterDelay.inSeconds}秒 (${positionAfterDelay.inMilliseconds}ms)');
-      print('   偏移量: ${offsetSeconds.toStringAsFixed(2)}秒 (${offsetMs}ms)');
-      print('   偏移方向: ${offsetMs > 0 ? "往后" : offsetMs < 0 ? "往前" : "精确"}');
-
-      // 7. 先重置切换标志，确保后续的进度回调能正常工作
-      print('📊 [步骤7] 重置切换标志...');
+      // 8. 更新状态
       setState(() {
         _currentQuality = quality;
-        _qualityNotifier.value = quality; // 同步到 notifier
+        _qualityNotifier.value = quality;
         _isSwitchingQuality = false;
       });
 
-      // 8. 如果之前在播放，继续播放（在标志重置后）
+      // 9. 恢复播放
       if (wasPlaying) {
-        print('📊 [步骤8] 恢复播放...');
         await _player.play();
-
-        // 播放后再次检查位置
-        await Future.delayed(const Duration(milliseconds: 200));
-        final positionAfterPlay = _player.state.position;
-        print('📊 [步骤8] 恢复播放后位置: ${positionAfterPlay.inMilliseconds}ms (${positionAfterPlay.inSeconds}秒)');
-
-        final finalOffsetMs = positionAfterPlay.inMilliseconds - currentPosition.inMilliseconds;
-        final finalOffsetSeconds = finalOffsetMs / 1000.0;
-        print('📊 [步骤8] 最终偏移量: ${finalOffsetSeconds.toStringAsFixed(2)}秒 (${finalOffsetMs}ms)');
       }
 
       widget.onQualityChanged?.call(quality);
-      print('───────────────────────────────────────────────────────');
-      print('✅ [清晰度切换] 完成，新清晰度: $quality');
-      print('═══════════════════════════════════════════════════════');
+      print('✅ 切换完成');
     } catch (e) {
       _logger.logError(
         message: '切换清晰度失败',
@@ -499,13 +455,18 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   Widget _buildPlayer() {
     return Container(
       color: Colors.black,
-      child: Stack(
-        children: [
-          // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
-          Center(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: MaterialVideoControlsTheme(
+      // 使用 ClipRect 裁剪溢出内容，防止布局警告
+      child: ClipRect(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              fit: StackFit.expand, // 确保子元素填满父容器
+              children: [
+                // 视频播放区域 - 使用 MaterialVideoControlsTheme 来使用原生控制器
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: MaterialVideoControlsTheme(
                 normal: MaterialVideoControlsThemeData(
                   // 顶部按钮栏配置
                   topButtonBar: [
@@ -713,69 +674,95 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                 ),
               ),
             ),
-        ],
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 
-  /// 显示清晰度选择菜单
+  /// 对清晰度列表进行排序（从高到低）
+  /// 解析格式: "1920x1080_6000k_30" -> 按分辨率(宽×高)降序排序
+  List<String> _sortQualitiesDescending(List<String> qualities) {
+    final sorted = List<String>.from(qualities);
+    sorted.sort((a, b) {
+      final resA = _parseResolution(a);
+      final resB = _parseResolution(b);
+      // 降序排序（高清晰度在前）
+      return resB.compareTo(resA);
+    });
+    return sorted;
+  }
+
+  /// 从清晰度字符串中解析分辨率（宽×高）
+  /// 格式: "1920x1080_6000k_30" -> 返回 1920 * 1080 = 2073600
+  int _parseResolution(String quality) {
+    try {
+      final parts = quality.split('_');
+      if (parts.isEmpty) return 0;
+      final resolution = parts[0]; // "1920x1080"
+      final dims = resolution.split('x');
+      if (dims.length != 2) return 0;
+      final width = int.tryParse(dims[0]) ?? 0;
+      final height = int.tryParse(dims[1]) ?? 0;
+      return width * height;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// 显示清晰度选择菜单(紧贴按钮的小悬浮菜单)
   void _showQualityMenu(BuildContext context) {
-    showModalBottomSheet(
+    // 创建一个小的悬浮菜单,使用PopupMenuButton的样式
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final RenderBox overlay = Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    showMenu(
       context: context,
-      backgroundColor: Colors.black87,
-      builder: (context) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.6, // 最大高度为屏幕的60%
-          ),
-          child: Column(
+      position: position,
+      color: Colors.black.withOpacity(0.7),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: _availableQualities.map((quality) {
+        final isSelected = quality == _currentQuality;
+        final displayName = getQualityDisplayName(quality);
+
+        return PopupMenuItem(
+          value: quality,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  '选择清晰度',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+              Icon(
+                isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                color: isSelected ? Colors.blue : Colors.white54,
+                size: 18,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                displayName,
+                style: TextStyle(
+                  color: isSelected ? Colors.blue : Colors.white,
+                  fontSize: 14,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
-              const Divider(color: Colors.white24, height: 1),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: _availableQualities.map((quality) {
-                    final isSelected = quality == _currentQuality;
-                    final displayName = getQualityDisplayName(quality);
-                    return ListTile(
-                      leading: Icon(
-                        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                        color: isSelected ? Colors.blue : Colors.white70,
-                      ),
-                      title: Text(
-                        displayName,
-                        style: TextStyle(
-                          color: isSelected ? Colors.blue : Colors.white,
-                          fontSize: 16,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        changeQuality(quality);
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 8),
             ],
           ),
-        ),
-      ),
-    );
+        );
+      }).toList(),
+    ).then((selectedQuality) {
+      if (selectedQuality != null && selectedQuality != _currentQuality) {
+        changeQuality(selectedQuality);
+      }
+    });
   }
 
   /// 加载中界面
