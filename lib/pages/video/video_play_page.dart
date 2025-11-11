@@ -45,6 +45,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
   late int _currentPart;
   double? _initialProgress; // 改为 double 类型（秒）
   Duration? _lastReportedPosition; // 最后上报的播放位置（用于切换分P前上报）
+  bool _hasReportedCompleted = false; // 是否已上报播放完成(-1)
 
   // 评论相关
   int _totalComments = 0;
@@ -106,7 +107,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
       // 如果进度为-1，表示已看完，应该从头开始播放
       if (progress != null && progress == -1) {
+        print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
         progress = null; // 设为null表示从头播放
+        _hasReportedCompleted = false; // 重置已看完标记，允许重新上报完成状态
       }
 
       // 获取用户操作状态
@@ -172,6 +175,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       _initialProgress = progress;
       // 切换分P时清空上次播放位置，准备记录新分P的播放位置
       _lastReportedPosition = null;
+      // 切换分P时重置已看完标记
+      _hasReportedCompleted = false;
       // 切换分P时更新播放器 key
       _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
     });
@@ -201,7 +206,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
     final seconds = position.inSeconds.toDouble();
     // 每5秒上报一次播放进度，减少请求频率
-    if (position.inSeconds % 5 == 0) {
+    if (position.inSeconds % 5 == 0 && !_hasReportedCompleted) {
       _historyService.addHistory(
         vid: widget.vid,
         part: _currentPart,
@@ -233,7 +238,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
   /// 播放结束回调
   void _onVideoEnded() {
-    print('📺 视频播放结束');
+    // 避免重复上报
+    if (_hasReportedCompleted) {
+      print('📺 视频播放结束 (已上报过-1，跳过)');
+      return;
+    }
+
+    print('📺 视频播放结束，上报已看完标记');
 
     // 播放完成后上报进度为 -1，表示已看完
     _historyService.addHistory(
@@ -241,6 +252,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
       part: _currentPart,
       time: -1,
     );
+    _hasReportedCompleted = true; // 标记为已上报
 
     // 检查是否有下一P，并自动播放（需要参考PC端逻辑，从PartList组件获取自动连播状态）
     // 这里暂时保持简单实现，后续可以通过PartList的回调来控制

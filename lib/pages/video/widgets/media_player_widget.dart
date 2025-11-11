@@ -53,6 +53,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   String? _errorMessage;
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
+  bool _hasTriggeredCompletion = false; // 标记是否已触发完播回调
 
   // 使用 ValueNotifier 来管理清晰度状态，确保UI能够响应变化
   final ValueNotifier<String?> _qualityNotifier = ValueNotifier<String?>(null);
@@ -99,24 +100,37 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
   /// 设置播放器事件监听
   void _setupPlayerListeners() {
-    // 监听播放完成事件
-    _player.stream.completed.listen((completed) {
-      if (completed) {
-        print('📹 视频播放结束');
-        widget.onVideoEnd?.call();
-      }
-    });
-
-    // 监听播放进度
+    // 监听播放进度，并在此判断是否完播
     _player.stream.position.listen((position) {
-      if (mounted && widget.onProgressUpdate != null && !_isSwitchingQuality) {
-        widget.onProgressUpdate!(position);
+      if (mounted && !_isSwitchingQuality) {
+        // 回调进度更新
+        if (widget.onProgressUpdate != null) {
+          widget.onProgressUpdate!(position);
+        }
+
+        // 判断是否完播：当前位置 >= 总时长 - 1秒 且播放器已停止
+        final duration = _player.state.duration;
+        final isPlaying = _player.state.playing;
+
+        if (duration.inSeconds > 0 &&
+            position.inSeconds >= duration.inSeconds - 1 &&
+            !isPlaying &&
+            !_hasTriggeredCompletion) {
+          print('📹 检测到视频播放结束: position=${position.inSeconds}s, duration=${duration.inSeconds}s, playing=$isPlaying');
+          _hasTriggeredCompletion = true;
+          widget.onVideoEnd?.call();
+        }
       }
     });
 
-    // 监听播放状态
+    // 监听播放状态（用于重置完播标志）
     _player.stream.playing.listen((playing) {
       print('📹 ${playing ? "开始播放" : "暂停播放"}');
+      // 当重新开始播放时，重置完播标志
+      if (playing && _hasTriggeredCompletion) {
+        _hasTriggeredCompletion = false;
+        print('📹 重置完播标志');
+      }
     });
 
     // 监听错误
@@ -175,6 +189,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   /// 加载视频
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false}) async {
     try {
+      // 重置完播标志（加载新视频时）
+      _hasTriggeredCompletion = false;
+
       // 1. 获取本地 m3u8 文件路径
       final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
 
@@ -306,24 +323,41 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     if (_currentQuality == quality || _isSwitchingQuality) return;
 
     try {
+      // 重置完播标志（切换清晰度时）
+      _hasTriggeredCompletion = false;
+
       setState(() {
         _isSwitchingQuality = true;
       });
 
-      // 1. 立即暂停并记录精确的当前位置
+      print('═══════════════════════════════════════════════════════');
+      print('🔄 [清晰度切换] 开始切换到: $quality');
+      print('───────────────────────────────────────────────────────');
+
+      // 1. 立即暂停并记录当前位置
       final wasPlaying = _player.state.playing;
+      print('📊 [步骤1] 当前播放状态: ${wasPlaying ? "播放中" : "已暂停"}');
+
+      final positionBeforePause = _player.state.position;
+      print('📊 [步骤1] 暂停前位置: ${positionBeforePause.inMilliseconds}ms (${positionBeforePause.inSeconds}秒)');
+
       await _player.pause();
-      // 暂停后多等待一些时间确保位置完全稳定
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 500));
 
-      // 2. 读取当前精确位置
+      final positionAfterPause = _player.state.position;
+      print('📊 [步骤1] 暂停后位置: ${positionAfterPause.inMilliseconds}ms (${positionAfterPause.inSeconds}秒)');
+
+      // 2. 读取当前位置(HLS只能精确到秒级,不要期望毫秒级精度)
       final currentPosition = _player.state.position;
-      print('🔄 切换清晰度: $quality，保存位置: ${currentPosition.inSeconds}秒 (毫秒: ${currentPosition.inMilliseconds})');
+      print('📊 [步骤2] 记录的目标位置: ${currentPosition.inMilliseconds}ms (${currentPosition.inSeconds}秒)');
 
-      // 3. 获取新清晰度的 m3u8 文件路径（不通过 _loadVideo，直接控制）
+      // 3. 获取新清晰度的 m3u8 文件路径
+      print('📊 [步骤3] 开始获取新清晰度的 m3u8 文件...');
       final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
+      print('📊 [步骤3] m3u8 文件路径: $m3u8FilePath');
 
       // 4. 打开新视频，明确指定不自动播放
+      print('📊 [步骤4] 打开新清晰度视频 (play=false)...');
       await _player.open(
         Media(
           m3u8FilePath,
@@ -343,49 +377,68 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         play: false, // 明确不自动播放
       );
 
+      final positionAfterOpen = _player.state.position;
+      print('📊 [步骤4] 打开后位置: ${positionAfterOpen.inMilliseconds}ms (${positionAfterOpen.inSeconds}秒)');
+
       // 5. 等待播放器准备就绪
+      print('📊 [步骤5] 等待播放器准备就绪...');
       await _waitForPlayerReady();
 
-      // 6. 立即 seek 到保存的位置（在播放器准备好后第一时间执行）
+      final positionAfterReady = _player.state.position;
+      print('📊 [步骤5] 准备就绪后位置: ${positionAfterReady.inMilliseconds}ms (${positionAfterReady.inSeconds}秒)');
+
+      // 6. 使用时间记录法直接seek到目标位置
+      // 不使用关键帧偏移补偿，直接seek到记录的位置
+      // HLS会自动对齐到最近的关键帧，但我们记录的是精确时间
+      print('📊 [步骤6] 时间记录法 - 目标位置: ${currentPosition.inMilliseconds}ms (${currentPosition.inSeconds}秒)');
       await _player.seek(currentPosition);
-      print('🎯 Seek到位置: ${currentPosition.inSeconds}秒 (毫秒: ${currentPosition.inMilliseconds})');
 
-      // 7. 等待 seek 完成
-      await Future.delayed(const Duration(milliseconds: 300));
+      final positionAfterSeek = _player.state.position;
+      print('📊 [步骤6] Seek后立即读取位置: ${positionAfterSeek.inMilliseconds}ms (${positionAfterSeek.inSeconds}秒)');
 
-      // 8. 验证位置是否正确
-      final actualPosition = _player.state.position;
-      final positionDiff = (actualPosition - currentPosition).inMilliseconds.abs();
-      print('📍 实际位置: ${actualPosition.inSeconds}秒 (毫秒: ${actualPosition.inMilliseconds})');
-      print('   位置差异: ${positionDiff}毫秒');
+      // 等待更长时间让播放器完成seek
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      // 9. 如果位置有任何差异（超过100毫秒），再次精确 seek
-      if (positionDiff > 100) {
-        print('⚠️ 位置差异${positionDiff}毫秒，重新精确seek');
-        await _player.seek(currentPosition);
-        await Future.delayed(const Duration(milliseconds: 300));
+      final positionAfterDelay = _player.state.position;
+      print('📊 [步骤6] 延迟800ms后位置: ${positionAfterDelay.inMilliseconds}ms (${positionAfterDelay.inSeconds}秒)');
 
-        // 再次验证
-        final finalPosition = _player.state.position;
-        final finalDiff = (finalPosition - currentPosition).inMilliseconds.abs();
-        print('📍 最终位置: ${finalPosition.inSeconds}秒 (毫秒: ${finalPosition.inMilliseconds})');
-        print('   最终差异: ${finalDiff}毫秒');
-      }
+      // 计算偏移量
+      final offsetMs = positionAfterDelay.inMilliseconds - currentPosition.inMilliseconds;
+      final offsetSeconds = offsetMs / 1000.0;
+      print('───────────────────────────────────────────────────────');
+      print('📊 [结果分析]');
+      print('   目标位置: ${currentPosition.inSeconds}秒 (${currentPosition.inMilliseconds}ms)');
+      print('   实际位置: ${positionAfterDelay.inSeconds}秒 (${positionAfterDelay.inMilliseconds}ms)');
+      print('   偏移量: ${offsetSeconds.toStringAsFixed(2)}秒 (${offsetMs}ms)');
+      print('   偏移方向: ${offsetMs > 0 ? "往后" : offsetMs < 0 ? "往前" : "精确"}');
 
-      // 10. 先重置切换标志，确保后续的进度回调能正常工作
+      // 7. 先重置切换标志，确保后续的进度回调能正常工作
+      print('📊 [步骤7] 重置切换标志...');
       setState(() {
         _currentQuality = quality;
         _qualityNotifier.value = quality; // 同步到 notifier
         _isSwitchingQuality = false;
       });
 
-      // 11. 如果之前在播放，继续播放（在标志重置后）
+      // 8. 如果之前在播放，继续播放（在标志重置后）
       if (wasPlaying) {
+        print('📊 [步骤8] 恢复播放...');
         await _player.play();
+
+        // 播放后再次检查位置
+        await Future.delayed(const Duration(milliseconds: 200));
+        final positionAfterPlay = _player.state.position;
+        print('📊 [步骤8] 恢复播放后位置: ${positionAfterPlay.inMilliseconds}ms (${positionAfterPlay.inSeconds}秒)');
+
+        final finalOffsetMs = positionAfterPlay.inMilliseconds - currentPosition.inMilliseconds;
+        final finalOffsetSeconds = finalOffsetMs / 1000.0;
+        print('📊 [步骤8] 最终偏移量: ${finalOffsetSeconds.toStringAsFixed(2)}秒 (${finalOffsetMs}ms)');
       }
 
       widget.onQualityChanged?.call(quality);
-      print('✅ 清晰度已切换: $quality');
+      print('───────────────────────────────────────────────────────');
+      print('✅ [清晰度切换] 完成，新清晰度: $quality');
+      print('═══════════════════════════════════════════════════════');
     } catch (e) {
       _logger.logError(
         message: '切换清晰度失败',

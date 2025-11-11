@@ -40,7 +40,8 @@
       "Bash(nul)",
       "Bash(/dev/null)",
       "Bash(xargs cat:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(timeout 5 nc:*)"
     ],
     "deny": [],
     "ask": []

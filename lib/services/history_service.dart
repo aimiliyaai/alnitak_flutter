@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../models/history_models.dart';
+import 'auth_service.dart';
 
 /// 历史记录服务
 class HistoryService {
@@ -9,6 +10,7 @@ class HistoryService {
   HistoryService._internal();
 
   final Dio _dio = HttpClient().dio;
+  final AuthService _authService = AuthService();
 
   /// 添加历史记录
   /// [vid] 视频ID
@@ -32,6 +34,18 @@ class HistoryService {
       if (response.data['code'] == 200) {
         print('✅ 历史记录已保存: vid=$vid, part=$part, time=${time.toStringAsFixed(1)}s');
         return true;
+      } else if (response.data['code'] == 3000) {
+        // TOKEN无效，尝试刷新token后重试
+        print('🔄 Token失效，尝试刷新token...');
+        final newToken = await _authService.updateToken();
+        if (newToken != null) {
+          print('✅ Token刷新成功，重试保存历史记录...');
+          // 重试一次
+          return await addHistory(vid: vid, part: part, time: time);
+        } else {
+          print('❌ Token刷新失败，请重新登录');
+          return false;
+        }
       } else {
         print('⚠️ 保存历史记录失败: code=${response.data['code']}, msg=${response.data['msg']}');
         return false;
