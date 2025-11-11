@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../models/video_detail.dart';
+import '../../../models/collection.dart';
 import '../../../services/video_service.dart';
+import '../../../services/collection_service.dart';
 
 /// 视频操作按钮（点赞、收藏、分享）
 class VideoActionButtons extends StatefulWidget {
@@ -30,8 +32,10 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   late bool _hasCollected;
   bool _isLiking = false;
   bool _isCollecting = false;
+  DateTime? _lastErrorTime; // 上次显示错误提示的时间
 
   final VideoService _videoService = VideoService();
+  final CollectionService _collectionService = CollectionService();
   late AnimationController _likeAnimationController;
 
   @override
@@ -71,39 +75,48 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
       _isLiking = true;
     });
 
-    // 乐观更新 UI
     final previousLikeState = _hasLiked;
     final previousCount = _stat.like;
 
-    setState(() {
-      _hasLiked = !_hasLiked;
-      _stat = _stat.copyWith(like: _hasLiked ? _stat.like + 1 : _stat.like - 1);
-    });
+    print('👍 点赞操作: ${_hasLiked ? "取消点赞" : "点赞"} (当前状态: $previousLikeState)');
 
-    if (_hasLiked) {
-      _likeAnimationController.forward().then((_) {
-        _likeAnimationController.reverse();
-      });
-    }
-
-    // 调用 API
+    // 根据当前状态调用不同的API
     bool success;
     if (_hasLiked) {
-      success = await _videoService.likeVideo(widget.vid);
-    } else {
+      // 当前是已点赞状态，调用取消点赞API
       success = await _videoService.unlikeVideo(widget.vid);
+    } else {
+      // 当前是未点赞状态，调用点赞API
+      success = await _videoService.likeVideo(widget.vid);
     }
 
-    if (!success) {
-      // 回滚
+    if (success) {
+      // API调用成功，切换状态
+      print('👍 API调用成功，切换状态: $previousLikeState -> ${!previousLikeState}');
       setState(() {
-        _hasLiked = previousLikeState;
-        _stat = _stat.copyWith(like: previousCount);
+        _hasLiked = !_hasLiked;
+        _stat = _stat.copyWith(like: _hasLiked ? previousCount + 1 : previousCount - 1);
       });
 
-      if (mounted) {
+      // 如果是点赞，播放动画
+      if (_hasLiked) {
+        _likeAnimationController.forward().then((_) {
+          _likeAnimationController.reverse();
+        });
+      }
+    } else {
+      // API调用失败
+      print('👍 API调用失败');
+
+      // 防抖：只有距离上次错误提示超过2秒才显示新的错误提示
+      final now = DateTime.now();
+      if (mounted && (_lastErrorTime == null || now.difference(_lastErrorTime!).inSeconds >= 2)) {
+        _lastErrorTime = now;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('操作失败，请重试')),
+          const SnackBar(
+            content: Text('操作失败，请重试'),
+            duration: Duration(seconds: 2),
+          ),
         );
       }
     }
@@ -113,54 +126,74 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
     });
   }
 
-  /// 显示收藏对话框
+  /// 显示收藏对话框（参考PC端实现）
   Future<void> _showCollectDialog() async {
     if (_isCollecting) return;
 
-    // TODO: 实现收藏夹选择对话框
-    // 这里简化为直接切换收藏状态
     setState(() {
       _isCollecting = true;
     });
 
-    final previousCollectState = _hasCollected;
-    final previousCount = _stat.collect;
+    try {
+      // 并发获取收藏夹列表和当前视频的收藏信息
+      final results = await Future.wait([
+        _collectionService.getCollectionList(),
+        _videoService.getCollectInfo(widget.vid),
+      ]);
 
-    setState(() {
-      _hasCollected = !_hasCollected;
-      _stat = _stat.copyWith(collect: _hasCollected ? _stat.collect + 1 : _stat.collect - 1);
-    });
+      final collectionList = results[0] as List<Collection>? ?? [];
+      final currentCollectionIds = results[1] as List<int>;
 
-    // 调用 API（简化版）
-    bool success = await _videoService.collectVideo(
-      widget.vid,
-      _hasCollected ? [1] : [], // 添加到默认收藏夹
-      _hasCollected ? [] : [1], // 从默认收藏夹移除
-    );
+      // 标记已收藏的收藏夹
+      for (var collection in collectionList) {
+        if (currentCollectionIds.contains(collection.id)) {
+          collection.checked = true;
+        }
+      }
 
-    if (!success) {
-      // 回滚
-      setState(() {
-        _hasCollected = previousCollectState;
-        _stat = _stat.copyWith(collect: previousCount);
-      });
+      if (!mounted) return;
 
+      // 显示收藏对话框（参考PC端：即使列表为空也显示，让用户创建收藏夹）
+      final result = await showModalBottomSheet<int>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => _CollectionListDialog(
+          vid: widget.vid,
+          collectionList: collectionList,
+          defaultCheckedIds: currentCollectionIds,
+        ),
+      );
+
+      // 根据返回值更新UI
+      if (result != null) {
+        setState(() {
+          if (result == 1) {
+            // 新增收藏
+            _hasCollected = true;
+            _stat = _stat.copyWith(collect: _stat.collect + 1);
+          } else if (result == -1) {
+            // 取消收藏
+            _hasCollected = false;
+            _stat = _stat.copyWith(collect: _stat.collect - 1);
+          }
+          // result == 0 表示只是切换收藏夹，不改变总收藏状态
+        });
+      }
+    } catch (e) {
+      print('显示收藏对话框失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('操作失败，请重试')),
         );
       }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_hasCollected ? '收藏成功' : '已取消收藏')),
-        );
-      }
+    } finally {
+      setState(() {
+        _isCollecting = false;
+      });
     }
-
-    setState(() {
-      _isCollecting = false;
-    });
   }
 
   /// 显示分享选项
@@ -331,6 +364,308 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 收藏对话框组件（参考PC端实现）
+class _CollectionListDialog extends StatefulWidget {
+  final int vid;
+  final List<Collection> collectionList;
+  final List<int> defaultCheckedIds;
+
+  const _CollectionListDialog({
+    required this.vid,
+    required this.collectionList,
+    required this.defaultCheckedIds,
+  });
+
+  @override
+  State<_CollectionListDialog> createState() => _CollectionListDialogState();
+}
+
+class _CollectionListDialogState extends State<_CollectionListDialog> {
+  final VideoService _videoService = VideoService();
+  final CollectionService _collectionService = CollectionService();
+  final TextEditingController _nameController = TextEditingController();
+
+  late List<Collection> _collections;
+  late List<int> _defaultCheckedIds;
+  bool _isSubmitting = false;
+  bool _showCreateInput = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _collections = List.from(widget.collectionList);
+    _defaultCheckedIds = List.from(widget.defaultCheckedIds);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  /// 创建收藏夹
+  Future<void> _createCollection() async {
+    print('📁 开始创建收藏夹');
+    final name = _nameController.text.trim();
+    print('📁 输入的收藏夹名称: "$name"');
+
+    if (name.isEmpty) {
+      print('📁 收藏夹名称为空');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请输入收藏夹名称')),
+        );
+      }
+      return;
+    }
+
+    if (name.length > 20) {
+      print('📁 收藏夹名称过长: ${name.length}字');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('收藏夹名称不能超过20个字符')),
+        );
+      }
+      return;
+    }
+
+    print('📁 调用API创建收藏夹: $name');
+    final success = await _collectionService.addCollection(name);
+    print('📁 API返回结果: ${success != null ? "成功(ID=$success)" : "失败"}');
+
+    // 如果API返回成功（无论是否有ID），都重新获取收藏夹列表
+    if (success != null) {
+      print('📁 创建成功，重新获取收藏夹列表');
+      final updatedList = await _collectionService.getCollectionList();
+      if (updatedList != null) {
+        setState(() {
+          _collections = updatedList;
+          // 保持之前选中的收藏夹状态
+          for (var collection in _collections) {
+            if (_defaultCheckedIds.contains(collection.id)) {
+              collection.checked = true;
+            }
+          }
+          _nameController.clear();
+          _showCreateInput = false;
+        });
+        print('📁 收藏夹列表已更新，共${_collections.length}个');
+      } else {
+        // 如果重新获取失败，使用返回的ID手动添加
+        setState(() {
+          _collections.add(Collection(
+            id: success,
+            name: name,
+            checked: false,
+          ));
+          _nameController.clear();
+          _showCreateInput = false;
+        });
+        print('📁 使用返回的ID添加到列表');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('创建成功'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    } else {
+      print('📁 创建失败');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('创建失败，请重试')),
+        );
+      }
+    }
+  }
+
+  /// 提交收藏（参考PC端逻辑）
+  Future<void> _submitCollect() async {
+    if (_isSubmitting) return;
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    // 获取用户最终选中的收藏夹ID
+    final checkedIds = _collections.where((c) => c.checked).map((c) => c.id).toList();
+
+    // 计算差异：addList = 新增的，cancelList = 移除的
+    final addList = checkedIds.where((id) => !_defaultCheckedIds.contains(id)).toList();
+    final cancelList = _defaultCheckedIds.where((id) => !checkedIds.contains(id)).toList();
+
+    print('📋 收藏操作: 添加到${addList}，从${cancelList}移除');
+
+    final success = await _videoService.collectVideo(widget.vid, addList, cancelList);
+
+    if (success) {
+      // 计算收藏数变化（参考PC端逻辑）
+      int countChange = 0;
+      if (_defaultCheckedIds.isEmpty && checkedIds.isNotEmpty) {
+        countChange = 1; // 从未收藏变为收藏
+      } else if (_defaultCheckedIds.isNotEmpty && checkedIds.isEmpty) {
+        countChange = -1; // 从收藏变为未收藏
+      }
+      // 否则 countChange = 0，只是切换收藏夹
+
+      if (mounted) {
+        Navigator.pop(context, countChange);
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('操作失败，请重试')),
+        );
+      }
+    }
+
+    setState(() {
+      _isSubmitting = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标题栏
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '收藏到',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () {
+                      setState(() {
+                        _showCreateInput = !_showCreateInput;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+
+            // 创建收藏夹输入框
+            if (_showCreateInput)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _nameController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: '输入收藏夹名称（最多20字）',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          counterText: '', // 隐藏字符计数器
+                        ),
+                        maxLength: 20,
+                        onSubmitted: (_) => _createCollection(), // 支持回车提交
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _createCollection,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                      child: const Text('创建'),
+                    ),
+                  ],
+                ),
+              ),
+
+            // 收藏夹列表（参考PC端：只有在列表不为空时才显示）
+            if (_collections.isNotEmpty)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _collections.length,
+                  itemBuilder: (context, index) {
+                    final collection = _collections[index];
+                    return CheckboxListTile(
+                      title: Text(collection.name),
+                      subtitle: collection.desc != null ? Text(collection.desc!) : null,
+                      value: collection.checked,
+                      onChanged: (value) {
+                        setState(() {
+                          collection.checked = value ?? false;
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+
+            // 空状态提示（PC端不显示列表时的占位）
+            if (_collections.isEmpty && !_showCreateInput)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Text(
+                    '点击上方 + 按钮创建收藏夹',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+
+            // 底部按钮
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _isSubmitting ? null : _submitCollect,
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('确定'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -41,7 +41,8 @@
       "Bash(/dev/null)",
       "Bash(xargs cat:*)",
       "Bash(find:*)",
-      "Bash(timeout 5 nc:*)"
+      "Bash(timeout 5 nc:*)",
+      "Bash(timeout 60 powershell:*)"
     ],
     "deny": [],
     "ask": []

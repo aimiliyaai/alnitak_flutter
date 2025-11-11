@@ -39,7 +39,7 @@ class _AuthorCardState extends State<AuthorCard> {
     return fans.toString();
   }
 
-  /// 处理关注操作
+  /// 处理关注操作（参考PC端实现）
   Future<void> _handleFollow() async {
     if (_isLoading) return;
 
@@ -47,43 +47,58 @@ class _AuthorCardState extends State<AuthorCard> {
       _isLoading = true;
     });
 
-    bool success;
-    if (_relationStatus == 0) {
-      // 未关注 -> 关注
-      success = await _videoService.followUser(widget.author.uid);
+    try {
+      bool success;
+      final previousStatus = _relationStatus;
+
+      if (_relationStatus == 0) {
+        // 未关注 -> 关注
+        print('👤 关注用户: ${widget.author.uid}');
+        success = await _videoService.followUser(widget.author.uid);
+      } else {
+        // 已关注/互粉 -> 取消关注
+        print('👤 取消关注用户: ${widget.author.uid}');
+        success = await _videoService.unfollowUser(widget.author.uid);
+      }
+
       if (success) {
+        // 参考PC端：关注成功后重新获取关系状态以更新按钮显示
+        // 这样可以正确处理互粉状态（relationStatus = 2）
+        final response = await _videoService.getUserActionStatus(
+          0, // vid 参数对关注接口不重要
+          widget.author.uid,
+        );
+
         setState(() {
-          _relationStatus = 1;
+          _relationStatus = response?.relationStatus ?? (previousStatus == 0 ? 1 : 0);
         });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('关注成功')),
+            SnackBar(
+              content: Text(previousStatus == 0 ? '关注成功' : '已取消关注'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('操作失败，请重试')),
           );
         }
       }
-    } else {
-      // 已关注/互粉 -> 取消关注
-      success = await _videoService.unfollowUser(widget.author.uid);
-      if (success) {
-        setState(() {
-          _relationStatus = 0;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已取消关注')),
-          );
-        }
+    } catch (e) {
+      print('关注操作失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('操作失败，请重试')),
+        );
       }
-    }
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('操作失败，请重试')),
-      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 

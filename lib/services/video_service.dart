@@ -40,22 +40,49 @@ class VideoService {
   }
 
   /// 获取用户操作状态（点赞、收藏、关注）
-  /// 注意：参考项目中没有这些批量查询的API，需要登录后才能使用
-  /// 暂时返回默认值
   Future<UserActionStatus?> getUserActionStatus(int vid, int authorUid) async {
-    // 参考项目中这些API需要登录才能访问
-    // 暂时返回默认值
-    return UserActionStatus(
-      hasLiked: false,
-      hasCollected: false,
-      relationStatus: 0,
-    );
+    try {
+      // 并发请求点赞和收藏状态
+      final results = await Future.wait([
+        _dio.get('/api/v1/archive/video/hasLike', queryParameters: {'vid': vid}),
+        _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid}),
+        _dio.get('/api/v1/relation/getUserRelation', queryParameters: {'userId': authorUid}),
+      ]);
+
+      print('🔍 hasLike响应: ${results[0].data}');
+      print('🔍 hasCollect响应: ${results[1].data}');
+      print('🔍 getUserRelation响应: ${results[2].data}');
+
+      final hasLiked = results[0].data['code'] == 200 ? (results[0].data['data']['like'] ?? false) : false;
+      final hasCollected = results[1].data['code'] == 200 ? (results[1].data['data']['collect'] ?? false) : false;
+      final relationStatus = results[2].data['code'] == 200 ? (results[2].data['data']['relation'] ?? 0) : 0;
+
+      print('🔍 解析后状态: hasLiked=$hasLiked, hasCollected=$hasCollected, relationStatus=$relationStatus');
+
+      return UserActionStatus(
+        hasLiked: hasLiked,
+        hasCollected: hasCollected,
+        relationStatus: relationStatus,
+      );
+    } catch (e) {
+      print('获取用户操作状态失败: $e');
+      // 出错时返回默认值
+      return UserActionStatus(
+        hasLiked: false,
+        hasCollected: false,
+        relationStatus: 0,
+      );
+    }
   }
 
   /// 点赞视频
   Future<bool> likeVideo(int vid) async {
     try {
-      final response = await _dio.post('/api/v1/like/video/$vid');
+      final response = await _dio.post(
+        '/api/v1/archive/video/like',
+        data: {'vid': vid},
+      );
+      print('🔍 点赞响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
       print('点赞失败: $e');
@@ -66,7 +93,11 @@ class VideoService {
   /// 取消点赞
   Future<bool> unlikeVideo(int vid) async {
     try {
-      final response = await _dio.delete('/api/v1/like/video/$vid');
+      final response = await _dio.post(
+        '/api/v1/archive/video/cancelLike',
+        data: {'vid': vid},  // 参考PC端实现，使用 vid 参数
+      );
+      print('🔍 取消点赞响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
       print('取消点赞失败: $e');
@@ -74,14 +105,43 @@ class VideoService {
     }
   }
 
-  /// 收藏视频
+  /// 获取视频是否已收藏
+  Future<bool> getCollectStatus(int vid) async {
+    try {
+      final response = await _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid});
+      if (response.data['code'] == 200) {
+        return response.data['data']['collect'] ?? false;
+      }
+      return false;
+    } catch (e) {
+      print('获取收藏状态失败: $e');
+      return false;
+    }
+  }
+
+  /// 获取视频的收藏信息（收藏到了哪些收藏夹）
+  Future<List<int>> getCollectInfo(int vid) async {
+    try {
+      final response = await _dio.get('/api/v1/archive/video/getCollectInfo', queryParameters: {'vid': vid});
+      if (response.data['code'] == 200) {
+        return List<int>.from(response.data['data']['collectionIds'] ?? []);
+      }
+      return [];
+    } catch (e) {
+      print('获取收藏信息失败: $e');
+      return [];
+    }
+  }
+
+  /// 收藏视频（参考PC端实现）
   Future<bool> collectVideo(int vid, List<int> addList, List<int> cancelList) async {
     try {
-      final response = await _dio.post('/api/v1/collect/video', data: {
+      final response = await _dio.post('/api/v1/archive/video/collect', data: {
         'vid': vid,
-        'add_list': addList,
-        'cancel_list': cancelList,
+        'addList': addList,
+        'cancelList': cancelList,
       });
+      print('🔍 收藏响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
       print('收藏失败: $e');
@@ -89,10 +149,11 @@ class VideoService {
     }
   }
 
-  /// 关注用户
+  /// 关注用户（参考PC端实现）
   Future<bool> followUser(int uid) async {
     try {
-      final response = await _dio.post('/api/v1/relation/follow/$uid');
+      final response = await _dio.post('/api/v1/relation/follow', data: {'id': uid});
+      print('🔍 关注响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
       print('关注失败: $e');
@@ -100,10 +161,11 @@ class VideoService {
     }
   }
 
-  /// 取消关注
+  /// 取消关注（参考PC端实现）
   Future<bool> unfollowUser(int uid) async {
     try {
-      final response = await _dio.delete('/api/v1/relation/follow/$uid');
+      final response = await _dio.post('/api/v1/relation/unfollow', data: {'id': uid});
+      print('🔍 取消关注响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
       print('取消关注失败: $e');
