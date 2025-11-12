@@ -346,4 +346,38 @@ class VideoService {
       return null;
     }
   }
+
+  /// 获取用户上传的视频列表 (参考PC端实现)
+  /// [page] 页码，从1开始
+  /// [pageSize] 每页数量
+  Future<Map<String, dynamic>?> getUploadVideos(int page, int pageSize) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/video/getUploadVideo',
+        queryParameters: {
+          'page': page,
+          'pageSize': pageSize,
+        },
+      );
+      if (response.data['code'] == 200) {
+        return response.data['data'];
+      }
+      return null;
+    } catch (e) {
+      print('获取上传视频列表失败: $e');
+      return null;
+    }
+  }
+
+  /// 删除视频 (参考PC端实现)
+  /// [vid] 视频ID
+  Future<bool> deleteVideo(int vid) async {
+    try {
+      final response = await _dio.delete('/api/v1/video/deleteVideo/$vid');
+      return response.data['code'] == 200;
+    } catch (e) {
+      print('删除视频失败: $e');
+      return false;
+    }
+  }
 }

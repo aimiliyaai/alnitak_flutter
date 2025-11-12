@@ -6,6 +6,7 @@ import '../models/user_model.dart';
 import '../utils/image_utils.dart';
 import 'login_page.dart';
 import 'edit_profile_page.dart';
+import 'creator/creator_center_page.dart';
 
 /// 个人中心页面 - 简洁列表式设计
 class ProfilePage extends StatefulWidget {
@@ -426,7 +427,10 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.video_library_outlined,
             title: '创作中心',
             onTap: () {
-              // TODO: 打开创作中心
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CreatorCenterPage()),
+              );
             },
           ),
         ),

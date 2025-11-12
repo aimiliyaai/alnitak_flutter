@@ -42,7 +42,8 @@
       "Bash(xargs cat:*)",
       "Bash(find:*)",
       "Bash(timeout 5 nc:*)",
-      "Bash(timeout 60 powershell:*)"
+      "Bash(timeout 60 powershell:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []
