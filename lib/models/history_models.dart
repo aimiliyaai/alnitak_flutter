@@ -1,4 +1,4 @@
-/// 历史记录相关模型
+// 历史记录相关模型
 
 /// 添加历史记录请求
 class AddHistoryRequest {

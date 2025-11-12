@@ -44,7 +44,7 @@ class _CommentListContentState extends State<CommentListContent> {
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
 
-  List<Comment> _comments = [];
+  final List<Comment> _comments = [];
   bool _isLoading = false;
   bool _hasMore = true;
   int _currentPage = 1;

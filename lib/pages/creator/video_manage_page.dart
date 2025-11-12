@@ -15,7 +15,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
   final VideoService _videoService = VideoService();
   final ScrollController _scrollController = ScrollController();
 
-  List<Map<String, dynamic>> _videos = [];
+  final List<Map<String, dynamic>> _videos = [];
   int _currentPage = 1;
   bool _isLoading = false;
   bool _hasMore = true;
@@ -69,7 +69,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
         });
       }
     } catch (e) {
-      print('加载视频列表失败: $e');
+      // print('加载视频列表失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('加载失败，请重试')),
@@ -109,19 +109,25 @@ class _VideoManagePageState extends State<VideoManagePage> {
             _videos.removeAt(index);
           });
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('删除成功')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('删除成功')),
+            );
+          }
         } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('删除失败，请重试')),
+            );
+          }
+        }
+      } catch (e) {
+        // print('删除视频失败: $e');
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('删除失败，请重试')),
           );
         }
-      } catch (e) {
-        print('删除视频失败: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('删除失败，请重试')),
-        );
       }
     }
   }
