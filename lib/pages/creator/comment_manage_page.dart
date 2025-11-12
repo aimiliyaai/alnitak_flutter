@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../services/video_service.dart';
-import '../../widgets/cached_image_widget.dart';
 
 /// 评论管理页面
 class CommentManagePage extends StatefulWidget {
@@ -12,15 +10,12 @@ class CommentManagePage extends StatefulWidget {
 
 class _CommentManagePageState extends State<CommentManagePage>
     with SingleTickerProviderStateMixin {
-  final VideoService _videoService = VideoService();
   final ScrollController _scrollController = ScrollController();
   late TabController _tabController;
 
   List<Map<String, dynamic>> _comments = [];
-  int _currentPage = 1;
   bool _isLoading = false;
   bool _hasMore = true;
-  final int _pageSize = 8;
   int _selectedVideoId = 0; // 0表示全部
 
   @override
@@ -44,7 +39,6 @@ class _CommentManagePageState extends State<CommentManagePage>
     if (!_tabController.indexIsChanging) {
       setState(() {
         _comments = [];
-        _currentPage = 1;
         _hasMore = true;
         _selectedVideoId = 0;
       });
@@ -101,8 +95,6 @@ class _CommentManagePageState extends State<CommentManagePage>
   /// 加载更多评论
   Future<void> _loadMoreComments() async {
     if (_isLoading || !_hasMore) return;
-
-    _currentPage++;
     await _loadComments();
   }
 
@@ -178,7 +170,6 @@ class _CommentManagePageState extends State<CommentManagePage>
                 setState(() {
                   _selectedVideoId = value ?? 0;
                   _comments = [];
-                  _currentPage = 1;
                   _hasMore = true;
                 });
                 _loadComments();

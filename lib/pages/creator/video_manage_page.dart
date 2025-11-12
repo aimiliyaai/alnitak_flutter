@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/video_service.dart';
+import '../../widgets/cached_image_widget.dart';
+import '../../utils/image_utils.dart';
 
 /// 稿件管理页面 - 参考PC端实现
 class VideoManagePage extends StatefulWidget {
@@ -17,7 +19,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
   int _currentPage = 1;
   bool _isLoading = false;
   bool _hasMore = true;
-  int _total = 0;
   final int _pageSize = 8; // 参考PC端
 
   @override
@@ -53,7 +54,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
     try {
       final response = await _videoService.getUploadVideos(_currentPage, _pageSize);
       if (response != null) {
-        _total = response['total'] ?? 0;
         if (response['videos'] != null) {
           setState(() {
             _videos.addAll(List<Map<String, dynamic>>.from(response['videos']));
@@ -107,7 +107,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
         if (success) {
           setState(() {
             _videos.removeAt(index);
-            _total--;
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -212,123 +211,144 @@ class _VideoManagePageState extends State<VideoManagePage> {
       onTap: () {
         // TODO: 跳转到视频播放页
       },
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 封面
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              width: 120,
-              height: 80,
-              color: Colors.grey[200],
-              child: video['cover'] != null
-                  ? Image.network(
-                      video['cover'],
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Icon(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 封面
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Container(
+                width: 120,
+                height: 80,
+                color: Colors.grey[200],
+                child: video['cover'] != null && video['cover'].toString().isNotEmpty
+                    ? CachedImage(
+                        imageUrl: ImageUtils.getFullImageUrl(video['cover']),
+                        width: 120,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      )
+                    : Icon(
                         Icons.video_library_outlined,
                         size: 40,
                         color: Colors.grey[400],
                       ),
-                    )
-                  : Icon(
-                      Icons.video_library_outlined,
-                      size: 40,
-                      color: Colors.grey[400],
-                    ),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
+            const SizedBox(width: 12),
 
-          // 信息
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 标题
-                Text(
-                  video['title'] ?? '未命名',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 8),
-
-                // 简介
-                if (video['desc'] != null) ...[
-                  Text(
-                    '简介：${video['desc']}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-
-                // 创建时间和状态
-                Row(
+            // 信息
+            Expanded(
+              child: SizedBox(
+                height: 80,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+                    // 标题
                     Text(
-                      '创建于：${video['createdAt'] ?? ''}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
+                      video['title'] ?? '未命名',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                    // 简介
+                    if (video['desc'] != null && video['desc'].toString().isNotEmpty)
+                      Text(
+                        video['desc'],
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+
+                    // 创建时间和状态
+                    Flexible(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              '创建于：${_formatTime(video['createdAt'])}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (_getStatusText(video['status']) != null) ...[
+                            const SizedBox(width: 8),
+                            _buildStatusChip(video['status']),
+                          ],
+                        ],
                       ),
                     ),
-                    if (_getStatusText(video['status']) != null) ...[
-                      const SizedBox(width: 12),
-                      _buildStatusChip(video['status']),
-                    ],
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
 
-          // 操作菜单
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, size: 20),
-            onSelected: (value) {
-              if (value == 'edit') {
-                _editVideo(video);
-              } else if (value == 'delete') {
-                _deleteVideo(video, index);
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit, size: 18),
-                    SizedBox(width: 8),
-                    Text('编辑'),
-                  ],
-                ),
+            // 操作菜单
+            SizedBox(
+              height: 80,
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 20),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    _editVideo(video);
+                  } else if (value == 'delete') {
+                    _deleteVideo(video, index);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit, size: 18),
+                        SizedBox(width: 8),
+                        Text('编辑'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('删除稿件', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete, size: 18, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('删除稿件', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 格式化时间
+  String _formatTime(dynamic time) {
+    if (time == null) return '';
+    try {
+      final dateTime = DateTime.parse(time.toString());
+      return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return time.toString();
+    }
   }
 
   /// 获取状态文本 (参考PC端)
