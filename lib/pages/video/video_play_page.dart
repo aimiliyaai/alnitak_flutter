@@ -27,7 +27,7 @@ class VideoPlayPage extends StatefulWidget {
   State<VideoPlayPage> createState() => _VideoPlayPageState();
 }
 
-class _VideoPlayPageState extends State<VideoPlayPage> {
+class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserver {
   final VideoService _videoService = VideoService();
   final HlsService _hlsService = HlsService();
   final HistoryService _historyService = HistoryService();
@@ -59,10 +59,24 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
     // 为播放器创建稳定的 GlobalKey，使用 vid 和 part 作为标识
     _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$_currentPart');
     _loadVideoData();
+    // 添加生命周期监听
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 当应用从后台返回前台时，刷新作者信息
+    if (state == AppLifecycleState.resumed) {
+      _refreshAuthorInfo();
+    }
   }
 
   @override
   void dispose() {
+    // 移除生命周期监听
+    WidgetsBinding.instance.removeObserver(this);
+
     // 页面关闭前上报最后播放进度（参考PC端逻辑）
     if (_lastReportedPosition != null) {
       // 如果已经完播，退出时应该上报-1而不是总时长
@@ -148,6 +162,24 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
         _errorMessage = '加载失败: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  /// 刷新作者信息（用于从个人中心返回后更新）
+  Future<void> _refreshAuthorInfo() async {
+    if (_videoDetail == null) return;
+
+    try {
+      // 重新获取视频详情以刷新作者信息
+      final videoDetail = await _videoService.getVideoDetail(widget.vid);
+      if (videoDetail != null && mounted) {
+        setState(() {
+          _videoDetail = videoDetail;
+        });
+        print('✅ 作者信息已刷新');
+      }
+    } catch (e) {
+      print('刷新作者信息失败: $e');
     }
   }
 

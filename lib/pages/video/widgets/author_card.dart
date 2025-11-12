@@ -31,6 +31,15 @@ class _AuthorCardState extends State<AuthorCard> {
     _relationStatus = widget.initialRelationStatus;
   }
 
+  @override
+  void didUpdateWidget(AuthorCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当作者信息或关注状态变化时，更新本地状态
+    if (oldWidget.initialRelationStatus != widget.initialRelationStatus) {
+      _relationStatus = widget.initialRelationStatus;
+    }
+  }
+
   /// 格式化粉丝数
   String _formatFansCount(int fans) {
     if (fans >= 10000) {
