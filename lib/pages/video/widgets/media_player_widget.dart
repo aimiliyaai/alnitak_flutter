@@ -742,7 +742,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     showMenu(
       context: context,
       position: position,
-      color: Colors.black.withOpacity(0.5), // 更透明（从0.7降到0.5）
+      color: Colors.black.withValues(alpha: 0.5), // 更透明（从0.7降到0.5）
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       items: _availableQualities.map((quality) {
         final isSelected = quality == _currentQuality;

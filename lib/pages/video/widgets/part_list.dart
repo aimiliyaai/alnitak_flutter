@@ -99,7 +99,7 @@ class _PartListState extends State<PartList> {
 
         return ListTile(
           selected: isCurrentPart,
-          selectedTileColor: Theme.of(context).primaryColor.withOpacity(0.1),
+          selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
           leading: Container(
             width: 40,
             height: 40,

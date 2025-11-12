@@ -274,7 +274,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: BoxDecoration(
           color: isActive
-              ? (activeColor ?? Theme.of(context).primaryColor).withOpacity(0.1)
+              ? (activeColor ?? Theme.of(context).primaryColor).withValues(alpha: 0.1)
               : Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
         ),
@@ -502,7 +502,7 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
     final addList = checkedIds.where((id) => !_defaultCheckedIds.contains(id)).toList();
     final cancelList = _defaultCheckedIds.where((id) => !checkedIds.contains(id)).toList();
 
-    print('📋 收藏操作: 添加到${addList}，从${cancelList}移除');
+    print('📋 收藏操作: 添加到$addList，从$cancelList移除');
 
     final success = await _videoService.collectVideo(widget.vid, addList, cancelList);
 

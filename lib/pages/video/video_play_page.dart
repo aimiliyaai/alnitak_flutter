@@ -226,7 +226,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> {
 
     // 首次上报 或 距离上次上报已经过了5秒
     if (_lastSavedSeconds == null || (currentSeconds - _lastSavedSeconds!) >= 5) {
-      print('📊 上报播放进度: ${currentSeconds}秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})');
+      print('📊 上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})');
       _historyService.addHistory(
         vid: widget.vid,
         part: _currentPart,
