@@ -53,6 +53,39 @@ class HlsService {
     }
   }
 
+  /// [推荐] 获取 m3u8 内容字符串
+  ///
+  /// 这种方式避免了本地I/O，更高效且能避免因文件读写延迟导致的问题
+  /// [resourceId] 资源ID
+  /// [quality] 清晰度
+  /// 返回 m3u8 内容字符串
+  Future<String> getHlsStreamContent(int resourceId, String quality) async {
+    try {
+      // 1. 获取 m3u8 内容字符串
+      final response = await _dio.get(
+        '/api/v1/video/getVideoFile',
+        queryParameters: {
+          'resourceId': resourceId,
+          'quality': quality,
+        },
+        options: Options(
+          responseType: ResponseType.plain, // 获取纯文本
+        ),
+      );
+
+      String m3u8Content = response.data as String;
+
+      // 2. 转换相对路径为绝对URL
+      m3u8Content = _convertToAbsoluteUrls(m3u8Content);
+
+      print('✅ M3U8 内容已获取');
+      return m3u8Content;
+    } catch (e) {
+      print('❌ 获取 M3U8 内容错误: $e');
+      rethrow;
+    }
+  }
+
   /// 获取 m3u8 内容并转换为本地临时文件
   ///
   /// [resourceId] 资源ID

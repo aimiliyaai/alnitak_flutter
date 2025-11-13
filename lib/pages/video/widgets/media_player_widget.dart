@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
@@ -195,29 +197,14 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       // 重置完播标志（加载新视频时）
       _hasTriggeredCompletion = false;
 
-      // 1. 获取本地 m3u8 文件路径
-      final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
+      // 1. 获取 HLS 内容
+      final m3u8Content = await _hlsService.getHlsStreamContent(widget.resourceId, quality);
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      // 2. 使用 media_kit 播放视频，配置网络选项
+      // 2. 使用 media_kit 从内存播放视频
       await _player.open(
-        Media(
-          m3u8FilePath,
-          // 配置 HTTP 请求头和网络选项
-          httpHeaders: {
-            'User-Agent': 'AlnitakFlutterPlayer/1.0',
-            'Connection': 'keep-alive',
-          },
-          // 传递给底层播放器的额外选项
-          extras: {
-            // ExoPlayer (Android) 的网络重试配置
-            // 注意：这些是推荐的配置，实际效果取决于 media_kit 的实现
-            'network-timeout': '60', // 网络超时60秒（增加到60秒）
-            'http-reconnect': 'yes', // 启用HTTP重连
-            'cache': 'yes', // 启用缓存
-            'cache-secs': '300', // 缓存5分钟
-            'demuxer-max-bytes': '128MiB', // 解复用器最大缓冲128MB
-            'demuxer-max-back-bytes': '64MiB', // 向后缓冲64MB
-          },
+        await Media.memory(
+          m3u8Bytes,
         ),
         play: false, // 不自动播放，手动控制播放时机
       );
@@ -364,24 +351,13 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       print('📍 位置冻结: pos1=${pos1.inSeconds}s, pos2=${pos2.inSeconds}s, 使用=${targetPosition.inSeconds}s');
 
       // 3. 获取新清晰度
-      final m3u8FilePath = await _hlsService.getLocalM3u8File(widget.resourceId, quality);
+      final m3u8Content = await _hlsService.getHlsStreamContent(widget.resourceId, quality);
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
       // 4. 快速切换源
       await _player.open(
-        Media(
-          m3u8FilePath,
-          httpHeaders: {
-            'User-Agent': 'AlnitakFlutterPlayer/1.0',
-            'Connection': 'keep-alive',
-          },
-          extras: {
-            'network-timeout': '60',
-            'http-reconnect': 'yes',
-            'cache': 'yes',
-            'cache-secs': '300',
-            'demuxer-max-bytes': '128MiB',
-            'demuxer-max-back-bytes': '64MiB',
-          },
+        await Media.memory(
+          m3u8Bytes,
         ),
         play: false,
       );
