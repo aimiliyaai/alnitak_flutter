@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/hls_service.dart';
 import '../../../services/logger_service.dart';
 
@@ -60,17 +60,23 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   // 使用 ValueNotifier 来管理清晰度状态，确保UI能够响应变化
   final ValueNotifier<String?> _qualityNotifier = ValueNotifier<String?>(null);
 
+  // SharedPreferences 键名（全局清晰度偏好 - 保存显示名称如 1080p60）
+  static const String _preferredQualityKey = 'preferred_video_quality_display_name';
+
   @override
   void initState() {
     super.initState();
     print('📹 [initState] MediaPlayerWidget 初始化 - resourceId: ${widget.resourceId}, hashCode: $hashCode');
-    // 创建播放器实例，配置网络重试参数
+    // 创建播放器实例，配置缓冲策略
+    // media_kit 基于 AndroidX Media3 (Android) 和底层播放器
+    // 通过增大 bufferSize 来提升缓冲能力，确保更流畅的播放体验
     _player = Player(
       configuration: const PlayerConfiguration(
         // 标题（用于通知）
         title: '',
-        // 启用更激进的缓冲策略
-        bufferSize: 64 * 1024 * 1024, // 64MB 缓冲区
+        // 启用更大的缓冲区以优化 HLS 播放
+        // 128MB 缓冲区可以缓存更多 TS 分片，减少卡顿
+        bufferSize: 128 * 1024 * 1024, // 128MB 缓冲区
         // 日志级别
         logLevel: MPVLogLevel.warn,
       ),
@@ -135,6 +141,15 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       }
     });
 
+    // 监听缓冲状态（用于调试和优化）
+    _player.stream.buffering.listen((buffering) {
+      if (buffering) {
+        print('⏸️ 播放缓冲中...');
+      } else {
+        print('▶️ 缓冲完成，继续播放');
+      }
+    });
+
     // 监听错误
     _player.stream.error.listen((error) {
       _logger.logError(
@@ -164,9 +179,11 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       // 1.5. 对清晰度列表进行排序(从高到低)
       _availableQualities = _sortQualitiesDescending(_availableQualities);
 
-      // 2. 选择默认清晰度（720P优先）
-      _currentQuality = HlsService.getDefaultQuality(_availableQualities);
+      // 2. 选择默认清晰度（优先使用记忆的清晰度，其次720P）
+      _currentQuality = await _getPreferredQuality(_availableQualities);
       _qualityNotifier.value = _currentQuality; // 同步到 notifier
+
+      print('📹 使用清晰度: $_currentQuality (${getQualityDisplayName(_currentQuality!)})');
 
       // 3. 加载视频
       await _loadVideo(_currentQuality!, isInitialLoad: true);
@@ -191,6 +208,55 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     }
   }
 
+  /// 获取用户偏好的清晰度
+  /// 根据保存的显示名称（如 1080p60）智能匹配可用清晰度
+  Future<String> _getPreferredQuality(List<String> availableQualities) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final preferredDisplayName = prefs.getString(_preferredQualityKey);
+
+      print('📝 清晰度偏好检查:');
+      print('   - 保存的偏好: $preferredDisplayName');
+      print('   - 可用清晰度: ${availableQualities.map((q) => getQualityDisplayName(q)).toList()}');
+
+      // 如果有保存的偏好，尝试匹配
+      if (preferredDisplayName != null && preferredDisplayName.isNotEmpty) {
+        // 查找匹配的清晰度
+        for (final quality in availableQualities) {
+          if (getQualityDisplayName(quality) == preferredDisplayName) {
+            print('   ✅ 找到匹配的清晰度: $quality ($preferredDisplayName)');
+            return quality;
+          }
+        }
+        print('   ⚠️ 未找到匹配 $preferredDisplayName 的清晰度，使用默认值');
+      } else {
+        print('   ℹ️ 未找到保存的清晰度偏好（首次使用）');
+      }
+
+      // 否则使用默认清晰度（720P优先）
+      final defaultQuality = HlsService.getDefaultQuality(availableQualities);
+      print('   📌 使用默认清晰度: $defaultQuality (${getQualityDisplayName(defaultQuality)})');
+      return defaultQuality;
+    } catch (e) {
+      print('⚠️ 读取清晰度偏好失败: $e');
+      return HlsService.getDefaultQuality(availableQualities);
+    }
+  }
+
+  /// 保存用户偏好的清晰度（全局设置）
+  /// 保存显示名称（如 1080p60）而非具体编码参数
+  Future<void> _savePreferredQuality(String quality) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final displayName = getQualityDisplayName(quality);
+      await prefs.setString(_preferredQualityKey, displayName);
+      print('💾 已保存全局清晰度偏好: $displayName');
+      print('   下次播放任何视频时将优先使用 $displayName 清晰度');
+    } catch (e) {
+      print('⚠️ 保存清晰度偏好失败: $e');
+    }
+  }
+
   /// 加载视频
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false}) async {
     try {
@@ -199,6 +265,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       // 1. 获取 HLS 内容
       final m3u8Content = await _hlsService.getHlsStreamContent(widget.resourceId, quality);
+      // 将 m3u8 内容编码为字节数组（Uint8List 来自 flutter/services.dart）
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
       // 2. 使用 media_kit 从内存播放视频
@@ -246,18 +313,40 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     }
   }
 
-  /// 等待播放器准备就绪
+  /// 等待播放器准备就绪 - 确保充分缓冲
   Future<void> _waitForPlayerReady() async {
-    // 等待播放器状态变为非 buffering
+    print('⏳ 等待播放器准备就绪...');
+
+    // 1. 等待播放器完成初始缓冲
+    int bufferingCount = 0;
     await for (final buffering in _player.stream.buffering) {
-      if (!buffering) {
+      if (buffering) {
+        bufferingCount++;
+        print('📦 正在缓冲... ($bufferingCount)');
+      } else {
+        print('✅ 缓冲完成');
         break;
       }
       await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    // 额外延迟确保媒体属性加载完成
-    await Future.delayed(const Duration(milliseconds: 200));
+    // 2. 等待视频时长信息加载完成
+    int waitCount = 0;
+    const maxWaitCount = 50; // 最多等待5秒
+    while (_player.state.duration.inSeconds <= 0 && waitCount < maxWaitCount) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      waitCount++;
+    }
+
+    if (_player.state.duration.inSeconds > 0) {
+      print('📺 视频时长: ${_player.state.duration.inSeconds}秒');
+    } else {
+      print('⚠️ 无法获取视频时长，继续播放');
+    }
+
+    // 3. 额外延迟确保媒体属性和初始TS分片完全加载
+    await Future.delayed(const Duration(milliseconds: 500));
+    print('🎬 播放器准备完成');
   }
 
   /// 获取清晰度的友好显示名称
@@ -378,7 +467,10 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         _isSwitchingQuality = false;
       });
 
-      // 9. 恢复播放
+      // 9. 保存清晰度偏好
+      await _savePreferredQuality(quality);
+
+      // 10. 恢复播放
       if (wasPlaying) {
         await _player.play();
       }
@@ -673,14 +765,22 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   }
 
   /// 对清晰度列表进行排序（从高到低）
-  /// 解析格式: "1920x1080_6000k_30" -> 按分辨率(宽×高)降序排序
+  /// 解析格式: "1920x1080_6000k_30" -> 按分辨率(宽×高)降序排序，相同分辨率时按帧率降序排序
   List<String> _sortQualitiesDescending(List<String> qualities) {
     final sorted = List<String>.from(qualities);
     sorted.sort((a, b) {
       final resA = _parseResolution(a);
       final resB = _parseResolution(b);
-      // 降序排序（高清晰度在前）
-      return resB.compareTo(resA);
+
+      // 先按分辨率降序排序（高清晰度在前）
+      if (resA != resB) {
+        return resB.compareTo(resA);
+      }
+
+      // 分辨率相同时，按帧率降序排序（高帧率在前，如 1080p60 在 1080p 前）
+      final fpsA = _parseFrameRate(a);
+      final fpsB = _parseFrameRate(b);
+      return fpsB.compareTo(fpsA);
     });
     return sorted;
   }
@@ -699,6 +799,20 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       return width * height;
     } catch (e) {
       return 0;
+    }
+  }
+
+  /// 从清晰度字符串中解析帧率
+  /// 格式: "1920x1080_6000k_30" -> 返回 30
+  int _parseFrameRate(String quality) {
+    try {
+      final parts = quality.split('_');
+      if (parts.length >= 3) {
+        return int.tryParse(parts[2]) ?? 30;
+      }
+      return 30; // 默认帧率
+    } catch (e) {
+      return 30;
     }
   }
 
