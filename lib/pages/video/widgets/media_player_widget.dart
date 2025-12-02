@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +57,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _isPlayerInitialized = false;
   bool _isSwitchingQuality = false;
   bool _hasTriggeredCompletion = false; // 标记是否已触发完播回调
+  bool _isRecovering = false; // 分片恢复标志
 
   // 使用 ValueNotifier 来管理清晰度状态，确保UI能够响应变化
   final ValueNotifier<String?> _qualityNotifier = ValueNotifier<String?>(null);
@@ -106,6 +108,84 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     }
   }
 
+  /// 配置 HLS 分片重试
+  Future<void> _configureHlsRetry() async {
+    if (kIsWeb) return;
+
+    try {
+      final nativePlayer = _player.platform as NativePlayer?;
+      if (nativePlayer == null) return;
+
+      // 1. 配置 FFmpeg 重试参数
+      await nativePlayer.setProperty(
+        'stream-opts',
+        'reconnect=1:reconnect_at_eof=1:reconnect_streamed=1:reconnect_delay_max=300',
+      );
+
+      // 2. 增加解复用器预读缓冲（减少花屏）
+      await nativePlayer.setProperty('demuxer-readahead-secs', '30');
+
+      // 3. 增加网络超时时间（等待完整分片）
+      await nativePlayer.setProperty('network-timeout', '60');
+
+      // 4. 启用更激进的缓存（减少卡顿和花屏）
+      await nativePlayer.setProperty('cache', 'yes');
+      await nativePlayer.setProperty('cache-secs', '60');
+
+      // 5. 优化硬件解码（减少花屏）
+      await nativePlayer.setProperty('hwdec', 'auto-safe');
+      await nativePlayer.setProperty('hwdec-codecs', 'h264,hevc,vp8,vp9,av1');
+
+      // 6. 视频输出优化（减少撕裂和花屏）
+      await nativePlayer.setProperty('video-sync', 'display-resample');
+      await nativePlayer.setProperty('interpolation', 'yes');
+
+      // 7. 禁用去隔行扫描（避免处理错误导致花屏）
+      await nativePlayer.setProperty('deinterlace', 'no');
+
+      // 8. 解码器错误恢复（尝试修复损坏帧）
+      await nativePlayer.setProperty('vd-lavc-ec', 'guess_mvs+deblock');
+
+      print('✅ 已配置分片重试和缓冲优化');
+    } catch (e) {
+      print('⚠️ 配置失败: $e');
+    }
+  }
+
+  /// 从分片错误恢复
+  Future<void> _recoverFromSegmentError() async {
+    if (_isRecovering || _currentQuality == null) return;
+
+    _isRecovering = true;
+    final position = _player.state.position;
+
+    try {
+      print('🔄 恢复分片加载: ${position.inSeconds}s');
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      final m3u8Content = await _hlsService.getHlsStreamContent(
+        widget.resourceId,
+        _currentQuality!,
+      );
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+
+      await _player.open(await Media.memory(m3u8Bytes), play: false);
+      await _waitForPlayerReady();
+      await _player.seek(position);
+
+      if (!_isSwitchingQuality) {
+        await _player.play();
+      }
+
+      print('✅ 分片恢复成功');
+    } catch (e) {
+      print('❌ 分片恢复失败: $e');
+    } finally {
+      _isRecovering = false;
+    }
+  }
+
   /// 设置播放器事件监听
   void _setupPlayerListeners() {
     // 监听播放进度，并在此判断是否完播
@@ -150,14 +230,27 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       }
     });
 
-    // 监听错误
+    // 监听错误并尝试恢复分片加载失败
     _player.stream.error.listen((error) {
+      final errorStr = error.toString().toLowerCase();
+      final isSegmentError = errorStr.contains('segment') ||
+          errorStr.contains('hls') ||
+          errorStr.contains('http') ||
+          errorStr.contains('connection') ||
+          errorStr.contains('stream') ||
+          errorStr.contains('timeout');
+
       _logger.logError(
-        message: '播放器错误',
+        message: '播放器错误${isSegmentError ? '(分片相关)' : ''}',
         error: error,
         stackTrace: StackTrace.current,
         context: {'resourceId': widget.resourceId},
       );
+
+      if (isSegmentError && mounted) {
+        print('⚠️ 检测到分片错误，尝试恢复');
+        _recoverFromSegmentError();
+      }
     });
   }
 
@@ -185,6 +278,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       print('📹 使用清晰度: $_currentQuality (${getQualityDisplayName(_currentQuality!)})');
 
+      // 2.5. 配置分片重试
+      await _configureHlsRetry();
+
       // 3. 加载视频
       await _loadVideo(_currentQuality!, isInitialLoad: true);
 
@@ -209,7 +305,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   }
 
   /// 获取用户偏好的清晰度
-  /// 根据保存的显示名称（如 1080p60）智能匹配可用清晰度
+  /// 根据保存的显示名称（如 1080p60）智能匹配可用清晰度，支持降级策略
+  /// 降级顺序：1080p60 → 1080p → 720p60 → 720p → 480p → 360p
   Future<String> _getPreferredQuality(List<String> availableQualities) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -219,21 +316,28 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       print('   - 保存的偏好: $preferredDisplayName');
       print('   - 可用清晰度: ${availableQualities.map((q) => getQualityDisplayName(q)).toList()}');
 
-      // 如果有保存的偏好，尝试匹配
+      // 如果有保存的偏好，尝试智能匹配（支持降级）
       if (preferredDisplayName != null && preferredDisplayName.isNotEmpty) {
-        // 查找匹配的清晰度
+        // 1. 先尝试完全匹配
         for (final quality in availableQualities) {
           if (getQualityDisplayName(quality) == preferredDisplayName) {
-            print('   ✅ 找到匹配的清晰度: $quality ($preferredDisplayName)');
+            print('   ✅ 完全匹配: $quality ($preferredDisplayName)');
             return quality;
           }
         }
-        print('   ⚠️ 未找到匹配 $preferredDisplayName 的清晰度，使用默认值');
+
+        // 2. 没有完全匹配，尝试智能降级
+        print('   ⚠️ 未找到完全匹配的 $preferredDisplayName，尝试降级匹配...');
+        final fallbackQuality = _findFallbackQuality(preferredDisplayName, availableQualities);
+        if (fallbackQuality != null) {
+          print('   ✅ 降级匹配: $fallbackQuality (${getQualityDisplayName(fallbackQuality)})');
+          return fallbackQuality;
+        }
       } else {
         print('   ℹ️ 未找到保存的清晰度偏好（首次使用）');
       }
 
-      // 否则使用默认清晰度（720P优先）
+      // 3. 没有偏好或降级失败，使用默认清晰度（720P优先）
       final defaultQuality = HlsService.getDefaultQuality(availableQualities);
       print('   📌 使用默认清晰度: $defaultQuality (${getQualityDisplayName(defaultQuality)})');
       return defaultQuality;
@@ -241,6 +345,48 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       print('⚠️ 读取清晰度偏好失败: $e');
       return HlsService.getDefaultQuality(availableQualities);
     }
+  }
+
+  /// 智能降级匹配清晰度
+  /// 例如：用户偏好1080p60，降级顺序为 1080p → 720p60 → 720p → 480p → 360p
+  String? _findFallbackQuality(String preferredDisplayName, List<String> availableQualities) {
+    // 定义降级规则：从用户偏好逐步降级
+    final fallbackOrder = _getFallbackOrder(preferredDisplayName);
+
+    print('   降级顺序: ${fallbackOrder.join(" → ")}');
+
+    // 按降级顺序查找第一个可用的清晰度
+    for (final fallbackName in fallbackOrder) {
+      for (final quality in availableQualities) {
+        if (getQualityDisplayName(quality) == fallbackName) {
+          return quality;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// 获取清晰度的降级顺序
+  /// 规则：
+  /// - 1080p60 → 1080p → 720p60 → 720p → 480p → 360p
+  /// - 1080p → 720p60 → 720p → 480p → 360p
+  /// - 720p60 → 720p → 480p → 360p
+  /// - 720p → 480p → 360p
+  List<String> _getFallbackOrder(String preferredDisplayName) {
+    // 定义通用降级链：从高到低
+    const allQualities = ['1080p60', '1080p', '720p60', '720p', '480p', '360p'];
+
+    // 找到用户偏好在降级链中的位置
+    final startIndex = allQualities.indexOf(preferredDisplayName);
+
+    // 如果找不到（比如用户偏好是2K、4K等），返回完整降级链
+    if (startIndex == -1) {
+      return List.from(allQualities);
+    }
+
+    // 返回从偏好之后开始的降级顺序（不包括偏好本身，因为已经尝试过完全匹配了）
+    return allQualities.sublist(startIndex + 1);
   }
 
   /// 保存用户偏好的清晰度（全局设置）
@@ -270,9 +416,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       // 2. 使用 media_kit 从内存播放视频
       await _player.open(
-        await Media.memory(
-          m3u8Bytes,
-        ),
+        await Media.memory(m3u8Bytes),
         play: false, // 不自动播放，手动控制播放时机
       );
 
@@ -298,7 +442,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         await _player.play();
       }
 
-      print('✅ 视频加载成功: $quality (网络重试已启用)');
+      print('✅ 视频加载成功: $quality');
     } catch (e) {
       _logger.logError(
         message: '加载视频失败',
@@ -344,8 +488,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       print('⚠️ 无法获取视频时长，继续播放');
     }
 
-    // 3. 额外延迟确保媒体属性和初始TS分片完全加载
-    await Future.delayed(const Duration(milliseconds: 500));
     print('🎬 播放器准备完成');
   }
 
@@ -445,9 +587,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
 
       // 4. 快速切换源
       await _player.open(
-        await Media.memory(
-          m3u8Bytes,
-        ),
+        await Media.memory(m3u8Bytes),
         play: false,
       );
 

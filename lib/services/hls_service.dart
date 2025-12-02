@@ -129,16 +129,26 @@ class HlsService {
     }
   }
 
-  /// 将 m3u8 内容中的相对路径转换为绝对URL
+  /// 将 m3u8 内容中的相对路径转换为绝对URL，并添加优化配置
   String _convertToAbsoluteUrls(String m3u8Content) {
     final lines = m3u8Content.split('\n');
-    final convertedLines = lines.map((line) {
+    final convertedLines = <String>[];
+    bool hasAddedCacheTag = false;
+
+    for (var line in lines) {
       // 如果是 .ts 文件路径（以 / 开头的相对路径）
       if (line.trim().startsWith('/api/v1/video/slice/')) {
-        return '$baseUrl$line';
+        // 在第一个TS文件前添加缓存配置（如果还没添加过）
+        if (!hasAddedCacheTag) {
+          // 添加允许缓存标签，帮助播放器缓存TS分片
+          convertedLines.add('#EXT-X-ALLOW-CACHE:YES');
+          hasAddedCacheTag = true;
+        }
+        convertedLines.add('$baseUrl$line');
+      } else {
+        convertedLines.add(line);
       }
-      return line;
-    }).toList();
+    }
 
     return convertedLines.join('\n');
   }
