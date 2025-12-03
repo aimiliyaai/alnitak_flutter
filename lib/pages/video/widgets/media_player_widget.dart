@@ -108,62 +108,40 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     }
   }
 
-  /// 配置 HLS 分片重试
-  Future<void> _configureHlsRetry() async {
+  /// 配置 libmpv 分片重试（不跳过失败的分片）
+  Future<void> _configureSegmentRetry() async {
     if (kIsWeb) return;
 
     try {
       final nativePlayer = _player.platform as NativePlayer?;
       if (nativePlayer == null) return;
 
-      // 1. 配置 FFmpeg 重试参数
+      // 配置 FFmpeg 自动重连（失败后持续重试）
       await nativePlayer.setProperty(
         'stream-opts',
-        'reconnect=1:reconnect_at_eof=1:reconnect_streamed=1:reconnect_delay_max=300',
+        'reconnect=1:reconnect_streamed=1:reconnect_delay_max=10',
       );
 
-      // 2. 增加解复用器预读缓冲（减少花屏）
-      await nativePlayer.setProperty('demuxer-readahead-secs', '30');
-
-      // 3. 增加网络超时时间（等待完整分片）
-      await nativePlayer.setProperty('network-timeout', '60');
-
-      // 4. 启用更激进的缓存（减少卡顿和花屏）
-      await nativePlayer.setProperty('cache', 'yes');
-      await nativePlayer.setProperty('cache-secs', '60');
-
-      // 5. 优化硬件解码（减少花屏）
-      await nativePlayer.setProperty('hwdec', 'auto-safe');
-      await nativePlayer.setProperty('hwdec-codecs', 'h264,hevc,vp8,vp9,av1');
-
-      // 6. 视频输出优化（减少撕裂和花屏）
-      await nativePlayer.setProperty('video-sync', 'display-resample');
-      await nativePlayer.setProperty('interpolation', 'yes');
-
-      // 7. 禁用去隔行扫描（避免处理错误导致花屏）
-      await nativePlayer.setProperty('deinterlace', 'no');
-
-      // 8. 解码器错误恢复（尝试修复损坏帧）
-      await nativePlayer.setProperty('vd-lavc-ec', 'guess_mvs+deblock');
-
-      print('✅ 已配置分片重试和缓冲优化');
+      print('✅ 已配置分片重试');
     } catch (e) {
       print('⚠️ 配置失败: $e');
     }
   }
 
-  /// 从分片错误恢复
-  Future<void> _recoverFromSegmentError() async {
+  /// 分片加载失败时重新加载播放列表（不跳过）
+  Future<void> _retrySegmentLoad() async {
     if (_isRecovering || _currentQuality == null) return;
 
     _isRecovering = true;
     final position = _player.state.position;
 
     try {
-      print('🔄 恢复分片加载: ${position.inSeconds}s');
+      print('🔄 分片加载失败，重新加载: ${position.inSeconds}s');
 
-      await Future.delayed(const Duration(seconds: 2));
+      // 等待网络稳定
+      await Future.delayed(const Duration(seconds: 1));
 
+      // 重新加载 M3U8
       final m3u8Content = await _hlsService.getHlsStreamContent(
         widget.resourceId,
         _currentQuality!,
@@ -178,9 +156,12 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         await _player.play();
       }
 
-      print('✅ 分片恢复成功');
+      print('✅ 重新加载成功');
     } catch (e) {
-      print('❌ 分片恢复失败: $e');
+      print('❌ 重新加载失败，将再次重试: $e');
+      // 失败后再次重试，直到成功
+      await Future.delayed(const Duration(seconds: 2));
+      _retrySegmentLoad();
     } finally {
       _isRecovering = false;
     }
@@ -230,7 +211,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       }
     });
 
-    // 监听错误并尝试恢复分片加载失败
+    // 监听错误并重试分片加载
     _player.stream.error.listen((error) {
       final errorStr = error.toString().toLowerCase();
       final isSegmentError = errorStr.contains('segment') ||
@@ -241,15 +222,15 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
           errorStr.contains('timeout');
 
       _logger.logError(
-        message: '播放器错误${isSegmentError ? '(分片相关)' : ''}',
+        message: '播放器错误${isSegmentError ? '(分片)' : ''}',
         error: error,
         stackTrace: StackTrace.current,
         context: {'resourceId': widget.resourceId},
       );
 
       if (isSegmentError && mounted) {
-        print('⚠️ 检测到分片错误，尝试恢复');
-        _recoverFromSegmentError();
+        print('⚠️ 分片加载失败，开始重试');
+        _retrySegmentLoad();
       }
     });
   }
@@ -279,7 +260,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       print('📹 使用清晰度: $_currentQuality (${getQualityDisplayName(_currentQuality!)})');
 
       // 2.5. 配置分片重试
-      await _configureHlsRetry();
+      await _configureSegmentRetry();
 
       // 3. 加载视频
       await _loadVideo(_currentQuality!, isInitialLoad: true);
