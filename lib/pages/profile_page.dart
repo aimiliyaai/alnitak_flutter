@@ -393,6 +393,14 @@ class _ProfilePageState extends State<ProfilePage> {
               // TODO: 打开离线缓存
             },
           ),
+          _buildDivider(),
+          _buildMenuItem(
+            icon: Icons.settings_outlined,
+            title: '设置',
+            onTap: () {
+              Navigator.pushNamed(context, '/settings');
+            },
+          ),
         ],
       ),
     );

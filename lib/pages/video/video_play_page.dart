@@ -33,8 +33,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   final HistoryService _historyService = HistoryService();
   final ScrollController _scrollController = ScrollController();
 
-  // 使用 GlobalKey 保持播放器状态（需要可变以支持切换分P）
-  late GlobalKey _playerKey;
+  // 使用 GlobalKey 保持播放器状态（使用固定的key，不随分P变化而重建）
+  late final GlobalKey _playerKey;
 
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
@@ -56,8 +56,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   void initState() {
     super.initState();
     _currentPart = widget.initialPart ?? 1;
-    // 为播放器创建稳定的 GlobalKey，使用 vid 和 part 作为标识
-    _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$_currentPart');
+    // 为播放器创建稳定的 GlobalKey，使用 vid 作为标识（不包含分P，保持全屏状态）
+    _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}');
     _loadVideoData();
     // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
@@ -222,8 +222,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       _hasReportedCompleted = false;
       // 切换分P时重置上次保存的秒数，允许新分P立即上报首次进度
       _lastSavedSeconds = null;
-      // 切换分P时更新播放器 key
-      _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}_$part');
+      // 不再重新创建 GlobalKey，保持播放器实例以维持全屏状态
     });
 
     // 滚动到顶部
@@ -289,7 +288,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
-  /// 播放结束回调
+  /// 播放结束回调（仅用于上报播放完成，不处理自动播放逻辑）
   void _onVideoEnded() {
     // 避免重复上报
     if (_hasReportedCompleted) {
@@ -307,19 +306,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
     _hasReportedCompleted = true; // 标记为已上报
 
-    // 检查是否有下一P，并自动播放（需要参考PC端逻辑，从PartList组件获取自动连播状态）
-    // 这里暂时保持简单实现，后续可以通过PartList的回调来控制
-    if (_videoDetail != null && _currentPart < _videoDetail!.resources.length) {
-      print('🎬 存在下一集，准备自动播放: P${_currentPart + 1}');
-      // 延迟1秒后自动播放下一P（参考PC端的1秒延迟）
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          _changePart(_currentPart + 1);
-        }
-      });
-    } else {
-      print('✅ 已是最后一集');
-    }
+    // 注意：自动播放逻辑现在由播放器的循环模式控制
+    // 当循环模式为"列表循环"时，播放器会通过 onPartChange 回调来切换分P
+    print('✅ 播放完成上报结束');
   }
 
 ///头部
@@ -420,6 +409,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             initialPosition: _initialProgress,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
+            totalParts: _videoDetail!.resources.length,
+            currentPart: _currentPart,
+            onPartChange: _changePart,
           ),
         ),
 

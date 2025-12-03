@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../services/hls_service.dart';
 import '../../../services/logger_service.dart';
+import '../../../models/loop_mode.dart';
 
 /// 视频播放器组件
 ///
@@ -25,6 +27,9 @@ class MediaPlayerWidget extends StatefulWidget {
   final Function(String quality)? onQualityChanged; // 清晰度切换回调
   final String? title; // 视频标题
   final VoidCallback? onFullscreenToggle; // 全屏切换回调
+  final int? totalParts; // 总分P数（用于列表循环）
+  final int? currentPart; // 当前分P（用于列表循环）
+  final Function(int part)? onPartChange; // 分P切换回调（用于列表循环）
 
   const MediaPlayerWidget({
     super.key,
@@ -35,13 +40,16 @@ class MediaPlayerWidget extends StatefulWidget {
     this.onQualityChanged,
     this.title,
     this.onFullscreenToggle,
+    this.totalParts,
+    this.currentPart,
+    this.onPartChange,
   });
 
   @override
   State<MediaPlayerWidget> createState() => _MediaPlayerWidgetState();
 }
 
-class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
+class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindingObserver {
   final HlsService _hlsService = HlsService();
   final LoggerService _logger = LoggerService.instance;
 
@@ -59,11 +67,23 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   bool _hasTriggeredCompletion = false; // 标记是否已触发完播回调
   bool _isRecovering = false; // 分片恢复标志
 
+  // 循环模式（默认关闭）
+  LoopMode _loopMode = LoopMode.off;
+
+  // 后台播放设置
+  bool _backgroundPlayEnabled = false;
+  bool _wasPlayingBeforeBackground = false; // 记录进入后台前的播放状态
+
   // 使用 ValueNotifier 来管理清晰度状态，确保UI能够响应变化
   final ValueNotifier<String?> _qualityNotifier = ValueNotifier<String?>(null);
 
+  // 使用 ValueNotifier 来管理循环模式状态，确保UI能够响应变化
+  final ValueNotifier<LoopMode> _loopModeNotifier = ValueNotifier<LoopMode>(LoopMode.off);
+
   // SharedPreferences 键名（全局清晰度偏好 - 保存显示名称如 1080p60）
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
+  static const String _loopModeKey = 'video_loop_mode';
+  static const String _backgroundPlayKey = 'background_play_enabled';
 
   @override
   void initState() {
@@ -84,8 +104,105 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
       ),
     );
     _videoController = VideoController(_player);
+    _loadLoopMode();
+    _loadBackgroundPlaySetting();
     _setupPlayerListeners();
     _initializePlayer();
+    // 添加生命周期监听
+    WidgetsBinding.instance.addObserver(this);
+    // 启用屏幕唤醒锁（防止播放时息屏）
+    WakelockPlus.enable();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    switch (state) {
+      case AppLifecycleState.paused:
+        // 应用进入后台
+        print('📱 应用进入后台');
+        if (!_backgroundPlayEnabled) {
+          // 如果未启用后台播放，记录当前播放状态并暂停
+          _wasPlayingBeforeBackground = _player.state.playing;
+          if (_wasPlayingBeforeBackground) {
+            print('⏸️ 后台播放未启用，暂停播放');
+            _player.pause();
+          }
+        } else {
+          print('▶️ 后台播放已启用，继续播放');
+        }
+        break;
+
+      case AppLifecycleState.resumed:
+        // 应用返回前台
+        print('📱 应用返回前台');
+        if (!_backgroundPlayEnabled && _wasPlayingBeforeBackground) {
+          // 如果之前因为后台而暂停，现在恢复播放
+          print('▶️ 恢复播放');
+          _player.play();
+          _wasPlayingBeforeBackground = false;
+        }
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  /// 加载后台播放设置
+  Future<void> _loadBackgroundPlaySetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_backgroundPlayKey) ?? false;
+    if (mounted) {
+      setState(() {
+        _backgroundPlayEnabled = enabled;
+      });
+    }
+    print('🔊 后台播放设置: ${enabled ? "启用" : "禁用"}');
+  }
+
+  /// 加载循环模式
+  Future<void> _loadLoopMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMode = prefs.getString(_loopModeKey);
+    final mode = LoopModeExtension.fromString(savedMode);
+    setState(() {
+      _loopMode = mode;
+    });
+    _loopModeNotifier.value = mode; // 同步到 notifier
+  }
+
+  /// 保存循环模式
+  Future<void> _saveLoopMode(LoopMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_loopModeKey, mode.toSavedString());
+    setState(() {
+      _loopMode = mode;
+    });
+    _loopModeNotifier.value = mode; // 同步到 notifier
+    print('💾 已保存循环模式: ${mode.displayName}');
+  }
+
+  /// 处理播放结束
+  void _handlePlaybackEnd() {
+    print('🔁 播放结束，循环模式: ${_loopMode.displayName}');
+
+    switch (_loopMode) {
+      case LoopMode.on:
+        // 单集循环：从头播放当前视频
+        print('🔂 单集循环：重新播放');
+        _hasTriggeredCompletion = false; // 先重置标志
+        _player.seek(Duration.zero);
+        _player.play();
+        break;
+
+      case LoopMode.off:
+        // 关闭循环：停止播放
+        print('⏹️ 循环已关闭：停止播放');
+        widget.onVideoEnd?.call();
+        break;
+    }
   }
 
   @override
@@ -106,6 +223,13 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
     } else {
       print('📹 [didUpdateWidget] resourceId 未改变，跳过重新初始化');
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 每次重建时重新加载后台播放设置（以防用户在设置页修改）
+    _loadBackgroundPlaySetting();
   }
 
   /// 配置 libmpv 分片重试（不跳过失败的分片）
@@ -187,7 +311,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
             !_hasTriggeredCompletion) {
           print('📹 检测到视频播放结束: position=${position.inSeconds}s, duration=${duration.inSeconds}s, playing=$isPlaying');
           _hasTriggeredCompletion = true;
-          widget.onVideoEnd?.call();
+          _handlePlaybackEnd();
         }
       }
     });
@@ -624,8 +748,13 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
   @override
   void dispose() {
     print('📹 [dispose] 销毁播放器');
+    // 移除生命周期监听
+    WidgetsBinding.instance.removeObserver(this);
+    // 禁用屏幕唤醒锁
+    WakelockPlus.disable();
     _player.dispose();
     _qualityNotifier.dispose(); // 销毁 ValueNotifier
+    _loopModeNotifier.dispose(); // 销毁循环模式 ValueNotifier
     // 退出时恢复系统UI
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -680,21 +809,30 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     ),
                     // 标题
                     if (widget.title != null)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Text(
-                            widget.title!,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Text(
+                          widget.title!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                    const Spacer(), // 将循环按钮推到最右边
+                    // 循环模式切换按钮 - 使用 ValueListenableBuilder 监听状态变化
+                    ValueListenableBuilder<LoopMode>(
+                      valueListenable: _loopModeNotifier,
+                      builder: (context, loopMode, child) {
+                        return MaterialCustomButton(
+                          icon: Icon(_getLoopModeIconForMode(loopMode)),
+                          onPressed: _toggleLoopMode,
+                        );
+                      },
+                    ),
                   ],
                   // 底部按钮栏配置
                   bottomButtonBar: [
@@ -773,21 +911,30 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
                     ),
                     // 标题
                     if (widget.title != null)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Text(
-                            widget.title!,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Text(
+                          widget.title!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                    const Spacer(), // 将循环按钮推到最右边
+                    // 循环模式切换按钮（全屏）- 使用 ValueListenableBuilder 监听状态变化
+                    ValueListenableBuilder<LoopMode>(
+                      valueListenable: _loopModeNotifier,
+                      builder: (context, loopMode, child) {
+                        return MaterialCustomButton(
+                          icon: Icon(_getLoopModeIconForMode(loopMode)),
+                          onPressed: _toggleLoopMode,
+                        );
+                      },
+                    ),
                   ],
                   // 底部按钮栏配置（全屏模式）
                   bottomButtonBar: [
@@ -988,6 +1135,22 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> {
         changeQuality(selectedQuality);
       }
     });
+  }
+
+  /// 获取循环模式图标（根据传入的模式）
+  IconData _getLoopModeIconForMode(LoopMode mode) {
+    switch (mode) {
+      case LoopMode.off:
+        return Icons.repeat;
+      case LoopMode.on:
+        return Icons.repeat_one;
+    }
+  }
+
+  /// 切换循环模式
+  void _toggleLoopMode() {
+    final newMode = _loopMode.toggle();
+    _saveLoopMode(newMode);
   }
 
   /// 加载中界面

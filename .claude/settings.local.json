@@ -44,7 +44,8 @@
       "Bash(timeout 5 nc:*)",
       "Bash(timeout 60 powershell:*)",
       "Bash(findstr:*)",
-      "Bash(flutter pub:*)"
+      "Bash(flutter pub:*)",
+      "Bash(flutter build:*)"
     ],
     "deny": [],
     "ask": []

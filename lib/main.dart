@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_kit/media_kit.dart';
 import 'pages/main_page.dart';
+import 'pages/settings_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +35,9 @@ class MyApp extends StatelessWidget {
       ],
       locale: const Locale('zh', 'CN'), // 默认使用简体中文
       home: const MainPage(),
+      routes: {
+        '/settings': (context) => const SettingsPage(),
+      },
     );
   }
 }
