@@ -6,7 +6,10 @@
     <!-- 后台播放权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- 屏幕唤醒锁权限（防止播放视频时息屏） -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Android 13+ 需要此权限来保持屏幕唤醒 -->
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
 
     <!-- 存储权限（用于视频缓存） -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>

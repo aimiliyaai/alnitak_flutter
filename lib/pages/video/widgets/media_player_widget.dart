@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../services/hls_service.dart';
 import '../../../services/logger_service.dart';
 import '../../../models/loop_mode.dart';
@@ -110,8 +109,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     _initializePlayer();
     // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
-    // 启用屏幕唤醒锁（防止播放时息屏）
-    WakelockPlus.enable();
+    // media_kit_video 会自动管理 wakelock，无需手动启用
   }
 
   @override
@@ -750,8 +748,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     print('📹 [dispose] 销毁播放器');
     // 移除生命周期监听
     WidgetsBinding.instance.removeObserver(this);
-    // 禁用屏幕唤醒锁
-    WakelockPlus.disable();
+    // media_kit_video 会自动管理 wakelock，无需手动禁用
     _player.dispose();
     _qualityNotifier.dispose(); // 销毁 ValueNotifier
     _loopModeNotifier.dispose(); // 销毁循环模式 ValueNotifier
