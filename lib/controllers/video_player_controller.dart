@@ -213,9 +213,10 @@ class VideoPlayerController extends ChangeNotifier {
     final position = player.state.position;
 
     try {
-      print('🔄 分片加载失败，重新加载 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s');
+      print('🔄 分片加载失败，等待 30 秒后重新加载 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s');
 
-      await Future.delayed(const Duration(seconds: 1));
+      // 等待 30 秒后重试，避免跳过失败的分片
+      await Future.delayed(const Duration(seconds: 30));
 
       final m3u8Content = await _hlsService.getHlsStreamContent(
         _currentResourceId!,
@@ -236,7 +237,8 @@ class VideoPlayerController extends ChangeNotifier {
     } catch (e) {
       print('❌ 重新加载失败 (第 $_retryCount/$_maxRetryCount 次): $e');
       if (_retryCount < _maxRetryCount) {
-        await Future.delayed(const Duration(seconds: 2));
+        // 失败后继续等待 30 秒再重试
+        await Future.delayed(const Duration(seconds: 30));
         _isRecovering = false;
         _retrySegmentLoad();
       } else {
