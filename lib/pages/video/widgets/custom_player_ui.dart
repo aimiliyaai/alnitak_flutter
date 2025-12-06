@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
 
-/// 自定义播放器 UI (V3 优化版)
+/// 自定义播放器 UI (V4 调整版)
 ///
 /// 修改记录：
-/// 1. 清晰度面板：位置往左偏移，保持窄、透、无轮廓。
-/// 2. 亮度灵敏度：大幅降低灵敏度 (除数 1200)，防止误触爆亮。
-/// 3. 音量灵敏度：保持适中 (除数 600)。
+/// 1. 清晰度面板：位置向右微调 (更贴近边缘)，保持窄、透、无轮廓。
+/// 2. 亮度灵敏度：保持 1200 (细腻)。
+/// 3. 音量灵敏度：保持 600 (适中)。
 /// 4. 架构：Scaffold + ClipRect 防止溢出。
 class CustomPlayerUI extends StatefulWidget {
   final VideoController controller;      // media_kit 的渲染控制器
@@ -113,8 +113,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
           // 计算右边距：屏幕宽 - (按钮左坐标 + 按钮宽)
           double distFromRight = overlaySize.width - (buttonPos.dx + buttonSize.width);
           
-          // 修改点：往左偏移一些 (+ 15)，让面板不要紧贴屏幕边缘
-          _panelRight = (distFromRight + 15).clamp(0.0, overlaySize.width);
+          // 修改点：只保留极小的间距 (5px)，让面板往右靠
+          // 之前是 + 20，现在是 + 5
+          _panelRight = (distFromRight + 5).clamp(0.0, overlaySize.width);
           
           // 底部距离：屏幕高 - 按钮顶坐标 + 间距
           _panelBottom = overlaySize.height - buttonPos.dy + 4;
@@ -133,9 +134,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); 
     
-    // 更新起始状态
     _playerVolume = widget.controller.player.state.volume / 100.0;
-    // 亮度直接用当前变量
   }
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
@@ -153,15 +152,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     }
 
     if (_gestureType == 1) {
-      // 音量 (灵敏度 600，适中)
+      // 音量 (灵敏度 600)
       final val = (_playerVolume - delta.dy / 600).clamp(0.0, 1.0);
       widget.controller.player.setVolume(val * 100); 
       _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
     } else if (_gestureType == 2) {
-      // 亮度 (修改点：灵敏度 1200，非常细腻，防止太灵敏)
+      // 亮度 (灵敏度 1200，细腻)
       final val = (_playerBrightness - delta.dy / 1200).clamp(0.0, 1.0);
       _playerBrightness = val; 
-      setState(() {}); // 刷新遮罩
+      setState(() {}); 
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
     } else if (_gestureType == 3) {
       // 进度
@@ -186,7 +185,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       widget.controller.player.seek(_seekPos);
     }
     _gestureType = 0;
-    // 拖拽结束同步一下音量状态
     _playerVolume = widget.controller.player.state.volume / 100.0;
     
     Future.delayed(const Duration(milliseconds: 300), () {
@@ -287,7 +285,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     child: Container(color: Colors.transparent),
                   ),
 
-                  // Layer 1.5: 软件亮度模拟层 (黑色遮罩)
+                  // Layer 1.5: 软件亮度模拟层
                   if (_playerBrightness < 1.0)
                     IgnorePointer(
                       child: Container(
@@ -407,7 +405,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     },
                   ),
 
-                  // Layer 6: 清晰度选择面板 (修改版)
+                  // Layer 6: 清晰度选择面板
                   if (_showQualityPanel && _showControls && _panelRight != null)
                     _buildQualityPanel(),
                 ],
@@ -672,7 +670,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     );
   }
 
-  /// 构建清晰度面板 (极窄、无框、高透、左偏)
   Widget _buildQualityPanel() {
     final qualities = widget.logic.availableQualities.value;
     final currentQuality = widget.logic.currentQuality.value;
@@ -683,13 +680,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       child: GestureDetector(
         onTap: () {}, // 拦截点击穿透
         child: Container(
-          width: 76, // 极窄宽度
+          width: 76,
           constraints: const BoxConstraints(maxHeight: 200),
           decoration: BoxDecoration(
-            // 透明度 0.4 (非常通透)
             color: Colors.black.withValues(alpha: 0.4),
             borderRadius: BorderRadius.circular(8),
-            // 无 border
           ),
           child: SingleChildScrollView(
             child: Column(
@@ -705,7 +700,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     _startHideTimer();
                   },
                   child: Container(
-                    // 紧凑间距
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                     alignment: Alignment.center,
                     child: Text(
