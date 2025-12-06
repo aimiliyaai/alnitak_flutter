@@ -3,16 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
 
-/// 自定义播放器 UI (V4 调整版)
+/// 自定义播放器 UI (V6 修复警告版)
 ///
 /// 修改记录：
-/// 1. 清晰度面板：位置向右微调 (更贴近边缘)，保持窄、透、无轮廓。
-/// 2. 亮度灵敏度：保持 1200 (细腻)。
-/// 3. 音量灵敏度：保持 600 (适中)。
-/// 4. 架构：Scaffold + ClipRect 防止溢出。
+/// 1. 移除了未使用的 `_playerVolume` 变量，消除了 unused_field 警告。
+/// 2. 保持了 V5 的所有手感优化（亮度灵敏度 1200，快照计算逻辑）。
 class CustomPlayerUI extends StatefulWidget {
-  final VideoController controller;      // media_kit 的渲染控制器
-  final VideoPlayerController logic;     // 业务逻辑控制器
+  final VideoController controller;
+  final VideoPlayerController logic;
   final String title;
   final VoidCallback? onBack;
 
@@ -30,21 +28,27 @@ class CustomPlayerUI extends StatefulWidget {
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> {
   // ============ UI 状态 ============
-  bool _showControls = true; // 是否显示控制栏
-  bool _isLocked = false;    // 是否锁定手势
-  Timer? _hideTimer;         // 自动隐藏计时器
+  bool _showControls = true;
+  bool _isLocked = false;
+  Timer? _hideTimer;
 
   // ============ 手势反馈 ============
   bool _showFeedback = false;
   IconData? _feedbackIcon;
   String _feedbackText = '';
-  double? _feedbackValue; // 0.0 - 1.0 (音量/亮度进度条)
+  double? _feedbackValue;
 
   // ============ 拖拽逻辑 ============
   Offset _dragStartPos = Offset.zero;
-  double _playerVolume = 1.0; 
-  double _playerBrightness = 1.0; 
   int _gestureType = 0; // 0:无, 1:音量, 2:亮度, 3:进度
+  
+  // 亮度需要 State 变量来控制遮罩层的透明度
+  double _playerBrightness = 1.0; 
+  
+  // 拖拽起始时的快照值
+  double _startVolumeSnapshot = 1.0;
+  double _startBrightnessSnapshot = 1.0;
+  
   Duration _seekPos = Duration.zero;
 
   // ============ 长按倍速 ============
@@ -53,17 +57,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   // ============ 清晰度面板 ============
   bool _showQualityPanel = false;
-  final GlobalKey _qualityButtonKey = GlobalKey(); // 用于获取按钮位置
-  double? _panelRight;  // 动态计算的面板位置
-  double? _panelBottom; // 动态计算的面板位置
+  final GlobalKey _qualityButtonKey = GlobalKey(); 
+  double? _panelRight;  
+  double? _panelBottom; 
 
   @override
   void initState() {
     super.initState();
     _startHideTimer();
-    // 初始化音量
-    _playerVolume = widget.controller.player.state.volume / 100.0;
-    // 初始化亮度 (默认 1.0)
+    // 亮度默认 1.0 (不遮罩)
     _playerBrightness = 1.0; 
   }
 
@@ -95,7 +97,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_showControls) _startHideTimer();
   }
 
-  /// 切换清晰度面板显示（计算位置）
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
@@ -110,16 +111,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
         final Size overlaySize = overlayBox.size;
 
         setState(() {
-          // 计算右边距：屏幕宽 - (按钮左坐标 + 按钮宽)
           double distFromRight = overlaySize.width - (buttonPos.dx + buttonSize.width);
-          
-          // 修改点：只保留极小的间距 (5px)，让面板往右靠
-          // 之前是 + 20，现在是 + 5
           _panelRight = (distFromRight + 5).clamp(0.0, overlaySize.width);
-          
-          // 底部距离：屏幕高 - 按钮顶坐标 + 间距
           _panelBottom = overlaySize.height - buttonPos.dy + 4;
-          
           _showQualityPanel = true;
         });
         _hideTimer?.cancel();
@@ -134,7 +128,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); 
     
-    _playerVolume = widget.controller.player.state.volume / 100.0;
+    // 记录拖拽开始瞬间的数值快照
+    // 音量：从播放器获取
+    _startVolumeSnapshot = widget.controller.player.state.volume / 100.0;
+    // 亮度：从本地变量获取
+    _startBrightnessSnapshot = _playerBrightness;
   }
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
@@ -151,19 +149,24 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       }
     }
 
+    // 统一灵敏度
+    const double sensitivity = 600.0;
+
     if (_gestureType == 1) {
-      // 音量 (灵敏度 600)
-      final val = (_playerVolume - delta.dy / 600).clamp(0.0, 1.0);
+      // === 音量调节 ===
+      final val = (_startVolumeSnapshot - delta.dy / sensitivity).clamp(0.0, 1.0);
       widget.controller.player.setVolume(val * 100); 
       _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
+
     } else if (_gestureType == 2) {
-      // 亮度 (灵敏度 1200，细腻)
-      final val = (_playerBrightness - delta.dy / 1200).clamp(0.0, 1.0);
+      // === 亮度调节 ===
+      final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0); // 亮度更细腻 (1200)
       _playerBrightness = val; 
       setState(() {}); 
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
+
     } else if (_gestureType == 3) {
-      // 进度
+      // === 进度调节 ===
       final total = widget.controller.player.state.duration.inSeconds;
       final current = widget.controller.player.state.position.inSeconds;
       final seekDelta = (delta.dx / width) * 90; 
@@ -185,7 +188,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       widget.controller.player.seek(_seekPos);
     }
     _gestureType = 0;
-    _playerVolume = widget.controller.player.state.volume / 100.0;
     
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) setState(() => _showFeedback = false);
@@ -285,7 +287,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     child: Container(color: Colors.transparent),
                   ),
 
-                  // Layer 1.5: 软件亮度模拟层
+                  // Layer 1.5: 软件亮度模拟层 (黑色遮罩)
                   if (_playerBrightness < 1.0)
                     IgnorePointer(
                       child: Container(
