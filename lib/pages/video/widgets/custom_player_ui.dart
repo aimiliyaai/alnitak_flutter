@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:screen_brightness/screen_brightness.dart';
-import 'package:volume_controller/volume_controller.dart';
 import '../../../controllers/video_player_controller.dart';
 
 /// 自定义播放器 UI
@@ -45,10 +43,18 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   // ============ 拖拽逻辑 ============
   Offset _dragStartPos = Offset.zero;
-  double _startVolume = 0.0;
-  double _startBrightness = 0.5;
+  double _playerVolume = 1.0; // 播放器音量（0.0 - 1.0）
+  double _playerBrightness = 1.0; // 播放器亮度（0.0 - 1.0）
   int _gestureType = 0; // 0:无, 1:音量, 2:亮度, 3:进度
   Duration _seekPos = Duration.zero;
+
+  // ============ 长按倍速 ============
+  bool _isLongPressing = false;
+  double _normalSpeed = 1.0;
+
+  // ============ 清晰度面板 ============
+  bool _showQualityPanel = false;
+  final GlobalKey _qualityButtonKey = GlobalKey();
 
   @override
   void initState() {
@@ -86,11 +92,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_isLocked) return;
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); // 拖拽时隐藏 UI 防遮挡
-
-    try {
-      _startVolume = await VolumeController.instance.getVolume();
-      _startBrightness = await ScreenBrightness().application;
-    } catch (_) {}
   }
 
   void _onDragUpdate(DragUpdateDetails details, double width) {
@@ -112,16 +113,18 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
     // 执行对应手势逻辑
     if (_gestureType == 1) {
-      // 音量调节
-      final val = (_startVolume - delta.dy / 200).clamp(0.0, 1.0);
-      VolumeController.instance.setVolume(val);
+      // 音量调节（仅播放器）
+      // 降低灵敏度: 滑动600像素 = 100% 变化 (原来是200像素)
+      final val = (_playerVolume - delta.dy / 600).clamp(0.0, 1.0);
+      _playerVolume = val;
+      widget.controller.player.setVolume(val * 100); // media_kit 音量范围 0-100
       _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
     } else if (_gestureType == 2) {
-      // 亮度调节
-      final val = (_startBrightness - delta.dy / 200).clamp(0.0, 1.0);
-      try {
-        ScreenBrightness().setApplicationScreenBrightness(val);
-      } catch(_) {}
+      // 亮度调节（仅播放器,通过视频覆盖层实现）
+      // 降低灵敏度: 滑动600像素 = 100% 变化 (原来是200像素)
+      final val = (_playerBrightness - delta.dy / 600).clamp(0.0, 1.0);
+      _playerBrightness = val;
+      setState(() {}); // 触发重绘以更新亮度覆盖层
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
     } else if (_gestureType == 3) {
       // 进度调节
@@ -149,6 +152,23 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) setState(() => _showFeedback = false);
     });
+  }
+
+  /// 长按开始 - 2倍速播放
+  void _onLongPressStart() {
+    if (_isLocked) return;
+    _isLongPressing = true;
+    _normalSpeed = widget.controller.player.state.rate;
+    widget.controller.player.setRate(2.0);
+    _showFeedbackUI(Icons.fast_forward, '2.0x 倍速播放', null);
+  }
+
+  /// 长按结束 - 恢复正常速度
+  void _onLongPressEnd() {
+    if (!_isLongPressing) return;
+    _isLongPressing = false;
+    widget.controller.player.setRate(_normalSpeed);
+    setState(() => _showFeedback = false);
   }
 
   /// 双击手势处理
@@ -221,6 +241,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
               behavior: HitTestBehavior.translucent, // 关键：允许点击穿透
               onTap: _toggleControls,
               onDoubleTapDown: (d) => _onDoubleTap(d.localPosition, width),
+              onLongPressStart: (_) => _onLongPressStart(),
+              onLongPressEnd: (_) => _onLongPressEnd(),
               onVerticalDragStart: (d) => _onDragStart(d, width),
               onVerticalDragUpdate: (d) => _onDragUpdate(d, width),
               onVerticalDragEnd: (_) => _onDragEnd(),
@@ -229,6 +251,16 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
               onHorizontalDragEnd: (_) => _onDragEnd(),
               child: Container(color: Colors.transparent),
             ),
+
+            // ============================
+            // Layer 1.5: 亮度覆盖层（仅影响视频显示）
+            // ============================
+            if (_playerBrightness < 1.0)
+              IgnorePointer(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 1.0 - _playerBrightness),
+                ),
+              ),
 
             // ============================
             // Layer 2: 锁定按钮（独立层，锁定时始终显示）
@@ -356,6 +388,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 );
               },
             ),
+
+            // ============================
+            // Layer 6: 清晰度选择面板
+            // ============================
+            if (_showQualityPanel && _showControls) _buildQualityPanel(),
           ],
         );
       },
@@ -514,7 +551,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     valueListenable: widget.logic.currentQuality,
                     builder: (context, currentQuality, _) {
                       return TextButton(
-                        onPressed: () => _showQualityDialog(),
+                        key: _qualityButtonKey,
+                        onPressed: () {
+                          setState(() => _showQualityPanel = !_showQualityPanel);
+                          if (_showQualityPanel) {
+                            _hideTimer?.cancel(); // 显示面板时暂停自动隐藏
+                          } else {
+                            _startHideTimer();
+                          }
+                        },
                         style: TextButton.styleFrom(
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -533,6 +578,24 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 },
               ),
 
+              // 循环模式按钮
+              ValueListenableBuilder(
+                valueListenable: widget.logic.loopMode,
+                builder: (context, loopMode, _) {
+                  return IconButton(
+                    icon: Icon(
+                      loopMode.index == 1 ? Icons.repeat_one : Icons.repeat,
+                      color: loopMode.index == 1 ? Colors.blue : Colors.white,
+                      size: 22,
+                    ),
+                    onPressed: () {
+                      widget.logic.toggleLoopMode();
+                      _startHideTimer();
+                    },
+                  );
+                },
+              ),
+
               // 全屏按钮
               Builder(
                 builder: (context) {
@@ -544,9 +607,16 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                       size: 24,
                     ),
                     onPressed: () async {
-                      await toggleFullscreen(context);
-                      if (mounted) {
-                        _startHideTimer();
+                      try {
+                        await toggleFullscreen(context);
+                        // 延迟一帧确保 widget 树已更新
+                        await Future.delayed(const Duration(milliseconds: 100));
+                        if (mounted && context.mounted) {
+                          _startHideTimer();
+                        }
+                      } catch (e) {
+                        // 捕获全屏切换时的异常,防止警戒线
+                        print('⚠️ 全屏切换异常: $e');
                       }
                     },
                   );
@@ -614,42 +684,80 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     );
   }
 
-  /// 显示清晰度选择对话框
-  void _showQualityDialog() {
+  /// 构建清晰度选择面板
+  Widget _buildQualityPanel() {
     final qualities = widget.logic.availableQualities.value;
     final currentQuality = widget.logic.currentQuality.value;
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('选择清晰度'),
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: qualities.map((quality) {
-            final isSelected = quality == currentQuality;
-            final displayName = widget.logic.getQualityDisplayName(quality);
+    // 获取按钮位置
+    final RenderBox? renderBox = _qualityButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return const SizedBox.shrink();
 
-            return ListTile(
-              leading: Icon(
-                isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: isSelected ? Colors.blue : Colors.grey,
-              ),
-              title: Text(
-                displayName,
-                style: TextStyle(
-                  color: isSelected ? Colors.blue : Colors.black87,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    final buttonPosition = renderBox.localToGlobal(Offset.zero);
+    final buttonSize = renderBox.size;
+
+    return Positioned(
+      right: 16,
+      bottom: buttonPosition.dy > 300 ? null : 60, // 如果按钮在上方则面板在下方,反之亦然
+      top: buttonPosition.dy > 300 ? null : buttonPosition.dy + buttonSize.height + 8,
+      child: GestureDetector(
+        onTap: () {}, // 阻止点击穿透
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 150),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: qualities.map((quality) {
+              final isSelected = quality == currentQuality;
+              final displayName = widget.logic.getQualityDisplayName(quality);
+
+              return InkWell(
+                onTap: () {
+                  if (!isSelected) {
+                    widget.logic.changeQuality(quality);
+                  }
+                  setState(() => _showQualityPanel = false);
+                  _startHideTimer();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        width: 0.5,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                        color: isSelected ? Colors.blue : Colors.white.withValues(alpha: 0.6),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          displayName,
+                          style: TextStyle(
+                            color: isSelected ? Colors.blue : Colors.white,
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              onTap: () {
-                if (!isSelected) {
-                  widget.logic.changeQuality(quality);
-                }
-                Navigator.of(context).pop();
-              },
-            );
-          }).toList(),
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
