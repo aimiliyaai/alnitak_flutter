@@ -3,14 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
 
-/// 自定义播放器 UI (V6 修复警告版)
+/// 自定义播放器 UI (V8 细节微调版)
 ///
 /// 修改记录：
-/// 1. 移除了未使用的 `_playerVolume` 变量，消除了 unused_field 警告。
-/// 2. 保持了 V5 的所有手感优化（亮度灵敏度 1200，快照计算逻辑）。
+/// 1. 切换清晰度时，隐藏中间播放按钮，防止图标重叠和误触。
+/// 2. 清晰度加载提示 UI：背景透明度增加 (alpha 0.5)。
+/// 3. 保持 V7 的所有逻辑（右对齐、手势灵敏度、防溢出）。
 class CustomPlayerUI extends StatefulWidget {
-  final VideoController controller;
-  final VideoPlayerController logic;
+  final VideoController controller;      // media_kit 的渲染控制器
+  final VideoPlayerController logic;     // 业务逻辑控制器
   final String title;
   final VoidCallback? onBack;
 
@@ -28,9 +29,9 @@ class CustomPlayerUI extends StatefulWidget {
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> {
   // ============ UI 状态 ============
-  bool _showControls = true;
-  bool _isLocked = false;
-  Timer? _hideTimer;
+  bool _showControls = true; // 是否显示控制栏
+  bool _isLocked = false;    // 是否锁定手势
+  Timer? _hideTimer;         // 自动隐藏计时器
 
   // ============ 手势反馈 ============
   bool _showFeedback = false;
@@ -42,10 +43,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   Offset _dragStartPos = Offset.zero;
   int _gestureType = 0; // 0:无, 1:音量, 2:亮度, 3:进度
   
-  // 亮度需要 State 变量来控制遮罩层的透明度
+  // 亮度状态 (用于遮罩)
   double _playerBrightness = 1.0; 
   
-  // 拖拽起始时的快照值
+  // 拖拽起始快照
   double _startVolumeSnapshot = 1.0;
   double _startBrightnessSnapshot = 1.0;
   
@@ -65,7 +66,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   void initState() {
     super.initState();
     _startHideTimer();
-    // 亮度默认 1.0 (不遮罩)
     _playerBrightness = 1.0; 
   }
 
@@ -97,6 +97,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_showControls) _startHideTimer();
   }
 
+  /// 切换清晰度面板显示（计算位置）
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
@@ -111,9 +112,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
         final Size overlaySize = overlayBox.size;
 
         setState(() {
+          // 计算右边距，直接对齐按钮右侧
           double distFromRight = overlaySize.width - (buttonPos.dx + buttonSize.width);
-          _panelRight = (distFromRight + 5).clamp(0.0, overlaySize.width);
+          
+          _panelRight = distFromRight.clamp(0.0, overlaySize.width);
           _panelBottom = overlaySize.height - buttonPos.dy + 4;
+          
           _showQualityPanel = true;
         });
         _hideTimer?.cancel();
@@ -128,10 +132,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); 
     
-    // 记录拖拽开始瞬间的数值快照
-    // 音量：从播放器获取
+    // 记录快照
     _startVolumeSnapshot = widget.controller.player.state.volume / 100.0;
-    // 亮度：从本地变量获取
     _startBrightnessSnapshot = _playerBrightness;
   }
 
@@ -159,8 +161,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
 
     } else if (_gestureType == 2) {
-      // === 亮度调节 ===
-      final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0); // 亮度更细腻 (1200)
+      // === 亮度调节 (灵敏度 1200) ===
+      final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0);
       _playerBrightness = val; 
       setState(() {}); 
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
@@ -287,7 +289,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     child: Container(color: Colors.transparent),
                   ),
 
-                  // Layer 1.5: 软件亮度模拟层 (黑色遮罩)
+                  // Layer 1.5: 软件亮度模拟层
                   if (_playerBrightness < 1.0)
                     IgnorePointer(
                       child: Container(
@@ -384,7 +386,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.black87,
+                            // 修改：更透明的背景 (0.5)
+                            color: Colors.black.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Row(
@@ -491,27 +494,36 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     );
   }
 
+  // 修改：构建中间播放/暂停按钮 (防止与清晰度加载重叠)
   Widget _buildCenterPlayButton() {
-    return Center(
-      child: StreamBuilder<bool>(
-        stream: widget.controller.player.stream.playing,
-        builder: (context, snapshot) {
-          final playing = snapshot.data ?? widget.controller.player.state.playing;
-          if (playing) return const SizedBox.shrink();
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.logic.isSwitchingQuality,
+      builder: (context, isSwitching, _) {
+        // 如果正在切换清晰度，隐藏中间播放按钮，避免图标重叠
+        if (isSwitching) return const SizedBox.shrink();
 
-          return IconButton(
-            iconSize: 64,
-            icon: Icon(
-              Icons.play_circle_fill,
-              color: Colors.white.withValues(alpha: 0.9),
-            ),
-            onPressed: () {
-              widget.controller.player.play();
-              _startHideTimer();
+        return Center(
+          child: StreamBuilder<bool>(
+            stream: widget.controller.player.stream.playing,
+            builder: (context, snapshot) {
+              final playing = snapshot.data ?? widget.controller.player.state.playing;
+              if (playing) return const SizedBox.shrink();
+
+              return IconButton(
+                iconSize: 64,
+                icon: Icon(
+                  Icons.play_circle_fill,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+                onPressed: () {
+                  widget.controller.player.play();
+                  _startHideTimer();
+                },
+              );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
