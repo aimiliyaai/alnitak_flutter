@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
@@ -9,21 +10,18 @@ import '../models/loop_mode.dart';
 
 /// 视频播放器控制器
 ///
-/// 负责管理播放器的核心业务逻辑：
-/// - 播放器生命周期管理
-/// - 清晰度切换和偏好保存
-/// - 错误重试和分片恢复
-/// - 循环模式和后台播放
-/// - 播放状态监听
+/// 修复记录：
+/// 1. 修复清晰度切换时的"跳分片"问题 (10秒偏差)。
+/// 2. 移除 open(start) 参数，改为显式 seek。
+/// 3. 强制 hr-seek 策略为 absolute，确保 HLS 时间轴精准对齐。
 class VideoPlayerController extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
   final LoggerService _logger = LoggerService.instance;
 
-  // media_kit 播放器
   late final Player player;
   late final VideoController videoController;
 
-  // 播放状态
+  // ============ 状态 Notifiers ============
   final ValueNotifier<List<String>> availableQualities = ValueNotifier([]);
   final ValueNotifier<String?> currentQuality = ValueNotifier(null);
   final ValueNotifier<bool> isLoading = ValueNotifier(true);
@@ -33,19 +31,29 @@ class VideoPlayerController extends ChangeNotifier {
   final ValueNotifier<LoopMode> loopMode = ValueNotifier(LoopMode.off);
   final ValueNotifier<bool> backgroundPlayEnabled = ValueNotifier(false);
 
-  // 内部状态
+  // ============ 自定义进度流 (防止 UI 跳变) ============
+  final StreamController<Duration> _positionStreamController = StreamController.broadcast();
+  Stream<Duration> get positionStream => _positionStreamController.stream;
+
+  // ============ 内部状态 ============
   bool _hasTriggeredCompletion = false;
+  
+  // 重试相关
   bool _isRecovering = false;
   int _retryCount = 0;
   static const int _maxRetryCount = 5;
+  
   bool _wasPlayingBeforeBackground = false;
+  
+  // 切换清晰度状态锁
+  bool _isInternallySwitching = false;
+  Duration _lastKnownPosition = Duration.zero;
 
-  // SharedPreferences 键名
+  // SharedPreferences Keys
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
   static const String _backgroundPlayKey = 'background_play_enabled';
 
-  // 当前资源ID
   int? _currentResourceId;
 
   // 回调
@@ -54,11 +62,10 @@ class VideoPlayerController extends ChangeNotifier {
   Function(String quality)? onQualityChanged;
 
   VideoPlayerController() {
-    // 创建播放器实例
     player = Player(
       configuration: const PlayerConfiguration(
         title: '',
-        bufferSize: 32 * 1024 * 1024, // 32MB 缓冲区
+        bufferSize: 32 * 1024 * 1024,
         logLevel: MPVLogLevel.warn,
       ),
     );
@@ -66,7 +73,6 @@ class VideoPlayerController extends ChangeNotifier {
     _setupPlayerListeners();
   }
 
-  /// 初始化播放器
   Future<void> initialize({
     required int resourceId,
     double? initialPosition,
@@ -75,31 +81,23 @@ class VideoPlayerController extends ChangeNotifier {
       _currentResourceId = resourceId;
       isLoading.value = true;
       errorMessage.value = null;
-      _retryCount = 0; // 重置重试计数
+      _retryCount = 0;
 
-      // 加载设置
       await _loadLoopMode();
       await _loadBackgroundPlaySetting();
-
-      // 配置分片重试
       await _configureSegmentRetry();
 
-      // 获取可用清晰度列表
       availableQualities.value = await _hlsService.getAvailableQualities(resourceId);
 
       if (availableQualities.value.isEmpty) {
         throw Exception('没有可用的清晰度');
       }
 
-      // 对清晰度列表进行排序(从高到低)
       availableQualities.value = _sortQualitiesDescending(availableQualities.value);
-
-      // 选择默认清晰度
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
       print('📹 使用清晰度: ${currentQuality.value} (${getQualityDisplayName(currentQuality.value!)})');
 
-      // 加载视频
       await _loadVideo(currentQuality.value!, isInitialLoad: true, initialPosition: initialPosition);
 
       isLoading.value = false;
@@ -118,43 +116,37 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 设置播放器事件监听
   void _setupPlayerListeners() {
-    // 监听播放进度
+    // 1. 进度监听
     player.stream.position.listen((position) {
+      if (_isInternallySwitching) {
+        _positionStreamController.add(_lastKnownPosition);
+        return;
+      }
+      _lastKnownPosition = position;
+      _positionStreamController.add(position);
+      
       if (!isSwitchingQuality.value) {
         onProgressUpdate?.call(position);
       }
     });
 
-    // 使用 completed 事件检测完播
+    // 2. 完播监听
     player.stream.completed.listen((completed) {
-      if (completed && !_hasTriggeredCompletion) {
-        print('📹 检测到视频播放结束 (completed 事件)');
+      if (completed && !_hasTriggeredCompletion && !_isInternallySwitching) {
         _hasTriggeredCompletion = true;
         _handlePlaybackEnd();
       }
     });
 
-    // 监听播放状态
+    // 3. 播放状态监听
     player.stream.playing.listen((playing) {
-      print('📹 ${playing ? "开始播放" : "暂停播放"}');
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
-        print('📹 重置完播标志');
       }
     });
 
-    // 监听缓冲状态
-    player.stream.buffering.listen((buffering) {
-      if (buffering) {
-        print('⏸️ 播放缓冲中...');
-      } else {
-        print('▶️ 缓冲完成，继续播放');
-      }
-    });
-
-    // 监听错误并重试
+    // 4. 错误监听
     player.stream.error.listen((error) {
       final errorStr = error.toString().toLowerCase();
       final isSegmentError = errorStr.contains('segment') ||
@@ -164,45 +156,38 @@ class VideoPlayerController extends ChangeNotifier {
           errorStr.contains('stream') ||
           errorStr.contains('timeout');
 
-      _logger.logError(
-        message: '播放器错误${isSegmentError ? '(分片)' : ''}',
-        error: error,
-        stackTrace: StackTrace.current,
-        context: {'resourceId': _currentResourceId},
-      );
-
       if (isSegmentError) {
         print('⚠️ 分片加载失败，开始重试');
-        _retrySegmentLoad();
+        _retrySegmentLoad(); 
       }
     });
   }
 
-  /// 配置分片重试
+  /// 配置参数：开启 hr-seek (精确跳转)
   Future<void> _configureSegmentRetry() async {
     if (kIsWeb) return;
-
     try {
       final nativePlayer = player.platform as NativePlayer?;
       if (nativePlayer == null) return;
-
-      await nativePlayer.setProperty(
-        'stream-opts',
-        'reconnect=1:reconnect_streamed=1:reconnect_delay_max=10',
-      );
-
-      print('✅ 已配置分片重试');
+      
+      // 1. 重连策略
+      await nativePlayer.setProperty('stream-opts', 'reconnect=1:reconnect_streamed=1:reconnect_delay_max=10');
+      
+      // 2. 【关键】强制开启绝对精确跳转
+      // 'yes' 可能在某些情况下还是会吸附
+      // 'absolute' 强制播放器解码到准确时间戳
+      await nativePlayer.setProperty('hr-seek', 'absolute');
+      
     } catch (e) {
       print('⚠️ 配置失败: $e');
     }
   }
 
-  /// 分片加载失败时重新加载
   Future<void> _retrySegmentLoad() async {
     if (_isRecovering || currentQuality.value == null) return;
 
     if (_retryCount >= _maxRetryCount) {
-      print('❌ 已达到最大重试次数 ($_maxRetryCount)，停止重试');
+      print('❌ 已达到最大重试次数，停止重试');
       errorMessage.value = '网络连接失败，请检查网络后重试';
       isLoading.value = false;
       return;
@@ -213,9 +198,7 @@ class VideoPlayerController extends ChangeNotifier {
     final position = player.state.position;
 
     try {
-      print('🔄 分片加载失败，等待 30 秒后重新加载 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s');
-
-      // 等待 30 秒后重试，避免跳过失败的分片
+      print('🔄 分片重试 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s');
       await Future.delayed(const Duration(seconds: 30));
 
       final m3u8Content = await _hlsService.getHlsStreamContent(
@@ -224,7 +207,10 @@ class VideoPlayerController extends ChangeNotifier {
       );
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      await player.open(await Media.memory(m3u8Bytes), play: false);
+      // 修复：先 await
+      final media = await Media.memory(m3u8Bytes);
+      await player.open(media, play: false);
+      
       await _waitForPlayerReady();
       await player.seek(position);
 
@@ -235,9 +221,8 @@ class VideoPlayerController extends ChangeNotifier {
       print('✅ 重新加载成功');
       _retryCount = 0;
     } catch (e) {
-      print('❌ 重新加载失败 (第 $_retryCount/$_maxRetryCount 次): $e');
+      print('❌ 重试失败: $e');
       if (_retryCount < _maxRetryCount) {
-        // 失败后继续等待 30 秒再重试
         await Future.delayed(const Duration(seconds: 30));
         _isRecovering = false;
         _retrySegmentLoad();
@@ -260,19 +245,14 @@ class VideoPlayerController extends ChangeNotifier {
       final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      await player.open(await Media.memory(m3u8Bytes), play: false);
+      final media = await Media.memory(m3u8Bytes);
+      
+      // 初始加载可以使用 seek
+      await player.open(media, play: false);
       await _waitForPlayerReady();
 
       if (isInitialLoad && initialPosition != null) {
-        final initialDuration = Duration(seconds: initialPosition.toInt());
-        if (player.state.duration.inSeconds > 0 &&
-            initialDuration.inSeconds >= player.state.duration.inSeconds - 2) {
-          print('📺 检测到位置接近末尾，从头开始');
-          await player.seek(Duration.zero);
-          _hasTriggeredCompletion = false;
-        } else {
-          await player.seek(initialDuration);
-        }
+        await player.seek(Duration(seconds: initialPosition.toInt()));
       }
 
       if (!isSwitchingQuality.value) {
@@ -281,79 +261,53 @@ class VideoPlayerController extends ChangeNotifier {
 
       print('✅ 视频加载成功: $quality');
     } catch (e) {
-      _logger.logError(
-        message: '加载视频失败',
-        error: e,
-        stackTrace: StackTrace.current,
-        context: {'resourceId': _currentResourceId, 'quality': quality},
-      );
       rethrow;
     }
   }
 
-  /// 等待播放器准备就绪
-  Future<void> _waitForPlayerReady() async {
-    print('⏳ 等待播放器准备就绪...');
-
-    int bufferingCount = 0;
-    await for (final buffering in player.stream.buffering) {
-      if (buffering) {
-        bufferingCount++;
-        print('📦 正在缓冲... ($bufferingCount)');
-      } else {
-        print('✅ 缓冲完成');
-        break;
-      }
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    int waitCount = 0;
-    const maxWaitCount = 50;
-    while (player.state.duration.inSeconds <= 0 && waitCount < maxWaitCount) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      waitCount++;
-    }
-
-    if (player.state.duration.inSeconds > 0) {
-      print('📺 视频时长: ${player.state.duration.inSeconds}秒');
-    } else {
-      print('⚠️ 无法获取视频时长，继续播放');
-    }
-
-    print('🎬 播放器准备完成');
-  }
-
-  /// 切换清晰度
+  /// 切换清晰度 (修复跳进度核心逻辑)
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality || isSwitchingQuality.value) return;
 
     try {
       _hasTriggeredCompletion = false;
       isSwitchingQuality.value = true;
+      _isInternallySwitching = true; // 开启拦截锁
 
       print('🔄 切换清晰度: $quality');
 
       final wasPlaying = player.state.playing;
-      final pos1 = player.state.position;
+      // 记录精确位置
+      _lastKnownPosition = player.state.position;
+      print('📍 锚定位置: ${_lastKnownPosition.inSeconds}s (ms: ${_lastKnownPosition.inMilliseconds})');
 
       if (wasPlaying) {
         await player.pause();
-        await Future.delayed(const Duration(milliseconds: 100));
       }
-
-      final pos2 = player.state.position;
-      final targetPosition = pos1.inSeconds <= pos2.inSeconds ? pos1 : pos2;
-      print('📍 位置冻结: pos1=${pos1.inSeconds}s, pos2=${pos2.inSeconds}s, 使用=${targetPosition.inSeconds}s');
 
       final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      await player.open(await Media.memory(m3u8Bytes), play: false);
+      final media = await Media.memory(m3u8Bytes);
+      
+      // 【核心修复】
+      // 1. 不使用 extras: {'start': ...}，因为这可能导致吸附到最近的关键帧。
+      // 2. 先 open，加载元数据。
+      await player.open(media, play: false);
+
+      // 3. 等待元数据加载完成 (Duration > 0)
       await _waitForPlayerReady();
-      await player.seek(targetPosition);
-      await Future.delayed(const Duration(milliseconds: 200));
+      
+      // 4. 显式 Seek
+      // 因为开启了 hr-seek=absolute，这里的 seek 将会非常精确
+      await player.seek(_lastKnownPosition);
+      
+      // 5. 缓冲等待
+      // 给一点时间让缓冲区填充，避免播放瞬间画面卡顿
+      await Future.delayed(const Duration(milliseconds: 300));
 
       currentQuality.value = quality;
+      _isInternallySwitching = false; // 解除拦截锁
       isSwitchingQuality.value = false;
 
       await _savePreferredQuality(quality);
@@ -365,103 +319,66 @@ class VideoPlayerController extends ChangeNotifier {
       onQualityChanged?.call(quality);
       print('✅ 切换完成');
     } catch (e) {
+      _isInternallySwitching = false;
+      isSwitchingQuality.value = false;
       _logger.logError(
         message: '切换清晰度失败',
         error: e,
         stackTrace: StackTrace.current,
         context: {'quality': quality},
       );
-      isSwitchingQuality.value = false;
       rethrow;
     }
   }
 
-  /// 切换循环模式
+  // ============ 辅助方法 ============
+
+  Future<void> _waitForPlayerReady() async {
+    int waitCount = 0;
+    while (player.state.duration.inSeconds <= 0 && waitCount < 50) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      waitCount++;
+    }
+  }
+
   void toggleLoopMode() {
     final newMode = loopMode.value.toggle();
     _saveLoopMode(newMode);
   }
 
-  /// 播放
-  Future<void> play() async {
-    await player.play();
-  }
+  Future<void> play() async => await player.play();
+  Future<void> pause() async => await player.pause();
+  Future<void> seek(Duration position) async => await player.seek(position);
+  Future<void> setRate(double rate) async => await player.setRate(rate);
 
-  /// 暂停
-  Future<void> pause() async {
-    await player.pause();
-  }
-
-  /// 跳转到指定位置
-  Future<void> seek(Duration position) async {
-    await player.seek(position);
-  }
-
-  /// 设置播放速度
-  Future<void> setRate(double rate) async {
-    await player.setRate(rate);
-  }
-
-  /// 处理播放结束
   void _handlePlaybackEnd() {
-    print('🔁 播放结束，循环模式: ${loopMode.value.displayName}');
-
     switch (loopMode.value) {
       case LoopMode.on:
-        print('🔂 单集循环：重新播放');
-        _hasTriggeredCompletion = false;
         player.seek(Duration.zero);
         player.play();
         break;
       case LoopMode.off:
-        print('⏹️ 循环已关闭：停止播放');
         onVideoEnd?.call();
         break;
     }
   }
 
-  /// 处理应用生命周期变化
-  void handleAppLifecycleState(bool isPaused) {
-    if (isPaused) {
-      print('📱 应用进入后台');
-      if (!backgroundPlayEnabled.value) {
-        _wasPlayingBeforeBackground = player.state.playing;
-        if (_wasPlayingBeforeBackground) {
-          print('⏸️ 后台播放未启用，暂停播放');
-          player.pause();
-        }
-      } else {
-        print('▶️ 后台播放已启用，继续播放');
-      }
-    } else {
-      print('📱 应用返回前台');
-      if (!backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
-        print('▶️ 恢复播放');
-        player.play();
-        _wasPlayingBeforeBackground = false;
-      }
-    }
-  }
-
-  // ============ 偏好设置相关 ============
+  // ============ 偏好设置 ============
 
   Future<void> _loadLoopMode() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedMode = prefs.getString(_loopModeKey);
-    loopMode.value = LoopModeExtension.fromString(savedMode);
+    loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
   }
 
   Future<void> _saveLoopMode(LoopMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_loopModeKey, mode.toSavedString());
     loopMode.value = mode;
-    print('💾 已保存循环模式: ${mode.displayName}');
   }
 
   Future<void> _loadBackgroundPlaySetting() async {
     final prefs = await SharedPreferences.getInstance();
     backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
-    print('🔊 后台播放设置: ${backgroundPlayEnabled.value ? "启用" : "禁用"}');
   }
 
   Future<String> _getPreferredQuality(List<String> availableQualitiesList) async {
@@ -469,41 +386,25 @@ class VideoPlayerController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final preferredDisplayName = prefs.getString(_preferredQualityKey);
 
-      print('📝 清晰度偏好检查:');
-      print('   - 保存的偏好: $preferredDisplayName');
-      print('   - 可用清晰度: ${availableQualitiesList.map((q) => getQualityDisplayName(q)).toList()}');
-
       if (preferredDisplayName != null && preferredDisplayName.isNotEmpty) {
         for (final quality in availableQualitiesList) {
           if (getQualityDisplayName(quality) == preferredDisplayName) {
-            print('   ✅ 完全匹配: $quality ($preferredDisplayName)');
             return quality;
           }
         }
-
-        print('   ⚠️ 未找到完全匹配的 $preferredDisplayName，尝试降级匹配...');
         final fallbackQuality = _findFallbackQuality(preferredDisplayName, availableQualitiesList);
         if (fallbackQuality != null) {
-          print('   ✅ 降级匹配: $fallbackQuality (${getQualityDisplayName(fallbackQuality)})');
           return fallbackQuality;
         }
-      } else {
-        print('   ℹ️ 未找到保存的清晰度偏好（首次使用）');
       }
-
-      final defaultQuality = HlsService.getDefaultQuality(availableQualitiesList);
-      print('   📌 使用默认清晰度: $defaultQuality (${getQualityDisplayName(defaultQuality)})');
-      return defaultQuality;
+      return HlsService.getDefaultQuality(availableQualitiesList);
     } catch (e) {
-      print('⚠️ 读取清晰度偏好失败: $e');
       return HlsService.getDefaultQuality(availableQualitiesList);
     }
   }
 
   String? _findFallbackQuality(String preferredDisplayName, List<String> availableQualitiesList) {
     final fallbackOrder = _getFallbackOrder(preferredDisplayName);
-    print('   降级顺序: ${fallbackOrder.join(" → ")}');
-
     for (final fallbackName in fallbackOrder) {
       for (final quality in availableQualitiesList) {
         if (getQualityDisplayName(quality) == fallbackName) {
@@ -526,7 +427,6 @@ class VideoPlayerController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final displayName = getQualityDisplayName(quality);
       await prefs.setString(_preferredQualityKey, displayName);
-      print('💾 已保存全局清晰度偏好: $displayName');
     } catch (e) {
       print('⚠️ 保存清晰度偏好失败: $e');
     }
@@ -624,9 +524,24 @@ class VideoPlayerController extends ChangeNotifier {
     return quality;
   }
 
+  void handleAppLifecycleState(bool isPaused) {
+    if (isPaused) {
+      if (!backgroundPlayEnabled.value) {
+        _wasPlayingBeforeBackground = player.state.playing;
+        if (_wasPlayingBeforeBackground) player.pause();
+      }
+    } else {
+      if (!backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
+        player.play();
+        _wasPlayingBeforeBackground = false;
+      }
+    }
+  }
+
   @override
   void dispose() {
     print('📹 [VideoPlayerController] 销毁控制器');
+    _positionStreamController.close();
     player.dispose();
     availableQualities.dispose();
     currentQuality.dispose();

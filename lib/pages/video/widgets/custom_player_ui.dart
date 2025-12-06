@@ -3,15 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
 
-/// 自定义播放器 UI (V8 细节微调版)
+/// 自定义播放器 UI (V8 完整版)
 ///
-/// 修改记录：
-/// 1. 切换清晰度时，隐藏中间播放按钮，防止图标重叠和误触。
-/// 2. 清晰度加载提示 UI：背景透明度增加 (alpha 0.5)。
-/// 3. 保持 V7 的所有逻辑（右对齐、手势灵敏度、防溢出）。
+/// 包含修改：
+/// 1. 进度条 Stream 监听 `logic.positionStream` (防跳变关键)。
+/// 2. 清晰度切换时隐藏播放按钮。
+/// 3. 清晰度 UI 更透明。
+/// 4. 面板右对齐、手势优化等所有累积修复。
 class CustomPlayerUI extends StatefulWidget {
-  final VideoController controller;      // media_kit 的渲染控制器
-  final VideoPlayerController logic;     // 业务逻辑控制器
+  final VideoController controller;      
+  final VideoPlayerController logic;     
   final String title;
   final VoidCallback? onBack;
 
@@ -29,9 +30,9 @@ class CustomPlayerUI extends StatefulWidget {
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> {
   // ============ UI 状态 ============
-  bool _showControls = true; // 是否显示控制栏
-  bool _isLocked = false;    // 是否锁定手势
-  Timer? _hideTimer;         // 自动隐藏计时器
+  bool _showControls = true; 
+  bool _isLocked = false;    
+  Timer? _hideTimer;         
 
   // ============ 手势反馈 ============
   bool _showFeedback = false;
@@ -41,15 +42,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   // ============ 拖拽逻辑 ============
   Offset _dragStartPos = Offset.zero;
-  int _gestureType = 0; // 0:无, 1:音量, 2:亮度, 3:进度
+  int _gestureType = 0; 
   
-  // 亮度状态 (用于遮罩)
   double _playerBrightness = 1.0; 
-  
-  // 拖拽起始快照
   double _startVolumeSnapshot = 1.0;
   double _startBrightnessSnapshot = 1.0;
-  
   Duration _seekPos = Duration.zero;
 
   // ============ 长按倍速 ============
@@ -97,7 +94,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_showControls) _startHideTimer();
   }
 
-  /// 切换清晰度面板显示（计算位置）
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
@@ -112,12 +108,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
         final Size overlaySize = overlayBox.size;
 
         setState(() {
-          // 计算右边距，直接对齐按钮右侧
+          // 右对齐
           double distFromRight = overlaySize.width - (buttonPos.dx + buttonSize.width);
-          
           _panelRight = distFromRight.clamp(0.0, overlaySize.width);
-          _panelBottom = overlaySize.height - buttonPos.dy + 4;
           
+          _panelBottom = overlaySize.height - buttonPos.dy + 4;
           _showQualityPanel = true;
         });
         _hideTimer?.cancel();
@@ -132,7 +127,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); 
     
-    // 记录快照
     _startVolumeSnapshot = widget.controller.player.state.volume / 100.0;
     _startBrightnessSnapshot = _playerBrightness;
   }
@@ -151,24 +145,21 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       }
     }
 
-    // 统一灵敏度
     const double sensitivity = 600.0;
 
     if (_gestureType == 1) {
-      // === 音量调节 ===
       final val = (_startVolumeSnapshot - delta.dy / sensitivity).clamp(0.0, 1.0);
       widget.controller.player.setVolume(val * 100); 
       _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
 
     } else if (_gestureType == 2) {
-      // === 亮度调节 (灵敏度 1200) ===
+      // 亮度调节 (灵敏度 1200)
       final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0);
       _playerBrightness = val; 
       setState(() {}); 
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
 
     } else if (_gestureType == 3) {
-      // === 进度调节 ===
       final total = widget.controller.player.state.duration.inSeconds;
       final current = widget.controller.player.state.position.inSeconds;
       final seekDelta = (delta.dx / width) * 90; 
@@ -273,7 +264,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Layer 1: 手势检测层
+                  // 1. 手势检测层
                   GestureDetector(
                     behavior: HitTestBehavior.translucent,
                     onTap: _toggleControls,
@@ -289,7 +280,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     child: Container(color: Colors.transparent),
                   ),
 
-                  // Layer 1.5: 软件亮度模拟层
+                  // 1.5 亮度遮罩
                   if (_playerBrightness < 1.0)
                     IgnorePointer(
                       child: Container(
@@ -297,7 +288,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                       ),
                     ),
 
-                  // Layer 2: 锁定按钮
+                  // 2. 锁定按钮
                   if (_isLocked && !_showControls)
                     Align(
                       alignment: Alignment.centerLeft,
@@ -320,7 +311,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                       ),
                     ),
 
-                  // Layer 3: 手势反馈层
+                  // 3. 手势反馈
                   if (_showFeedback)
                     Center(
                       child: Container(
@@ -360,7 +351,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                       ),
                     ),
 
-                  // Layer 4: UI 控制层
+                  // 4. 控制 UI
                   IgnorePointer(
                     ignoring: !_showControls, 
                     child: AnimatedOpacity(
@@ -377,7 +368,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     ),
                   ),
 
-                  // Layer 5: 清晰度切换加载指示器
+                  // 5. 清晰度加载 (透明度0.5)
                   ValueListenableBuilder<bool>(
                     valueListenable: widget.logic.isSwitchingQuality,
                     builder: (context, isSwitching, _) {
@@ -386,8 +377,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            // 修改：更透明的背景 (0.5)
-                            color: Colors.black.withValues(alpha: 0.5),
+                            color: Colors.black.withValues(alpha: 0.5), // 更透
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Row(
@@ -410,7 +400,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     },
                   ),
 
-                  // Layer 6: 清晰度选择面板
+                  // 6. 清晰度面板
                   if (_showQualityPanel && _showControls && _panelRight != null)
                     _buildQualityPanel(),
                 ],
@@ -494,12 +484,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     );
   }
 
-  // 修改：构建中间播放/暂停按钮 (防止与清晰度加载重叠)
   Widget _buildCenterPlayButton() {
+    // 【关键】增加监听：切换清晰度时不显示播放按钮
     return ValueListenableBuilder<bool>(
       valueListenable: widget.logic.isSwitchingQuality,
       builder: (context, isSwitching, _) {
-        // 如果正在切换清晰度，隐藏中间播放按钮，避免图标重叠
         if (isSwitching) return const SizedBox.shrink();
 
         return Center(
@@ -636,8 +625,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   }
 
   Widget _buildCompactProgressBar() {
+    // 【关键修改】使用 widget.logic.positionStream 而不是原生的 player stream
+    // 这样在切换清晰度时，可以接收到 Controller 发送的"静止"位置，防止跳变
     return StreamBuilder<Duration>(
-      stream: widget.controller.player.stream.position,
+      stream: widget.logic.positionStream, 
       builder: (context, snapshot) {
         final pos = snapshot.data ?? Duration.zero;
         final dur = widget.controller.player.state.duration;
