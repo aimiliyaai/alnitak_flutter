@@ -44,7 +44,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   double? _feedbackValue; // 0.0 - 1.0 (音量/亮度进度条)
 
   // ============ 拖拽逻辑 ============
-  bool _isDragging = false;
   Offset _dragStartPos = Offset.zero;
   double _startVolume = 0.0;
   double _startBrightness = 0.5;
@@ -85,7 +84,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   Future<void> _onDragStart(DragStartDetails details, double width) async {
     if (_isLocked) return;
-    _isDragging = true;
     _dragStartPos = details.localPosition;
     setState(() => _showControls = false); // 拖拽时隐藏 UI 防遮挡
 
@@ -137,7 +135,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       final sign = diff > 0 ? '+' : '';
       _showFeedbackUI(
         diff > 0 ? Icons.fast_forward : Icons.fast_rewind,
-        '${_formatDuration(_seekPos)} / ${_formatDuration(widget.controller.player.state.duration)}\n($sign${diff}秒)',
+        '${_formatDuration(_seekPos)} / ${_formatDuration(widget.controller.player.state.duration)}\n($sign$diff秒)',
         null,
       );
     }
@@ -147,7 +145,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_gestureType == 3) {
       widget.controller.player.seek(_seekPos);
     }
-    _isDragging = false;
     _gestureType = 0;
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) setState(() => _showFeedback = false);
@@ -251,7 +248,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                     },
                     icon: const Icon(Icons.lock_outline, color: Colors.white, size: 24),
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.black.withOpacity(0.5),
+                      backgroundColor: Colors.black.withValues(alpha: 0.5),
                       padding: const EdgeInsets.all(12),
                     ),
                   ),
@@ -266,7 +263,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
+                    color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -291,7 +288,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                           child: LinearProgressIndicator(
                             value: _feedbackValue,
                             color: Colors.blue,
-                            backgroundColor: Colors.white.withOpacity(0.3),
+                            backgroundColor: Colors.white.withValues(alpha: 0.3),
                           ),
                         ),
                       ],
@@ -377,7 +374,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.black.withOpacity(0.6), Colors.transparent],
+            colors: [Colors.black.withValues(alpha: 0.6), Colors.transparent],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -432,7 +429,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
             }
           },
           style: IconButton.styleFrom(
-            backgroundColor: Colors.black.withOpacity(0.5),
+            backgroundColor: Colors.black.withValues(alpha: 0.5),
             padding: const EdgeInsets.all(12),
           ),
         ),
@@ -454,7 +451,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
             iconSize: 64,
             icon: Icon(
               Icons.play_circle_fill,
-              color: Colors.white.withOpacity(0.9),
+              color: Colors.white.withValues(alpha: 0.9),
             ),
             onPressed: () {
               widget.controller.player.play();
@@ -476,7 +473,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.transparent, Colors.black.withOpacity(0.6)],
+            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.6)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -537,10 +534,22 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
               ),
 
               // 全屏按钮
-              IconButton(
-                icon: const Icon(Icons.fullscreen, color: Colors.white, size: 24),
-                onPressed: () {
-                  // media_kit 会自动处理全屏逻辑
+              Builder(
+                builder: (context) {
+                  final fullscreen = isFullscreen(context);
+                  return IconButton(
+                    icon: Icon(
+                      fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    onPressed: () async {
+                      await toggleFullscreen(context);
+                      if (mounted) {
+                        _startHideTimer();
+                      }
+                    },
+                  );
                 },
               ),
             ],
@@ -550,8 +559,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     );
   }
 
-  /// 构建进度条行
-  Widget _buildProgressRow() {
+  /// 构建紧凑版进度条（带时间显示）
+  Widget _buildCompactProgressBar() {
     return StreamBuilder<Duration>(
       stream: widget.controller.player.stream.position,
       builder: (context, snapshot) {
@@ -564,8 +573,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
             // 当前时间
             Text(
               _formatDuration(pos),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              style: const TextStyle(color: Colors.white, fontSize: 11),
             ),
+            const SizedBox(width: 8),
 
             // 进度条
             Expanded(
@@ -575,9 +585,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                   activeTrackColor: Colors.blue,
-                  inactiveTrackColor: Colors.white.withOpacity(0.3),
+                  inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
                   thumbColor: Colors.white,
-                  secondaryActiveTrackColor: Colors.white.withOpacity(0.5), // 缓冲进度颜色
+                  secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.5),
                 ),
                 child: Slider(
                   value: pos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
@@ -586,129 +596,21 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                   secondaryTrackValue: bufferDur.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
                   onChanged: (v) {
                     widget.controller.player.seek(Duration(seconds: v.toInt()));
-                    _startHideTimer(); // 拖动时重置隐藏计时
+                    _startHideTimer();
                   },
                 ),
               ),
             ),
 
+            const SizedBox(width: 8),
             // 总时长
             Text(
               _formatDuration(dur),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              style: const TextStyle(color: Colors.white, fontSize: 11),
             ),
           ],
         );
       },
-    );
-  }
-
-  /// 构建紧凑版进度条（仅滑块，无时间显示）
-  Widget _buildCompactProgressBar() {
-    return StreamBuilder<Duration>(
-      stream: widget.controller.player.stream.position,
-      builder: (context, snapshot) {
-        final pos = snapshot.data ?? Duration.zero;
-        final dur = widget.controller.player.state.duration;
-        final bufferDur = widget.controller.player.state.buffer;
-
-        return SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 3.5,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-            activeTrackColor: Colors.blue,
-            inactiveTrackColor: Colors.white.withOpacity(0.3),
-            thumbColor: Colors.white,
-            secondaryActiveTrackColor: Colors.white.withOpacity(0.5),
-          ),
-          child: Slider(
-            value: pos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
-            min: 0,
-            max: dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0,
-            secondaryTrackValue: bufferDur.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
-            onChanged: (v) {
-              widget.controller.player.seek(Duration(seconds: v.toInt()));
-              _startHideTimer();
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  /// 构建功能按钮行
-  Widget _buildButtonRow() {
-    return Row(
-      children: [
-        // 播放/暂停按钮
-        StreamBuilder<bool>(
-          stream: widget.controller.player.stream.playing,
-          builder: (context, snapshot) {
-            final playing = snapshot.data ?? widget.controller.player.state.playing;
-            return IconButton(
-              icon: Icon(
-                playing ? Icons.pause : Icons.play_arrow,
-                color: Colors.white,
-                size: 24,
-              ),
-              onPressed: () {
-                widget.controller.player.playOrPause();
-                _startHideTimer();
-              },
-            );
-          },
-        ),
-
-        const Spacer(),
-
-        // 清晰度按钮
-        ValueListenableBuilder<List<String>>(
-          valueListenable: widget.logic.availableQualities,
-          builder: (context, qualities, _) {
-            if (qualities.length <= 1) return const SizedBox.shrink();
-
-            return ValueListenableBuilder<String?>(
-              valueListenable: widget.logic.currentQuality,
-              builder: (context, currentQuality, _) {
-                return TextButton(
-                  onPressed: () => _showQualityDialog(),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        currentQuality != null
-                          ? widget.logic.getQualityDisplayName(currentQuality)
-                          : '画质',
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.arrow_drop_down, size: 18),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        ),
-
-        const SizedBox(width: 8),
-
-        // 全屏按钮
-        IconButton(
-          icon: const Icon(Icons.fullscreen, color: Colors.white, size: 24),
-          onPressed: () {
-            // media_kit 会自动处理全屏逻辑
-            // 如果需要自定义全屏逻辑，可以在这里调用
-          },
-        ),
-      ],
     );
   }
 
