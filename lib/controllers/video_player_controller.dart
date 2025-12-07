@@ -8,12 +8,12 @@ import '../services/hls_service.dart';
 import '../services/logger_service.dart';
 import '../models/loop_mode.dart';
 
-/// 视频播放器控制器
+/// 视频播放器控制器 (V_Final_Fixed)
 ///
 /// 修复记录：
-/// 1. 修复清晰度切换时的"跳分片"问题 (10秒偏差)。
-/// 2. 移除 open(start) 参数，改为显式 seek。
-/// 3. 强制 hr-seek 策略为 absolute，确保 HLS 时间轴精准对齐。
+/// 1. 编译错误修复：Media.memory 改为 await 调用，移除非法的 extras 参数。
+/// 2. 并发控制：使用防抖 (Debounce) + 版本号 (Epoch) 机制，完美处理高频切换。
+/// 3. 进度跳变修复：使用 hr-seek=absolute 配置 + 锚点锁定 (Anchor Position)。
 class VideoPlayerController extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
   final LoggerService _logger = LoggerService.instance;
@@ -31,9 +31,15 @@ class VideoPlayerController extends ChangeNotifier {
   final ValueNotifier<LoopMode> loopMode = ValueNotifier(LoopMode.off);
   final ValueNotifier<bool> backgroundPlayEnabled = ValueNotifier(false);
 
-  // ============ 自定义进度流 (防止 UI 跳变) ============
+  // ============ 自定义进度流 (防跳变) ============
   final StreamController<Duration> _positionStreamController = StreamController.broadcast();
   Stream<Duration> get positionStream => _positionStreamController.stream;
+
+  // ============ 核心并发控制变量 ============
+  Timer? _debounceTimer;          // 防抖计时器
+  int _switchEpoch = 0;           // 版本号 (每点击一次+1)
+  Duration? _anchorPosition;      // 锚定位置 (连续点击期间保持不变)
+  bool _isFreezingPosition = false; // 是否正在冻结进度流
 
   // ============ 内部状态 ============
   bool _hasTriggeredCompletion = false;
@@ -44,10 +50,6 @@ class VideoPlayerController extends ChangeNotifier {
   static const int _maxRetryCount = 5;
   
   bool _wasPlayingBeforeBackground = false;
-  
-  // 切换清晰度状态锁
-  bool _isInternallySwitching = false;
-  Duration _lastKnownPosition = Duration.zero;
 
   // SharedPreferences Keys
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
@@ -85,7 +87,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       await _loadLoopMode();
       await _loadBackgroundPlaySetting();
-      await _configureSegmentRetry();
+      await _configurePlayerProperties();
 
       availableQualities.value = await _hlsService.getAvailableQualities(resourceId);
 
@@ -119,11 +121,11 @@ class VideoPlayerController extends ChangeNotifier {
   void _setupPlayerListeners() {
     // 1. 进度监听
     player.stream.position.listen((position) {
-      if (_isInternallySwitching) {
-        _positionStreamController.add(_lastKnownPosition);
+      // 如果处于冻结状态（切换中），发送锚点位置，而不是真实位置
+      if (_isFreezingPosition && _anchorPosition != null) {
+        _positionStreamController.add(_anchorPosition!);
         return;
       }
-      _lastKnownPosition = position;
       _positionStreamController.add(position);
       
       if (!isSwitchingQuality.value) {
@@ -133,7 +135,8 @@ class VideoPlayerController extends ChangeNotifier {
 
     // 2. 完播监听
     player.stream.completed.listen((completed) {
-      if (completed && !_hasTriggeredCompletion && !_isInternallySwitching) {
+      // 切换期间忽略 completed 事件
+      if (completed && !_hasTriggeredCompletion && !_isFreezingPosition) {
         _hasTriggeredCompletion = true;
         _handlePlaybackEnd();
       }
@@ -163,25 +166,107 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-  /// 配置参数：开启 hr-seek (精确跳转)
-  Future<void> _configureSegmentRetry() async {
+  /// 配置播放器属性 (关键修复)
+  Future<void> _configurePlayerProperties() async {
     if (kIsWeb) return;
     try {
       final nativePlayer = player.platform as NativePlayer?;
       if (nativePlayer == null) return;
       
-      // 1. 重连策略
+      // 1. 设置 HLS 重连策略
       await nativePlayer.setProperty('stream-opts', 'reconnect=1:reconnect_streamed=1:reconnect_delay_max=10');
       
       // 2. 【关键】强制开启绝对精确跳转
-      // 'yes' 可能在某些情况下还是会吸附
-      // 'absolute' 强制播放器解码到准确时间戳
+      // 只有开启这个，先 open 后 seek 才能精确到毫秒，不会跳到下一个分片
       await nativePlayer.setProperty('hr-seek', 'absolute');
       
     } catch (e) {
       print('⚠️ 配置失败: $e');
     }
   }
+
+  // ============ 核心：防抖切换清晰度 ============
+  
+  Future<void> changeQuality(String quality) async {
+    if (currentQuality.value == quality) return;
+
+    // 1. 取消上一次未执行的切换任务
+    _debounceTimer?.cancel();
+    
+    // 2. 版本号递增 (标记这是最新的操作)
+    _switchEpoch++;
+    final int myEpoch = _switchEpoch;
+
+    // 3. 【关键】锁定锚点位置
+    // 只有当 _anchorPosition 为空时才记录（说明这是连续点击的第一下）
+    // 如果不为空，说明还在之前的切换流程中，保持原锚点不变
+    _anchorPosition ??= player.state.position;
+    
+    // 开启 UI 冻结状态
+    isSwitchingQuality.value = true;
+    _isFreezingPosition = true;
+
+    print('⏳ 准备切换: $quality (Epoch: $myEpoch) 锚点: ${_anchorPosition!.inSeconds}s');
+
+    // 4. 启动防抖计时器 (400ms)
+    // 如果用户在 400ms 内狂点，之前的 timer 会被 cancel，只有最后一次会执行
+    _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
+      // 双重检查：如果当前版本号不等于最新版本号，说明被插队了，直接废弃
+      if (myEpoch != _switchEpoch) return;
+
+      try {
+        await _performSwitch(quality, _anchorPosition!);
+      } catch (e) {
+        _logger.logError(message: '切换失败', error: e, context: {'quality': quality});
+        // 出错恢复状态
+        _isFreezingPosition = false;
+        isSwitchingQuality.value = false;
+        _anchorPosition = null;
+      }
+    });
+  }
+
+  /// 执行真正的切换逻辑 (私有方法)
+  Future<void> _performSwitch(String quality, Duration seekPos) async {
+    print('🚀 开始执行切换: $quality -> 位置: ${seekPos.inSeconds}s');
+    
+    final wasPlaying = player.state.playing;
+    if (wasPlaying) await player.pause();
+
+    final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
+    final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+
+    // 【修复】await Media.memory，且不传 extras
+    final media = await Media.memory(m3u8Bytes);
+    
+    await player.open(media, play: false);
+
+    // 等待加载就绪
+    await _waitForPlayerReady();
+    
+    // 显式 Seek (因为开启了 hr-seek=absolute，这里会非常准)
+    await player.seek(seekPos);
+    
+    // 缓冲等待 (防止画面闪烁)
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 更新状态
+    currentQuality.value = quality;
+    await _savePreferredQuality(quality);
+
+    // 解除冻结
+    _isFreezingPosition = false;
+    isSwitchingQuality.value = false;
+    // 【关键】清空锚点，为下一次全新的切换做准备
+    _anchorPosition = null;
+
+    if (wasPlaying) await player.play();
+    onQualityChanged?.call(quality);
+    
+    print('✅ 切换完成');
+  }
+
+  // ============ 基础加载与重试逻辑 ============
 
   Future<void> _retrySegmentLoad() async {
     if (_isRecovering || currentQuality.value == null) return;
@@ -207,7 +292,7 @@ class VideoPlayerController extends ChangeNotifier {
       );
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      // 修复：先 await
+      // 【修复】await Media.memory
       final media = await Media.memory(m3u8Bytes);
       await player.open(media, play: false);
       
@@ -237,7 +322,6 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 加载视频
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
       _hasTriggeredCompletion = false;
@@ -245,18 +329,15 @@ class VideoPlayerController extends ChangeNotifier {
       final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
+      // 【修复】await Media.memory
       final media = await Media.memory(m3u8Bytes);
       
-      // 初始加载可以使用 seek
-      await player.open(media, play: false);
+      await player.open(media, play: !isSwitchingQuality.value);
+      
       await _waitForPlayerReady();
 
       if (isInitialLoad && initialPosition != null) {
         await player.seek(Duration(seconds: initialPosition.toInt()));
-      }
-
-      if (!isSwitchingQuality.value) {
-        await player.play();
       }
 
       print('✅ 视频加载成功: $quality');
@@ -265,74 +346,6 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 切换清晰度 (修复跳进度核心逻辑)
-  Future<void> changeQuality(String quality) async {
-    if (currentQuality.value == quality || isSwitchingQuality.value) return;
-
-    try {
-      _hasTriggeredCompletion = false;
-      isSwitchingQuality.value = true;
-      _isInternallySwitching = true; // 开启拦截锁
-
-      print('🔄 切换清晰度: $quality');
-
-      final wasPlaying = player.state.playing;
-      // 记录精确位置
-      _lastKnownPosition = player.state.position;
-      print('📍 锚定位置: ${_lastKnownPosition.inSeconds}s (ms: ${_lastKnownPosition.inMilliseconds})');
-
-      if (wasPlaying) {
-        await player.pause();
-      }
-
-      final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
-      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
-
-      final media = await Media.memory(m3u8Bytes);
-      
-      // 【核心修复】
-      // 1. 不使用 extras: {'start': ...}，因为这可能导致吸附到最近的关键帧。
-      // 2. 先 open，加载元数据。
-      await player.open(media, play: false);
-
-      // 3. 等待元数据加载完成 (Duration > 0)
-      await _waitForPlayerReady();
-      
-      // 4. 显式 Seek
-      // 因为开启了 hr-seek=absolute，这里的 seek 将会非常精确
-      await player.seek(_lastKnownPosition);
-      
-      // 5. 缓冲等待
-      // 给一点时间让缓冲区填充，避免播放瞬间画面卡顿
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      currentQuality.value = quality;
-      _isInternallySwitching = false; // 解除拦截锁
-      isSwitchingQuality.value = false;
-
-      await _savePreferredQuality(quality);
-
-      if (wasPlaying) {
-        await player.play();
-      }
-
-      onQualityChanged?.call(quality);
-      print('✅ 切换完成');
-    } catch (e) {
-      _isInternallySwitching = false;
-      isSwitchingQuality.value = false;
-      _logger.logError(
-        message: '切换清晰度失败',
-        error: e,
-        stackTrace: StackTrace.current,
-        context: {'quality': quality},
-      );
-      rethrow;
-    }
-  }
-
-  // ============ 辅助方法 ============
-
   Future<void> _waitForPlayerReady() async {
     int waitCount = 0;
     while (player.state.duration.inSeconds <= 0 && waitCount < 50) {
@@ -340,6 +353,8 @@ class VideoPlayerController extends ChangeNotifier {
       waitCount++;
     }
   }
+
+  // ============ 播放控制 ============
 
   void toggleLoopMode() {
     final newMode = loopMode.value.toggle();
@@ -363,7 +378,7 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  // ============ 偏好设置 ============
+  // ============ 偏好设置与辅助方法 ============
 
   Future<void> _loadLoopMode() async {
     final prefs = await SharedPreferences.getInstance();
@@ -431,8 +446,6 @@ class VideoPlayerController extends ChangeNotifier {
       print('⚠️ 保存清晰度偏好失败: $e');
     }
   }
-
-  // ============ 工具方法 ============
 
   List<String> _sortQualitiesDescending(List<String> qualities) {
     final sorted = List<String>.from(qualities);
@@ -540,7 +553,7 @@ class VideoPlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    print('📹 [VideoPlayerController] 销毁控制器');
+    _debounceTimer?.cancel();
     _positionStreamController.close();
     player.dispose();
     availableQualities.dispose();
