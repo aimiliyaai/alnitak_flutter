@@ -4,9 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:audio_service/audio_service.dart';
 import '../services/hls_service.dart';
 import '../services/logger_service.dart';
+import '../services/audio_service_handler.dart';
 import '../models/loop_mode.dart';
+import '../utils/wakelock_manager.dart';
 
 /// 视频播放器控制器 (V_Final_Fixed_PauseLogic)
 ///
@@ -18,6 +21,9 @@ class VideoPlayerController extends ChangeNotifier {
   final LoggerService _logger = LoggerService.instance;
   late final Player player;
   late final VideoController videoController;
+
+  // AudioService Handler (后台播放)
+  VideoAudioHandler? _audioHandler;
 
   // ============ 状态 Notifiers ============
   final ValueNotifier<List<String>> availableQualities = ValueNotifier([]);
@@ -45,6 +51,7 @@ class VideoPlayerController extends ChangeNotifier {
   int _retryCount = 0;
   static const int _maxRetryCount = 5;
   bool _wasPlayingBeforeBackground = false;
+  StreamSubscription<bool>? _playingSubscription;
 
   // SharedPreferences Keys
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
@@ -135,10 +142,21 @@ class VideoPlayerController extends ChangeNotifier {
       }
     });
 
-    // 3. 播放状态监听
-    player.stream.playing.listen((playing) {
+    // 3. 播放状态监听 + Wakelock 控制
+    _playingSubscription = player.stream.playing.listen((playing) {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
+      }
+
+      // Wakelock 控制：播放时保持屏幕常亮
+      // 使用原生平台 API 实现
+      if (playing) {
+        WakelockManager.enable();
+      } else {
+        // 只有在不切换清晰度时才禁用 wakelock
+        if (!isSwitchingQuality.value) {
+          WakelockManager.disable();
+        }
       }
     });
 
@@ -569,22 +587,70 @@ class VideoPlayerController extends ChangeNotifier {
 
   void handleAppLifecycleState(bool isPaused) {
     if (isPaused) {
-      if (!backgroundPlayEnabled.value) {
+      // 进入后台
+      if (backgroundPlayEnabled.value) {
+        // 启用后台播放
+        _enableBackgroundPlayback();
+      } else {
+        // 暂停播放
         _wasPlayingBeforeBackground = player.state.playing;
         if (_wasPlayingBeforeBackground) player.pause();
       }
     } else {
-      if (!backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
+      // 返回前台
+      if (backgroundPlayEnabled.value) {
+        // 禁用后台播放 (回到前台使用正常的视频渲染)
+        _disableBackgroundPlayback();
+      } else if (_wasPlayingBeforeBackground) {
+        // 恢复播放
         player.play();
         _wasPlayingBeforeBackground = false;
       }
     }
   }
 
+  /// 启用后台播放
+  Future<void> _enableBackgroundPlayback() async {
+    _audioHandler ??= await AudioService.init(
+      builder: () => VideoAudioHandler(player),
+      config: const AudioServiceConfig(
+        androidNotificationChannelId: 'com.alnitak.video_playback',
+        androidNotificationChannelName: '视频播放',
+        androidNotificationOngoing: false,
+        androidStopForegroundOnPause: true,
+      ),
+    );
+
+    // 更新播放信息
+    _audioHandler?.setMediaItem(
+      title: '视频播放', // 可以从视频元数据获取
+      artist: '',
+      duration: player.state.duration,
+    );
+
+    _audioHandler?.updatePlaybackState(
+      playing: player.state.playing,
+      position: player.state.position,
+    );
+
+    debugPrint('🎵 [AudioService] 后台播放已启用');
+  }
+
+  /// 禁用后台播放
+  Future<void> _disableBackgroundPlayback() async {
+    // AudioService 会自动处理，无需手动停止
+    debugPrint('🎵 [AudioService] 返回前台');
+  }
+
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _playingSubscription?.cancel();
     _positionStreamController.close();
+
+    // 清理时禁用 wakelock
+    WakelockManager.disable();
+
     player.dispose();
     availableQualities.dispose();
     currentQuality.dispose();

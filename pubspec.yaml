@@ -52,6 +52,8 @@ dependencies:
   package_info_plus: ^4.0.0
   url_launcher: ^6.1.0
   wakelock_plus: ^1.1.6
+  # 后台播放
+  audio_service: ^0.18.12
   # 系统控制
   screen_brightness: ^2.1.7
   volume_controller: ^3.4.0

@@ -30,8 +30,8 @@ class CustomPlayerUI extends StatefulWidget {
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> {
   // ============ UI 状态 ============
-  bool _showControls = true; 
-  bool _isLocked = false;    
+  bool _showControls = true;
+  bool _isLocked = false;
   Timer? _hideTimer;         
 
   // ============ 手势反馈 ============
@@ -63,7 +63,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   void initState() {
     super.initState();
     _startHideTimer();
-    _playerBrightness = 1.0; 
+    _playerBrightness = 1.0;
   }
 
   @override
@@ -94,32 +94,58 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (_showControls) _startHideTimer();
   }
 
+  // 💡 修复后的 _toggleQualityPanel 逻辑
+  // 在 _CustomPlayerUIState 类中:
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
       _startHideTimer();
     } else {
       final RenderBox? buttonBox = _qualityButtonKey.currentContext?.findRenderObject() as RenderBox?;
-      final RenderBox? overlayBox = context.findRenderObject() as RenderBox?;
 
-      if (buttonBox != null && overlayBox != null) {
-        final Offset buttonPos = buttonBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-        final Size buttonSize = buttonBox.size;
-        final Size overlaySize = overlayBox.size;
+      if (buttonBox != null) {
+        final bool isFull = isFullscreen(context);
 
-        setState(() {
-          // 右对齐
-          double distFromRight = overlaySize.width - (buttonPos.dx + buttonSize.width);
-          _panelRight = distFromRight.clamp(0.0, overlaySize.width);
-          
-          _panelBottom = overlaySize.height - buttonPos.dy + 4;
-          _showQualityPanel = true;
-        });
-        _hideTimer?.cancel();
-      }
+      final Offset buttonGlobalPos = buttonBox.localToGlobal(Offset.zero);
+      final Size buttonSize = buttonBox.size;
+      final Size overlaySize = (context.findRenderObject() as RenderBox).size;
+      
+      setState(() {
+        // ==================== 1. 水平调整 (Right) ====================
+        // 目标：向右移动 10 像素。需要减小 _panelRight 的值。
+        
+        // 计算原始的右对齐距离 (面板右边缘对齐按钮右边缘)
+        double distFromRight = overlaySize.width - (buttonGlobalPos.dx + buttonSize.width);
+        
+        // 【修改 1】：减去 10.0，使面板向右边缘移动 10 像素。
+        _panelRight = distFromRight.clamp(0.0, overlaySize.width) - 15.0;
+
+
+        // ==================== 2. 垂直调整 (Bottom) ====================
+        
+        // 按钮底部到屏幕底部的距离 (即底部控制栏底部到屏幕底部的距离)
+        double buttonBottomToScreenBottom = overlaySize.height - (buttonGlobalPos.dy + buttonSize.height);
+        
+        double verticalOffset;
+        
+        if (isFull) {
+          // 【全屏模式】太低，需要往高调整一点（增大 bottom 值）。
+          // 全屏时底部控制栏可能紧贴屏幕边缘。加大偏移量避免面板被截断。
+          // 抬高约 30 像素，确保有足够空间。
+          verticalOffset = buttonBottomToScreenBottom + 30.0; 
+        } else {
+          // 【非全屏模式】还好/太高，需要往低调整一点（减小 bottom 值）。
+          // 此时底部安全区已经使控制栏抬高。贴着按钮底部向上留 1\55 像素的间距。
+          verticalOffset = buttonBottomToScreenBottom + 55.0; 
+        }
+
+        _panelBottom = verticalOffset;
+        _showQualityPanel = true;
+      });
+      _hideTimer?.cancel();
     }
   }
-
+}
   // ============ 手势处理逻辑 ============
 
   void _onDragStart(DragStartDetails details, double width) {
