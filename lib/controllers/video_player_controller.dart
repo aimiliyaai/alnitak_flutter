@@ -67,17 +67,13 @@ class VideoPlayerController extends ChangeNotifier {
 
   VideoPlayerController() {
     player = Player(
-      configuration: PlayerConfiguration(
+      configuration: const PlayerConfiguration(
         title: '',
         bufferSize: 32 * 1024 * 1024,
         logLevel: MPVLogLevel.warn,
-        // 网络参数优化：确保弱网环境下也能加载分片
-        muted: false,
-        // libmpv 参数：网络重试和超时设置
-        osc: false,
-        // MPV 网络选项
       ),
     );
+
     videoController = VideoController(player);
     _setupPlayerListeners();
   }
@@ -153,15 +149,12 @@ class VideoPlayerController extends ChangeNotifier {
         _hasTriggeredCompletion = false;
       }
 
-      // Wakelock 控制：播放时保持屏幕常亮
-      // 使用原生平台 API 实现
+      // Wakelock 控制：严格绑定播放状态
+      // 只要是在播放状态下，必须保持唤醒
       if (playing) {
         WakelockManager.enable();
       } else {
-        // 只有在不切换清晰度时才禁用 wakelock
-        if (!isSwitchingQuality.value) {
-          WakelockManager.disable();
-        }
+        WakelockManager.disable();
       }
     });
 
@@ -331,35 +324,51 @@ class VideoPlayerController extends ChangeNotifier {
     _isRecovering = true;
     _retryCount++;
     final position = player.state.position;
+    final wasPlaying = player.state.playing;
 
     try {
-      print('🔄 分片重试 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s');
-      await Future.delayed(const Duration(seconds: 30));
+      print('🔄 分片重试 (第 $_retryCount/$_maxRetryCount 次): ${position.inSeconds}s (播放状态: $wasPlaying)');
+      await Future.delayed(const Duration(seconds: 2)); // 缩短等待时间以加快恢复
 
       final m3u8Content = await _hlsService.getHlsStreamContent(
         _currentResourceId!,
         currentQuality.value!,
       );
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
-
-      // 【修复】await Media.memory
       final media = await Media.memory(m3u8Bytes);
 
+      // 1. 重新打开视频
       await player.open(media, play: false);
       await _waitForPlayerReady();
-      await player.seek(position);
 
-      // 重试逻辑中，只有非切换状态下才自动播放，避免冲突
-      if (!isSwitchingQuality.value) {
-        await player.play();
+      // 2. 恢复到原来的位置
+      await player.seek(position);
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. 验证位置是否正确
+      final currentPos = player.state.position;
+      final positionDiff = (currentPos.inSeconds - position.inSeconds).abs();
+
+      if (positionDiff > 3) {
+        print('⚠️ 位置恢复偏差过大 (${positionDiff}s),再次尝试');
+        // 再次尝试 seek
+        await player.seek(position);
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      print('✅ 重新加载成功');
+      // 4. 恢复播放状态 (只在非切换状态下且之前在播放时才恢复)
+      if (wasPlaying && !isSwitchingQuality.value) {
+        await player.play();
+        print('▶️ 恢复播放');
+      }
+
+      print('✅ 分片重新加载成功: ${currentPos.inSeconds}s');
       _retryCount = 0;
+
     } catch (e) {
       print('❌ 重试失败: $e');
       if (_retryCount < _maxRetryCount) {
-        await Future.delayed(const Duration(seconds: 30));
+        await Future.delayed(const Duration(seconds: 2));
         _isRecovering = false;
         _retrySegmentLoad();
       } else {
@@ -426,16 +435,98 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> play() async => await player.play();
   Future<void> pause() async => await player.pause();
-  Future<void> seek(Duration position) async => await player.seek(position);
+
+  /// 快进/快退方法 - 带分片恢复保障
+  ///
+  /// 确保无论什么情况下,快进都不会丢失分片跳过
+  /// 如果遇到加载失败,会尝试重新加载并恢复到目标位置
+  Future<void> seek(Duration position) async {
+    final targetPosition = position;
+    final wasPlaying = player.state.playing;
+
+    print('⏩ 快进到: ${targetPosition.inSeconds}s (播放状态: $wasPlaying)');
+
+    try {
+      // 1. 执行 seek 操作
+      await player.seek(targetPosition);
+
+      // 2. 等待一小段时间让播放器加载分片
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 3. 检查是否成功到达目标位置
+      final currentPos = player.state.position;
+      final positionDiff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+
+      // 如果位置偏差超过 3 秒,可能是分片加载失败
+      if (positionDiff > 3) {
+        print('⚠️ 快进位置偏差过大 (${positionDiff}s),尝试恢复');
+        await _recoverSeekPosition(targetPosition, wasPlaying);
+      } else {
+        print('✅ 快进成功: ${currentPos.inSeconds}s');
+      }
+
+    } catch (e) {
+      print('❌ 快进失败: $e');
+      // 快进失败时尝试恢复
+      await _recoverSeekPosition(targetPosition, wasPlaying);
+    }
+  }
+
+  /// 快进位置恢复机制
+  /// 当快进遇到分片加载问题时,重新加载视频并恢复到目标位置
+  Future<void> _recoverSeekPosition(Duration targetPosition, bool wasPlaying) async {
+    if (_currentResourceId == null || currentQuality.value == null) {
+      print('❌ 无法恢复: 缺少资源信息');
+      return;
+    }
+
+    print('🔄 开始恢复快进位置: ${targetPosition.inSeconds}s');
+
+    try {
+      // 1. 暂停播放
+      await player.pause();
+
+      // 2. 重新加载 m3u8
+      final m3u8Content = await _hlsService.getHlsStreamContent(
+        _currentResourceId!,
+        currentQuality.value!,
+      );
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+      final media = await Media.memory(m3u8Bytes);
+
+      // 3. 重新打开视频 (不自动播放)
+      await player.open(media, play: false);
+      await _waitForPlayerReady();
+
+      // 4. 跳转到目标位置
+      await player.seek(targetPosition);
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 5. 恢复播放状态
+      if (wasPlaying) {
+        await player.play();
+        print('▶️ 恢复播放');
+      }
+
+      print('✅ 快进位置恢复成功: ${targetPosition.inSeconds}s');
+
+    } catch (e) {
+      print('❌ 快进位置恢复失败: $e');
+      errorMessage.value = '快进失败，请重试';
+    }
+  }
+
   Future<void> setRate(double rate) async => await player.setRate(rate);
 
   void _handlePlaybackEnd() {
     switch (loopMode.value) {
       case LoopMode.on:
-        player.seek(Duration.zero);
-        player.play();
-        // 循环播放时重新启用 wakelock（防止循环后失效）
-        WakelockManager.enable();
+        // 使用增强后的 seek 方法确保循环播放时也能正确恢复
+        seek(Duration.zero).then((_) {
+          player.play();
+          // 循环播放时重新启用 wakelock（防止循环后失效）
+          WakelockManager.enable();
+        });
         break;
       case LoopMode.off:
         onVideoEnd?.call();
