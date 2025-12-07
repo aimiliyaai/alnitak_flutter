@@ -346,26 +346,40 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
-      _hasTriggeredCompletion = false;
-      final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
-      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+        _hasTriggeredCompletion = false;
+        final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
+        final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
-      // 【修复】await Media.memory
-      final media = await Media.memory(m3u8Bytes);
+        final media = await Media.memory(m3u8Bytes);
+        
+        // 关键改动 1: 无论如何，首次 open 时都设置为 play: false。
+        // 播放控制权完全交给本方法的末尾或调用方。
+        await player.open(media, play: false);
+        
+        await _waitForPlayerReady();
 
-      // 初始加载根据是否在切换中决定是否播放，通常初始化是自动播放
-      await player.open(media, play: !isSwitchingQuality.value);
-      
-      await _waitForPlayerReady();
+        Duration seekPosition = Duration.zero;
+        bool shouldPlay = true; // 默认应该播放
 
-      if (isInitialLoad && initialPosition != null) {
-        await player.seek(Duration(seconds: initialPosition.toInt()));
-      }
-      print('✅ 视频加载成功: $quality');
+        if (isInitialLoad && initialPosition != null && initialPosition > 0.0) {
+            seekPosition = Duration(seconds: initialPosition.toInt());
+        }
+        
+        // 如果需要跳转到非 0 位置
+        if (seekPosition != Duration.zero) {
+            await player.seek(seekPosition);
+        }
+
+        // 关键改动 2: 在 seek 完成后，显式恢复播放状态
+        if (shouldPlay && !isSwitchingQuality.value) {
+            await player.play();
+        }
+
+        print('✅ 视频加载成功: $quality');
     } catch (e) {
-      rethrow;
+        rethrow;
     }
-  }
+}
 
   Future<void> _waitForPlayerReady() async {
     int waitCount = 0;
