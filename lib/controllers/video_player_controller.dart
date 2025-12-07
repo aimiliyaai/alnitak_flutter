@@ -8,16 +8,14 @@ import '../services/hls_service.dart';
 import '../services/logger_service.dart';
 import '../models/loop_mode.dart';
 
-/// 视频播放器控制器 (V_Final_Fixed)
+/// 视频播放器控制器 (V_Final_Fixed_PauseLogic)
 ///
 /// 修复记录：
-/// 1. 编译错误修复：Media.memory 改为 await 调用，移除非法的 extras 参数。
-/// 2. 并发控制：使用防抖 (Debounce) + 版本号 (Epoch) 机制，完美处理高频切换。
-/// 3. 进度跳变修复：使用 hr-seek=absolute 配置 + 锚点锁定 (Anchor Position)。
+/// 1. 修复切换清晰度时，暂停状态下会自动恢复播放的问题。
+///    原理：在 open 和 seek 后，根据切换前的状态再次强制 pause。
 class VideoPlayerController extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
   final LoggerService _logger = LoggerService.instance;
-
   late final Player player;
   late final VideoController videoController;
 
@@ -36,19 +34,16 @@ class VideoPlayerController extends ChangeNotifier {
   Stream<Duration> get positionStream => _positionStreamController.stream;
 
   // ============ 核心并发控制变量 ============
-  Timer? _debounceTimer;          // 防抖计时器
-  int _switchEpoch = 0;           // 版本号 (每点击一次+1)
-  Duration? _anchorPosition;      // 锚定位置 (连续点击期间保持不变)
-  bool _isFreezingPosition = false; // 是否正在冻结进度流
+  Timer? _debounceTimer;
+  int _switchEpoch = 0;
+  Duration? _anchorPosition;
+  bool _isFreezingPosition = false;
 
   // ============ 内部状态 ============
   bool _hasTriggeredCompletion = false;
-  
-  // 重试相关
   bool _isRecovering = false;
   int _retryCount = 0;
   static const int _maxRetryCount = 5;
-  
   bool _wasPlayingBeforeBackground = false;
 
   // SharedPreferences Keys
@@ -104,7 +99,6 @@ class VideoPlayerController extends ChangeNotifier {
 
       isLoading.value = false;
       isPlayerInitialized.value = true;
-
       print('📹 播放器初始化完成');
     } catch (e) {
       _logger.logError(
@@ -127,7 +121,6 @@ class VideoPlayerController extends ChangeNotifier {
         return;
       }
       _positionStreamController.add(position);
-      
       if (!isSwitchingQuality.value) {
         onProgressUpdate?.call(position);
       }
@@ -161,30 +154,44 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (isSegmentError) {
         print('⚠️ 分片加载失败，开始重试');
-        _retrySegmentLoad(); 
+        _retrySegmentLoad();
       }
     });
   }
 
-  /// 配置播放器属性 (关键修复)
+/// 配置播放器属性 (关键修复 + 雪花屏修复)
   Future<void> _configurePlayerProperties() async {
     if (kIsWeb) return;
     try {
       final nativePlayer = player.platform as NativePlayer?;
       if (nativePlayer == null) return;
-      
+
       // 1. 设置 HLS 重连策略
       await nativePlayer.setProperty('stream-opts', 'reconnect=1:reconnect_streamed=1:reconnect_delay_max=10');
-      
+
       // 2. 【关键】强制开启绝对精确跳转
-      // 只有开启这个，先 open 后 seek 才能精确到毫秒，不会跳到下一个分片
       await nativePlayer.setProperty('hr-seek', 'absolute');
+
+      // ============ 3. 新增：修复画面雪花/花屏问题 ============
       
+      // 方案 A (推荐): 使用 auto-copy 模式
+      // 原理：将解码后的帧从 GPU 显存拷贝回内存再渲染。
+      // 优点：能解决绝大多数因显驱兼容性导致的画面破碎/雪花，且保留了硬件加速的性能优势。
+      await nativePlayer.setProperty('hwdec', 'auto-copy');
+
+      // 方案 B (辅助): 关闭直接渲染 (Direct Rendering)
+      // 原理：某些 Android 设备在使用 mediacodec 直接渲染到 Surface 时会出错。
+      await nativePlayer.setProperty('vd-lavc-dr', 'no');
+      
+      // 方案 C (仅作为最后手段): 纯软解
+      // 如果上面两个配置加上后依然有雪花，解开下面这行的注释，强制使用 CPU 解码。
+      // 缺点：发热大，耗电快，4K视频可能会卡顿。
+      // await nativePlayer.setProperty('hwdec', 'no'); 
+
     } catch (e) {
       print('⚠️ 配置失败: $e');
     }
   }
-
   // ============ 核心：防抖切换清晰度 ============
   
   Future<void> changeQuality(String quality) async {
@@ -197,15 +204,13 @@ class VideoPlayerController extends ChangeNotifier {
     _switchEpoch++;
     final int myEpoch = _switchEpoch;
 
-    // 3. 【关键】锁定锚点位置
-    // 只有当 _anchorPosition 为空时才记录（说明这是连续点击的第一下）
-    // 如果不为空，说明还在之前的切换流程中，保持原锚点不变
+    // 锁定当前位置（如果是连续点击，保持最早的那个位置）
     _anchorPosition ??= player.state.position;
     
-    // 开启 UI 冻结状态
+    // 立即进入切换状态，冻结 UI
     isSwitchingQuality.value = true;
     _isFreezingPosition = true;
-
+    
     print('⏳ 准备切换: $quality (Epoch: $myEpoch) 锚点: ${_anchorPosition!.inSeconds}s');
 
     // 4. 启动防抖计时器 (400ms)
@@ -213,7 +218,6 @@ class VideoPlayerController extends ChangeNotifier {
     _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
       // 双重检查：如果当前版本号不等于最新版本号，说明被插队了，直接废弃
       if (myEpoch != _switchEpoch) return;
-
       try {
         await _performSwitch(quality, _anchorPosition!);
       } catch (e) {
@@ -226,19 +230,24 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-  /// 执行真正的切换逻辑 (私有方法)
+  /// 执行真正的切换逻辑 (修复暂停自动播放问题)
   Future<void> _performSwitch(String quality, Duration seekPos) async {
     print('🚀 开始执行切换: $quality -> 位置: ${seekPos.inSeconds}s');
     
-    final wasPlaying = player.state.playing;
-    if (wasPlaying) await player.pause();
+    // 1. 获取当前是否正在播放（这是判断的依据）
+    final bool wasPlaying = player.state.playing;
+
+    // 2. 无论当前状态如何，先暂停播放器 (停止缓冲旧数据)
+    //    这能确保后续操作都在一个干净的暂停状态下开始
+    await player.pause();
 
     final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
     final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
     // 【修复】await Media.memory，且不传 extras
     final media = await Media.memory(m3u8Bytes);
-    
+
+    // 3. 打开新视频，显式指定不播放
     await player.open(media, play: false);
 
     // 等待加载就绪
@@ -247,7 +256,14 @@ class VideoPlayerController extends ChangeNotifier {
     // 显式 Seek (因为开启了 hr-seek=absolute，这里会非常准)
     await player.seek(seekPos);
     
-    // 缓冲等待 (防止画面闪烁)
+    // 【核心修复】：
+    // 某些平台或配置下，seek 操作可能隐式触发预加载播放状态。
+    // 如果之前不是播放状态，这里强制再暂停一次，确保万无一失。
+    if (!wasPlaying) {
+      await player.pause();
+    }
+
+    // 5. 缓冲等待 (防止画面闪烁)
     await Future.delayed(const Duration(milliseconds: 500));
 
     // 更新状态
@@ -260,9 +276,15 @@ class VideoPlayerController extends ChangeNotifier {
     // 【关键】清空锚点，为下一次全新的切换做准备
     _anchorPosition = null;
 
-    if (wasPlaying) await player.play();
+    // 6. 只有当之前确实在播放时，才恢复播放
+    if (wasPlaying) {
+      print('▶️ 恢复播放');
+      await player.play();
+    } else {
+      print('⏸️ 保持暂停');
+    }
+
     onQualityChanged?.call(quality);
-    
     print('✅ 切换完成');
   }
 
@@ -270,7 +292,6 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> _retrySegmentLoad() async {
     if (_isRecovering || currentQuality.value == null) return;
-
     if (_retryCount >= _maxRetryCount) {
       print('❌ 已达到最大重试次数，停止重试');
       errorMessage.value = '网络连接失败，请检查网络后重试';
@@ -294,11 +315,12 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 【修复】await Media.memory
       final media = await Media.memory(m3u8Bytes);
+
       await player.open(media, play: false);
-      
       await _waitForPlayerReady();
       await player.seek(position);
 
+      // 重试逻辑中，只有非切换状态下才自动播放，避免冲突
       if (!isSwitchingQuality.value) {
         await player.play();
       }
@@ -325,13 +347,13 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
       _hasTriggeredCompletion = false;
-
       final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
       final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
 
       // 【修复】await Media.memory
       final media = await Media.memory(m3u8Bytes);
-      
+
+      // 初始加载根据是否在切换中决定是否播放，通常初始化是自动播放
       await player.open(media, play: !isSwitchingQuality.value);
       
       await _waitForPlayerReady();
@@ -339,7 +361,6 @@ class VideoPlayerController extends ChangeNotifier {
       if (isInitialLoad && initialPosition != null) {
         await player.seek(Duration(seconds: initialPosition.toInt()));
       }
-
       print('✅ 视频加载成功: $quality');
     } catch (e) {
       rethrow;
@@ -355,7 +376,6 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   // ============ 播放控制 ============
-
   void toggleLoopMode() {
     final newMode = loopMode.value.toggle();
     _saveLoopMode(newMode);
@@ -379,7 +399,6 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   // ============ 偏好设置与辅助方法 ============
-
   Future<void> _loadLoopMode() async {
     final prefs = await SharedPreferences.getInstance();
     loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
@@ -503,7 +522,6 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       final parts = quality.split('_');
       if (parts.isEmpty) return quality;
-
       final resolution = parts[0];
       final fps = parts.length >= 3 ? int.tryParse(parts[2]) ?? 30 : 30;
 
@@ -513,7 +531,6 @@ class VideoPlayerController extends ChangeNotifier {
           final height = int.tryParse(resolutionParts[1]);
           if (height != null) {
             final fpsSuffix = fps > 30 ? fps.toString() : '';
-
             if (height <= 360) {
               return fpsSuffix.isNotEmpty ? '360p$fpsSuffix' : '360p';
             } else if (height <= 480) {
@@ -533,7 +550,6 @@ class VideoPlayerController extends ChangeNotifier {
     } catch (e) {
       print('解析清晰度名称失败: $e');
     }
-
     return quality;
   }
 
