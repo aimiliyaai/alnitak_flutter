@@ -67,10 +67,15 @@ class VideoPlayerController extends ChangeNotifier {
 
   VideoPlayerController() {
     player = Player(
-      configuration: const PlayerConfiguration(
+      configuration: PlayerConfiguration(
         title: '',
         bufferSize: 32 * 1024 * 1024,
         logLevel: MPVLogLevel.warn,
+        // 网络参数优化：确保弱网环境下也能加载分片
+        muted: false,
+        // libmpv 参数：网络重试和超时设置
+        osc: false,
+        // MPV 网络选项
       ),
     );
     videoController = VideoController(player);
@@ -189,6 +194,12 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 2. 【关键】强制开启绝对精确跳转
       await nativePlayer.setProperty('hr-seek', 'absolute');
+
+      // 新增：网络参数
+      await nativePlayer.setProperty('network-timeout', '60');
+      await nativePlayer.setProperty('stream-reconnect-max-retries', '-1');
+      await nativePlayer.setProperty('stream-reconnect-delay', '3');
+      await nativePlayer.setProperty('http-timeout', '60');
 
       // ============ 3. 新增：修复画面雪花/花屏问题 ============
       
@@ -423,6 +434,8 @@ class VideoPlayerController extends ChangeNotifier {
       case LoopMode.on:
         player.seek(Duration.zero);
         player.play();
+        // 循环播放时重新启用 wakelock（防止循环后失效）
+        WakelockManager.enable();
         break;
       case LoopMode.off:
         onVideoEnd?.call();
