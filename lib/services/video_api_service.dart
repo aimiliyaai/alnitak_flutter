@@ -93,4 +93,85 @@ class VideoApiService {
   }) async {
     return await asyncGetHotVideoAPI(page: page, pageSize: pageSize);
   }
+
+  // 搜索视频
+  static Future<List<VideoApiModel>> searchVideo({
+    required String keywords,
+    int page = 1,
+    int pageSize = 30,
+  }) async {
+    final url = Uri.parse('$baseUrl/api/v1/video/searchVideo');
+
+    try {
+      LoggerService.instance.logDebug('🔍 搜索视频: $keywords (page: $page)');
+
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'page': page,
+          'pageSize': pageSize > 30 ? 30 : pageSize, // 最大30
+          'keyWords': keywords,
+        }),
+      );
+
+      LoggerService.instance.logDebug('📡 搜索响应状态码: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        try {
+          final jsonData = json.decode(response.body) as Map<String, dynamic>;
+          LoggerService.instance.logDebug('✅ 搜索JSON解析成功，code: ${jsonData['code']}');
+
+          final apiResponse = ApiResponse.fromJson(jsonData);
+
+          if (apiResponse.isSuccess && apiResponse.data != null) {
+            LoggerService.instance.logDebug('🎬 搜索到 ${apiResponse.data!.videos.length} 个视频');
+            return apiResponse.data!.videos;
+          } else {
+            final error = Exception('搜索API返回错误: ${apiResponse.msg}');
+            await LoggerService.instance.logApiError(
+              apiName: 'searchVideo',
+              url: url.toString(),
+              statusCode: 200,
+              responseBody: response.body,
+              error: error,
+              requestParams: {'keywords': keywords, 'page': page, 'pageSize': pageSize},
+            );
+            throw error;
+          }
+        } catch (e, stackTrace) {
+          await LoggerService.instance.logApiError(
+            apiName: 'searchVideo',
+            url: url.toString(),
+            statusCode: 200,
+            responseBody: response.body,
+            error: e,
+            stackTrace: stackTrace,
+            requestParams: {'keywords': keywords, 'page': page, 'pageSize': pageSize},
+          );
+          rethrow;
+        }
+      } else {
+        final error = Exception('搜索HTTP错误: ${response.statusCode}');
+        await LoggerService.instance.logApiError(
+          apiName: 'searchVideo',
+          url: url.toString(),
+          statusCode: response.statusCode,
+          responseBody: response.body,
+          error: error,
+          requestParams: {'keywords': keywords, 'page': page, 'pageSize': pageSize},
+        );
+        throw error;
+      }
+    } catch (e, stackTrace) {
+      await LoggerService.instance.logApiError(
+        apiName: 'searchVideo',
+        url: url.toString(),
+        error: e,
+        stackTrace: stackTrace,
+        requestParams: {'keywords': keywords, 'page': page, 'pageSize': pageSize},
+      );
+      rethrow;
+    }
+  }
 }

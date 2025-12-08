@@ -5,6 +5,7 @@ import '../services/video_api_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/video_card.dart';
 import 'video/video_play_page.dart';
+import 'search_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -170,6 +171,19 @@ class _HomePageState extends State<HomePage> {
         title: const Text('首页'),
         elevation: 0,
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SearchPage(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: _buildBody(),
     );
@@ -206,62 +220,65 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    // 视频列表
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        // 双列网格布局
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 4,
-              mainAxisSpacing: 4,
-              childAspectRatio: 0.88,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                return VideoCard(
-                  video: _videos[index],
-                  onTap: () {
-                    // 后续添加视频详情页导航
-                    _showVideoDetail(context, _videos[index]);
-                  },
-                );
-              },
-              childCount: _videos.length,
-            ),
-          ),
-        ),
-        // 加载更多指示器
-        if (_isLoading && _videos.isNotEmpty)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Center(
-                child: CircularProgressIndicator(),
+    // 视频列表 - 添加下拉刷新
+    return RefreshIndicator(
+      onRefresh: _loadInitialVideos,
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          // 双列网格布局
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
+                childAspectRatio: 0.88,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  return VideoCard(
+                    video: _videos[index],
+                    onTap: () {
+                      // 后续添加视频详情页导航
+                      _showVideoDetail(context, _videos[index]);
+                    },
+                  );
+                },
+                childCount: _videos.length,
               ),
             ),
           ),
-        // 没有更多数据提示
-        if (!_hasMore && _videos.isNotEmpty)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Center(
-                child: Text(
-                  '没有更多了',
-                  style: TextStyle(color: Colors.grey),
+          // 加载更多指示器
+          if (_isLoading && _videos.isNotEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Center(
+                  child: CircularProgressIndicator(),
                 ),
               ),
             ),
+          // 没有更多数据提示
+          if (!_hasMore && _videos.isNotEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Center(
+                  child: Text(
+                    '没有更多了',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ),
+            ),
+          // 底部占位，防止最后一行被遮挡
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 16),
           ),
-        // 底部占位，防止最后一行被遮挡
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 16),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
