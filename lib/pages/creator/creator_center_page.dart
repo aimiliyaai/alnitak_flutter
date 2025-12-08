@@ -1,10 +1,56 @@
 import 'package:flutter/material.dart';
-import 'video_manage_page.dart';
 import 'comment_manage_page.dart';
+import 'video_manage_page.dart';
+import '../upload/article_manuscript_page.dart';
+import '../upload/video_upload_page.dart';
+import '../upload/article_upload_page.dart';
 
 /// 创作中心页面
 class CreatorCenterPage extends StatelessWidget {
   const CreatorCenterPage({super.key});
+
+  /// 显示上传类型选择对话框
+  static void _showUploadTypeDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('选择投稿类型'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.video_library, color: Colors.blue),
+              title: const Text('视频投稿'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const VideoUploadPage()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.article, color: Colors.green),
+              title: const Text('文章投稿'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ArticleUploadPage()),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,11 +76,22 @@ class CreatorCenterPage extends StatelessWidget {
                 _buildMenuItem(
                   context,
                   icon: Icons.video_library_outlined,
-                  title: '稿件管理',
+                  title: '视频管理',
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => const VideoManagePage()),
+                    );
+                  },
+                ),
+                _buildMenuItem(
+                  context,
+                  icon: Icons.article_outlined,
+                  title: '文章管理',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ArticleManuscriptPage()),
                     );
                   },
                 ),
@@ -71,12 +128,7 @@ class CreatorCenterPage extends StatelessWidget {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: 跳转到发布新稿件页面
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('发布新稿件功能开发中')),
-                    );
-                  },
+                  onPressed: () => _showUploadTypeDialog(context),
                   icon: const Icon(Icons.add, color: Colors.white),
                   label: const Text(
                     '发布新稿件',

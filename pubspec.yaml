@@ -57,6 +57,10 @@ dependencies:
   # 系统控制
   screen_brightness: ^2.1.7
   volume_controller: ^3.4.0
+  # 文件加密
+  crypto: ^3.0.3
+  # 文件路径处理
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:

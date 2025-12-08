@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../services/video_service.dart';
+import '../../services/review_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../utils/image_utils.dart';
+import '../upload/video_upload_page.dart';
 
 /// 稿件管理页面 - 参考PC端实现
 class VideoManagePage extends StatefulWidget {
@@ -19,7 +21,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
   int _currentPage = 1;
   bool _isLoading = false;
   bool _hasMore = true;
-  final int _pageSize = 8; // 参考PC端
+  final int _pageSize = 20; // 增加分页数量
 
   @override
   void initState() {
@@ -133,17 +135,53 @@ class _VideoManagePageState extends State<VideoManagePage> {
   }
 
   /// 编辑视频 (参考PC端跳转到编辑页)
-  void _editVideo(Map<String, dynamic> video) {
-    // TODO: 跳转到视频编辑页面
-    // Navigator.push(
-    //   context,
-    //   MaterialPageRoute(
-    //     builder: (context) => VideoEditPage(vid: video['vid']),
-    //   ),
-    // );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('编辑功能开发中')),
+  Future<void> _editVideo(Map<String, dynamic> video) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VideoUploadPage(vid: video['vid']),
+      ),
     );
+
+    // 如果编辑成功，刷新列表
+    if (result == true) {
+      setState(() {
+        _videos.clear();
+        _currentPage = 1;
+        _hasMore = true;
+      });
+      _loadVideos();
+    }
+  }
+
+  /// 查看审核不通过原因 (参考PC端实现)
+  Future<void> _showReviewReason(int vid) async {
+    try {
+      final review = await ReviewApiService.getVideoReviewRecord(vid);
+      final remark = review['remark'] ?? '暂无原因说明';
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('审核不通过原因'),
+            content: Text(remark),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('确认'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('获取审核原因失败: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -295,6 +333,21 @@ class _VideoManagePageState extends State<VideoManagePage> {
                           if (_getStatusText(video['status']) != null) ...[
                             const SizedBox(width: 8),
                             _buildStatusChip(video['status']),
+                          ],
+                          // 审核不通过时显示"查看原因"按钮
+                          if (video['status'] == 600) ...[
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => _showReviewReason(video['vid']),
+                              child: Text(
+                                '查看原因',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue[700],
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
                           ],
                         ],
                       ),
