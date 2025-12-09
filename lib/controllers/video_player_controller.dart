@@ -104,6 +104,9 @@ class VideoPlayerController extends ChangeNotifier {
       await _loadBackgroundPlaySetting();
       await _configurePlayerProperties();
 
+      // 【关键】重新初始化时清理 MPV 底层缓存
+      await _clearPlayerCache();
+
       availableQualities.value = await _hlsService.getAvailableQualities(resourceId);
 
       if (availableQualities.value.isEmpty) {
@@ -330,7 +333,7 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-/// 配置播放器属性 (行业级 HLS 优化 + 雪花屏修复)
+  /// 配置播放器属性 (行业级 HLS 优化 + 雪花屏修复)
   Future<void> _configurePlayerProperties() async {
     if (kIsWeb) return;
     try {
@@ -352,16 +355,16 @@ class VideoPlayerController extends ChangeNotifier {
         'timeout=10000000,reconnect=1,reconnect_at_eof=1,reconnect_streamed=1,reconnect_delay_max=5'
       );
 
-      // ========== 2. 缓冲策略（参考 B站）==========
+      // ========== 2. 缓冲策略（优化：预载未来120秒）==========
 
       // 启用缓存
       await nativePlayer.setProperty('cache', 'yes');
 
-      // 预缓冲时长：20秒
-      await nativePlayer.setProperty('cache-secs', '20');
+      // 预缓冲时长：120秒（预载当前进度的未来120秒）
+      await nativePlayer.setProperty('cache-secs', '120');
 
-      // 最大缓冲大小：50MB
-      await nativePlayer.setProperty('demuxer-max-bytes', '50M');
+      // 最大缓冲大小：300MB（扩大以支持120秒缓冲）
+      await nativePlayer.setProperty('demuxer-max-bytes', '300M');
 
       // 允许缓存 seek
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
@@ -382,6 +385,29 @@ class VideoPlayerController extends ChangeNotifier {
       print('✅ MPV 底层配置完成：HLS优化 + 缓冲策略');
     } catch (e) {
       print('⚠️ 配置失败: $e');
+    }
+  }
+
+  /// 清理 MPV 底层缓存
+  ///
+  /// 触发条件：
+  /// 1. 播放器重新实例化（initialize）
+  /// 2. 切换清晰度（changeQuality）
+  ///
+  /// 不清理条件：
+  /// - 正常播放过程中（保持缓存以流畅播放）
+  Future<void> _clearPlayerCache() async {
+    if (kIsWeb) return;
+    try {
+      final nativePlayer = player.platform as NativePlayer?;
+      if (nativePlayer == null) return;
+
+      // 方式1: 清理 demuxer 缓存
+      await nativePlayer.setProperty('demuxer-cache-clear', 'yes');
+
+      print('🗑️ MPV 底层缓存已清理');
+    } catch (e) {
+      print('⚠️ 清理缓存失败: $e');
     }
   }
   // ============ 核心：防抖切换清晰度 ============
@@ -428,7 +454,10 @@ class VideoPlayerController extends ChangeNotifier {
       // 1. 暂停播放器
       await player.pause();
 
-      // 2. 【核心优化】优先从缓存获取 m3u8
+      // 2. 【关键】清理 MPV 底层缓存（切换清晰度时必须清理旧缓存）
+      await _clearPlayerCache();
+
+      // 3. 【核心优化】优先从缓存获取 m3u8
       Uint8List? m3u8Bytes = _qualityCache[quality];
 
       if (m3u8Bytes == null) {
@@ -443,10 +472,10 @@ class VideoPlayerController extends ChangeNotifier {
         print('✅ 使用预加载缓存: ${HlsService.getQualityLabel(quality)} - 切换速度提升 80%');
       }
 
-      // 3. 创建媒体对象
+      // 4. 创建媒体对象
       final media = await Media.memory(m3u8Bytes);
 
-      // 4. 使用 Playlist 快速切换（比直接 open 更轻量）
+      // 5. 使用 Playlist 快速切换（比直接 open 更轻量）
       await player.open(Playlist([media]), play: false);
 
       // 5. 【关键修复】等待播放器就绪，避免 seek 失败
