@@ -403,7 +403,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.5), // 更透
+                            color: Colors.black.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Row(
@@ -419,6 +419,48 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                               ),
                               SizedBox(width: 12),
                               Text('切换清晰度中...', style: TextStyle(color: Colors.white)),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  // 5.5 缓冲/加载中提示
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.logic.isBuffering,
+                    builder: (context, isBuffering, _) {
+                      // 只有在缓冲且不在切换清晰度时才显示
+                      final isSwitching = widget.logic.isSwitchingQuality.value;
+                      if (!isBuffering || isSwitching) return const SizedBox.shrink();
+
+                      return Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                '加载中...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ],
                           ),
                         ),

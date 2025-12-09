@@ -57,6 +57,8 @@ dependencies:
   # 系统控制
   screen_brightness: ^2.1.7
   volume_controller: ^3.4.0
+  # 网络状态监听
+  connectivity_plus: ^6.0.0
   # 文件加密
   crypto: ^3.0.3
   # 文件路径处理
