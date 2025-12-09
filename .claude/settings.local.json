@@ -46,7 +46,8 @@
       "Bash(findstr:*)",
       "Bash(flutter pub:*)",
       "Bash(flutter build:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
