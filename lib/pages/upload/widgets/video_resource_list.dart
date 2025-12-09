@@ -74,10 +74,11 @@ class _VideoResourceListState extends State<VideoResourceList> {
     try {
       final videoFile = File(pickedFile.path);
 
-      // 上传视频到指定的vid
+      // 上传视频到指定的vid（参考PC端：传递vid参数以关联到对应视频）
       final videoInfo = await UploadApiService.uploadVideo(
         file: videoFile,
         title: pickedFile.name,
+        vid: widget.vid, // 关键修复：传递vid以使用正确的endpoint
         onProgress: (progress) {
           setState(() {
             _uploadProgress = progress;

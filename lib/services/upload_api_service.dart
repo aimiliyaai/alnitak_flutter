@@ -88,17 +88,20 @@ class UploadApiService {
 
   /// 上传视频 - 参考PC端实现
   /// 返回视频资源信息
+  ///
+  /// [vid] 可选的视频ID，用于添加多分P（参考PC端：有vid时使用不同的endpoint）
   static Future<Map<String, dynamic>> uploadVideo({
     required File file,
     required String title,
     required Function(double) onProgress,
+    int? vid,
   }) async {
     // 1. 计算文件MD5
     final fileBytes = await file.readAsBytes();
     final fileMd5 = md5.convert(fileBytes).toString();
     final fileName = path.basename(file.path);
 
-    print('📹 准备上传视频: $fileName (MD5: $fileMd5)');
+    print('📹 准备上传视频: $fileName (MD5: $fileMd5)${vid != null ? ' (添加到VID: $vid)' : ''}');
 
     // 2. 检查已上传分片
     final uploadedChunks = await _checkUploadedChunks(fileMd5);
@@ -119,8 +122,8 @@ class UploadApiService {
     await _mergeChunks(fileMd5);
     print('✅ 分片合并完成');
 
-    // 5. 获取视频信息
-    final videoInfo = await _getVideoInfo(fileMd5);
+    // 5. 获取视频信息（参考PC端：有vid时使用不同endpoint）
+    final videoInfo = await _getVideoInfo(fileMd5, vid: vid);
     print('✅ 视频上传成功，资源ID: ${videoInfo['id']}');
 
     return videoInfo;
@@ -305,9 +308,16 @@ class UploadApiService {
   }
 
   /// 获取视频信息
-  static Future<Map<String, dynamic>> _getVideoInfo(String hash) async {
-    final url = Uri.parse('$baseUrl/api/v1/upload/video');
+  ///
+  /// [vid] 可选的视频ID，参考PC端：有vid时使用 `v1/upload/video/{vid}` endpoint
+  static Future<Map<String, dynamic>> _getVideoInfo(String hash, {int? vid}) async {
+    // 参考PC端 UploadVideoFile.vue:160
+    // action: props.vid ? `v1/upload/video/${props.vid}` : `v1/upload/video`
+    final endpoint = vid != null ? '/api/v1/upload/video/$vid' : '/api/v1/upload/video';
+    final url = Uri.parse('$baseUrl$endpoint');
     final token = await _getAuthToken();
+
+    print('📡 获取视频信息: $endpoint');
 
     final headers = {
       'Content-Type': 'application/json',
