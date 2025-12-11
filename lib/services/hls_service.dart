@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
@@ -205,6 +206,63 @@ class HlsService {
       }
     } catch (e) {
       print('❌ 清空缓存错误: $e');
+    }
+  }
+
+  /// 预加载TS分片（用于秒开优化）
+  /// 
+  /// [m3u8Content] m3u8内容字符串
+  /// [segmentCount] 预加载的分片数量（默认3个）
+  /// 返回预加载的分片URL列表
+  Future<List<String>> preloadTsSegments(String m3u8Content, {int segmentCount = 3}) async {
+    try {
+      final lines = m3u8Content.split('\n');
+      final tsUrls = <String>[];
+      
+      // 解析TS分片URL
+      for (var line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          tsUrls.add(trimmed);
+        } else if (trimmed.startsWith('/api/v1/video/slice/')) {
+          // 相对路径，转换为绝对URL
+          tsUrls.add('$baseUrl$trimmed');
+        }
+      }
+      
+      if (tsUrls.isEmpty) {
+        print('⚠️ 未找到TS分片URL');
+        return [];
+      }
+      
+      // 只预加载前N个分片
+      final segmentsToPreload = tsUrls.take(segmentCount).toList();
+      
+      print('🚀 开始预加载 ${segmentsToPreload.length} 个TS分片...');
+      
+      // 并发下载分片（不等待完成，让播放器边播边加载）
+      unawaited(Future.wait(
+        segmentsToPreload.map((url) async {
+          try {
+            await _dio.get(
+              url,
+              options: Options(
+                responseType: ResponseType.bytes,
+                receiveTimeout: const Duration(seconds: 5),
+              ),
+            );
+            print('✅ 预加载完成: ${url.split('/').last}');
+          } catch (e) {
+            // 预加载失败不影响播放，静默处理
+            print('⚠️ 预加载分片失败: ${url.split('/').last}');
+          }
+        }),
+      ));
+      
+      return segmentsToPreload;
+    } catch (e) {
+      print('❌ 预加载TS分片失败: $e');
+      return [];
     }
   }
 

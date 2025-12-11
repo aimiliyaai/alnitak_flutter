@@ -111,17 +111,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     });
 
     try {
-      // 并发请求多个接口
-      final results = await Future.wait([
-        _videoService.getVideoDetail(widget.vid),
-        _videoService.getVideoStat(widget.vid),
-        _historyService.getProgress(vid: widget.vid, part: _currentPart),
-      ]);
-
-      final videoDetail = results[0] as VideoDetail?;
-      final videoStat = results[1] as VideoStat?;
-      var progress = results[2] as double?; // 进度单位为秒
-
+      // 先获取视频详情，然后获取历史记录（不传part参数，获取最后观看的分P）
+      final videoDetail = await _videoService.getVideoDetail(widget.vid);
+      
       if (videoDetail == null) {
         setState(() {
           _errorMessage = '视频不存在或已被删除';
@@ -130,6 +122,38 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
+      // 如果指定了初始分P，使用指定的；否则从历史记录获取最后观看的分P
+      int targetPart = widget.initialPart ?? 1;
+      double? progress;
+      
+      if (widget.initialPart == null) {
+        // 没有指定初始分P，从历史记录获取最后观看的分P和进度
+        final progressData = await _historyService.getProgress(vid: widget.vid);
+        if (progressData != null) {
+          targetPart = progressData.part;
+          progress = progressData.progress;
+          print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
+        }
+      } else {
+        // 指定了初始分P，获取该分P的进度
+        final progressData = await _historyService.getProgress(vid: widget.vid, part: widget.initialPart);
+        if (progressData != null) {
+          progress = progressData.progress;
+        }
+      }
+
+      // 并发请求其他接口
+      final results = await Future.wait([
+        _videoService.getVideoStat(widget.vid),
+        _videoService.getUserActionStatus(
+          widget.vid,
+          videoDetail.author.uid,
+        ),
+      ]);
+
+      final videoStat = results[0] as VideoStat?;
+      final actionStatus = results[1] as UserActionStatus?;
+
       // 如果进度为-1，表示已看完，应该从头开始播放
       if (progress != null && progress == -1) {
         print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
@@ -137,17 +161,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _hasReportedCompleted = false; // 重置已看完标记，允许重新上报完成状态
       }
 
-      // 获取用户操作状态
-      final actionStatus = await _videoService.getUserActionStatus(
-        widget.vid,
-        videoDetail.author.uid,
-      );
-
       // 获取评论信息（仅获取第一页的第一条评论作为预览）
       await _loadCommentPreview();
 
       setState(() {
         _videoDetail = videoDetail;
+        _currentPart = targetPart; // 设置从历史记录获取的分P
         _videoStat = videoStat ?? VideoStat(like: 0, collect: 0, share: 0);
         _actionStatus = actionStatus ?? UserActionStatus(
           hasLiked: false,
@@ -206,7 +225,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     // 获取新分P的播放进度
-    var progress = await _historyService.getProgress(vid: widget.vid, part: part);
+    final progressData = await _historyService.getProgress(vid: widget.vid, part: part);
+    var progress = progressData?.progress;
 
     // 如果进度为-1，表示已看完，应该从头开始播放
     if (progress != null && progress == -1) {

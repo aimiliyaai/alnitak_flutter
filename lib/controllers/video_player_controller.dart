@@ -366,8 +366,17 @@ class VideoPlayerController extends ChangeNotifier {
       // 最大缓冲大小：300MB（扩大以支持120秒缓冲）
       await nativePlayer.setProperty('demuxer-max-bytes', '300M');
 
+      // 【秒开优化】不设置cache-secs-min，允许边播边缓冲
+      // 这样播放器加载第一个分片后就能立即开始播放，后台继续缓冲
+
       // 允许缓存 seek
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+      
+      // 【秒开优化】启用快速启动模式（不等待完整缓冲）
+      await nativePlayer.setProperty('cache-pause', 'no'); // 不暂停等待缓冲
+      
+      // 【秒开优化】设置最小缓冲阈值（降低到5秒，允许快速启动）
+      await nativePlayer.setProperty('cache-secs-min', '5'); // 只缓冲5秒就开始播放
 
       // ========== 3. 精确跳转 ==========
 
@@ -528,16 +537,24 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
         _hasTriggeredCompletion = false;
+        
+        // 【秒开优化】获取m3u8内容
         final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
+        
+        // 【秒开优化】立即预加载前3个TS分片（不等待完成，后台进行）
+        if (isInitialLoad) {
+          _hlsService.preloadTsSegments(m3u8Content, segmentCount: 3);
+        }
+        
         final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
-
         final media = await Media.memory(m3u8Bytes);
 
         // 关键改动 1: 无论如何，首次 open 时都设置为 play: false。
         // 播放控制权完全交给本方法的末尾或调用方。
         await player.open(media, play: false);
 
-        await _waitForPlayerReady();
+        // 【秒开优化】减少等待时间，只要duration>0就继续
+        await _waitForPlayerReadyFast();
 
         Duration seekPosition = Duration.zero;
         bool shouldPlay = true; // 默认应该播放
@@ -570,6 +587,20 @@ class VideoPlayerController extends ChangeNotifier {
     while (player.state.duration.inSeconds <= 0 && waitCount < 50) {
       await Future.delayed(const Duration(milliseconds: 100));
       waitCount++;
+    }
+  }
+
+  /// 【秒开优化】快速等待播放器就绪（减少等待时间）
+  /// 只要duration>0就继续，最多等待2秒
+  Future<void> _waitForPlayerReadyFast() async {
+    int waitCount = 0;
+    while (player.state.duration.inSeconds <= 0 && waitCount < 20) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      waitCount++;
+    }
+    // 如果2秒内还没就绪，也继续（让播放器边播边加载）
+    if (player.state.duration.inSeconds <= 0) {
+      print('⚠️ 播放器未完全就绪，但继续加载（边播边缓冲）');
     }
   }
 

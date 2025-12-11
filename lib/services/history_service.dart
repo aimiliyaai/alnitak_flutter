@@ -58,28 +58,30 @@ class HistoryService {
 
   /// 获取播放进度
   /// [vid] 视频ID
-  /// [part] 分P（默认为1）
-  /// 返回播放进度（秒），如果没有历史记录返回null
-  Future<double?> getProgress({
+  /// [part] 分P（可选，如果不传则返回用户最后观看的分P和进度）
+  /// 返回播放进度数据（包含分P和进度），如果没有历史记录返回null
+  Future<PlayProgressData?> getProgress({
     required int vid,
-    int part = 1,
+    int? part,
   }) async {
     try {
+      final queryParams = <String, dynamic>{'vid': vid};
+      if (part != null) {
+        queryParams['part'] = part;
+      }
+
       final response = await _dio.get(
         '/api/v1/history/video/getProgress',
-        queryParameters: {
-          'vid': vid,
-          'part': part,
-        },
+        queryParameters: queryParams,
       );
 
       if (response.data['code'] == 200) {
         final data = PlayProgressData.fromJson(response.data['data']);
-        print('📍 获取播放进度: vid=$vid, part=$part, progress=${data.progress.toStringAsFixed(1)}s');
-        return data.progress;
+        print('📍 获取播放进度: vid=$vid, part=${data.part}, progress=${data.progress.toStringAsFixed(1)}s');
+        return data;
       } else if (response.data['code'] == 404) {
         // 没有历史记录
-        print('ℹ️ 无历史记录: vid=$vid, part=$part');
+        print('ℹ️ 无历史记录: vid=$vid${part != null ? ", part=$part" : ""}');
         return null;
       } else {
         print('⚠️ 获取播放进度失败: code=${response.data['code']}, msg=${response.data['msg']}');
