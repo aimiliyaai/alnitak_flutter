@@ -46,8 +46,16 @@ class _VideoManagePageState extends State<VideoManagePage> {
   }
 
   /// 加载视频列表
-  Future<void> _loadVideos() async {
-    if (_isLoading || !_hasMore) return;
+  Future<void> _loadVideos({bool forceReload = false}) async {
+    if (!forceReload && (_isLoading || !_hasMore)) return;
+
+    if (forceReload) {
+      setState(() {
+        _videos.clear();
+        _currentPage = 1;
+        _hasMore = true;
+      });
+    }
 
     setState(() {
       _isLoading = true;
@@ -145,12 +153,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
 
     // 如果编辑成功，刷新列表
     if (result == true) {
-      setState(() {
-        _videos.clear();
-        _currentPage = 1;
-        _hasMore = true;
-      });
-      _loadVideos();
+      _loadVideos(forceReload: true);
     }
   }
 

@@ -326,27 +326,25 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       final tagsString = _tags.join(',');
       print('🏷️ 标签字符串: $tagsString');
 
-      // 编辑模式：提交视频信息
-      final uploadVideo = UploadVideo(
+      // 编辑模式：提交视频信息（调用编辑接口）
+      final editVideo = EditVideo(
         vid: widget.vid!,
         title: _titleController.text.trim(),
         cover: coverUrl!,
         desc: _descController.text.trim(),
         tags: tagsString,
-        copyright: _copyright,
-        partitionId: partitionId,
       );
 
-      print('\n📤 准备提交视频信息到服务器...');
-      print('📦 提交数据: ${uploadVideo.toJson()}');
+      print('\n📤 准备提交视频编辑信息到服务器...');
+      print('📦 提交数据: ${editVideo.toJson()}');
 
-      await VideoSubmitApiService.uploadVideo(uploadVideo);
-      print('✅ 视频信息提交成功！');
+      await VideoSubmitApiService.editVideo(editVideo);
+      print('✅ 视频编辑提交成功！');
       print('🎬 ========== 视频投稿完成 ==========\n');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('视频投稿成功')),
+          const SnackBar(content: Text('稿件信息更新成功，已提交审核')),
         );
         Navigator.pop(context, true);
       }

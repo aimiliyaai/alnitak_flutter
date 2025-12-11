@@ -43,13 +43,17 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     }
   }
 
-  Future<void> _loadVideos() async {
-    if (_isLoading) return;
+  Future<void> _loadVideos({bool forceReload = false}) async {
+    if (!forceReload && _isLoading) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
       _currentPage = 1;
+      if (forceReload) {
+        _videos = [];
+        _hasMore = true;
+      }
     });
 
     try {
@@ -156,7 +160,7 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     );
 
     if (result == true) {
-      _loadVideos(); // 刷新列表
+      _loadVideos(forceReload: true); // 刷新列表
     }
   }
 
