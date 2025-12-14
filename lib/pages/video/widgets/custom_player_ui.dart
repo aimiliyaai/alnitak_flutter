@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../controllers/video_player_controller.dart';
 
 /// 自定义播放器 UI (V8 完整版)
@@ -29,10 +30,14 @@ class CustomPlayerUI extends StatefulWidget {
 }
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> {
+  // ============ SharedPreferences Keys ============
+  static const String _volumeKey = 'player_volume';
+  static const String _brightnessKey = 'player_brightness';
+
   // ============ UI 状态 ============
   bool _showControls = true;
   bool _isLocked = false;
-  Timer? _hideTimer;         
+  Timer? _hideTimer;
 
   // ============ 手势反馈 ============
   bool _showFeedback = false;
@@ -42,9 +47,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   // ============ 拖拽逻辑 ============
   Offset _dragStartPos = Offset.zero;
-  int _gestureType = 0; 
-  
-  double _playerBrightness = 1.0; 
+  int _gestureType = 0;
+
+  double _playerBrightness = 1.0;
   double _startVolumeSnapshot = 1.0;
   double _startBrightnessSnapshot = 1.0;
   Duration _seekPos = Duration.zero;
@@ -55,15 +60,57 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   // ============ 清晰度面板 ============
   bool _showQualityPanel = false;
-  final GlobalKey _qualityButtonKey = GlobalKey(); 
-  double? _panelRight;  
-  double? _panelBottom; 
+  final GlobalKey _qualityButtonKey = GlobalKey();
+  double? _panelRight;
+  double? _panelBottom;
 
   @override
   void initState() {
     super.initState();
     _startHideTimer();
-    _playerBrightness = 1.0;
+    // 加载保存的音量和亮度设置
+    _loadSettings();
+  }
+
+  /// 加载保存的音量和亮度设置
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 恢复音量（默认 50%）
+      final savedVolume = prefs.getDouble(_volumeKey) ?? 50.0;
+      widget.controller.player.setVolume(savedVolume);
+      print('✅ 恢复音量设置: ${savedVolume.toInt()}%');
+
+      // 恢复亮度（默认 100%）
+      final savedBrightness = prefs.getDouble(_brightnessKey) ?? 1.0;
+      setState(() {
+        _playerBrightness = savedBrightness;
+      });
+      print('✅ 恢复亮度设置: ${(savedBrightness * 100).toInt()}%');
+    } catch (e) {
+      print('⚠️ 加载播放器设置失败: $e');
+    }
+  }
+
+  /// 保存音量设置
+  Future<void> _saveVolume(double volume) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_volumeKey, volume);
+    } catch (e) {
+      print('⚠️ 保存音量设置失败: $e');
+    }
+  }
+
+  /// 保存亮度设置
+  Future<void> _saveBrightness(double brightness) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_brightnessKey, brightness);
+    } catch (e) {
+      print('⚠️ 保存亮度设置失败: $e');
+    }
   }
 
   @override
@@ -174,15 +221,17 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     const double sensitivity = 600.0;
 
     if (_gestureType == 1) {
+      // 音量调节
       final val = (_startVolumeSnapshot - delta.dy / sensitivity).clamp(0.0, 1.0);
-      widget.controller.player.setVolume(val * 100); 
-      _showFeedbackUI(Icons.volume_up, '音量 ${(val * 100).toInt()}%', val);
+      final volumePercent = val * 100;
+      widget.controller.player.setVolume(volumePercent);
+      _showFeedbackUI(Icons.volume_up, '音量 ${volumePercent.toInt()}%', val);
 
     } else if (_gestureType == 2) {
       // 亮度调节 (灵敏度 1200)
       final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0);
-      _playerBrightness = val; 
-      setState(() {}); 
+      _playerBrightness = val;
+      setState(() {});
       _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
 
     } else if (_gestureType == 3) {
@@ -205,9 +254,18 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   void _onDragEnd() {
     if (_gestureType == 3) {
       widget.controller.player.seek(_seekPos);
+    } else if (_gestureType == 1) {
+      // 音量调节结束，保存设置
+      final currentVolume = widget.controller.player.state.volume;
+      _saveVolume(currentVolume);
+      print('💾 保存音量设置: ${currentVolume.toInt()}%');
+    } else if (_gestureType == 2) {
+      // 亮度调节结束，保存设置
+      _saveBrightness(_playerBrightness);
+      print('💾 保存亮度设置: ${(_playerBrightness * 100).toInt()}%');
     }
     _gestureType = 0;
-    
+
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) setState(() => _showFeedback = false);
     });
@@ -504,16 +562,27 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
                 onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
               ),
+              // 【修改】仅在全屏模式下显示标题，并优化长标题显示
               Expanded(
-                child: Text(
-                  widget.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
+                child: Builder(
+                  builder: (context) {
+                    final fullscreen = isFullscreen(context);
+                    // 只在全屏时显示标题
+                    if (!fullscreen || widget.title.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+
+                    return Text(
+                      widget.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    );
+                  },
                 ),
               ),
               const SizedBox(width: 8),

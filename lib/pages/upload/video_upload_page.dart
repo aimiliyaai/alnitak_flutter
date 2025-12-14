@@ -1,12 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../models/partition.dart';
 import '../../models/upload_video.dart';
 import '../../services/partition_api_service.dart';
 import '../../services/upload_api_service.dart';
 import '../../services/video_submit_api_service.dart';
 import '../../utils/image_utils.dart';
+import '../../utils/login_guard.dart';
 import 'widgets/video_resource_list.dart';
 
 class VideoUploadPage extends StatefulWidget {
@@ -33,6 +35,7 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
 
   File? _coverFile;
   File? _videoFile;
+  String? _videoFileName; // <--- 新增：用于存储原始文件名（如 screen-xxx.mp4）
   String? _coverUrl; // 后端返回的封面URL
 
   // 标签列表
@@ -47,11 +50,41 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
   double _uploadProgress = 0.0;
   String? _errorMessage;
 
+  // 上传取消标志：当用户主动离开页面时设为true
+  bool _cancelUpload = false;
+
   bool get isEditMode => widget.vid != null;
 
   @override
   void initState() {
     super.initState();
+    _checkLoginAndLoad();
+  }
+
+  /// 检查登录状态并加载数据
+  Future<void> _checkLoginAndLoad() async {
+    // 检查登录状态
+    final isLoggedIn = await LoginGuard.isLoggedIn();
+
+    if (!isLoggedIn && mounted) {
+      // 未登录，显示提示并跳转登录
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final result = await LoginGuard.navigateToLogin(context);
+        if (result != true && mounted) {
+          // 用户没有登录成功，返回上一页
+          Navigator.pop(context);
+        } else if (mounted) {
+          // 登录成功，加载数据
+          _loadPartitions();
+          if (isEditMode) {
+            _loadVideoData();
+          }
+        }
+      });
+      return;
+    }
+
+    // 已登录，正常加载数据
     _loadPartitions();
     if (isEditMode) {
       _loadVideoData();
@@ -60,6 +93,12 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
 
   @override
   void dispose() {
+    // 用户离开页面时，如果正在上传，设置取消标志
+    if (_isUploading) {
+      _cancelUpload = true;
+      print('🚫 用户离开上传页面，设置取消标志');
+    }
+
     _titleController.dispose();
     _descController.dispose();
     _tagInputController.dispose();
@@ -92,9 +131,26 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       print('  - 封面: ${videoStatus.cover}');
       print('  - 标签: ${videoStatus.tags}');
       print('  - 分区ID: ${videoStatus.partitionId}');
+      print('  - 资源数量: ${videoStatus.resources.length}');
+
+      // 打印每个资源的详细信息
+      for (var i = 0; i < videoStatus.resources.length; i++) {
+        final resource = videoStatus.resources[i];
+        print('  - 资源[$i]: id=${resource.id}, title="${resource.title}", status=${resource.status}');
+      }
 
       setState(() {
-        _titleController.text = videoStatus.title;
+        // 如果标题为空且有资源，使用第一个资源的标题（去除.mp4后缀）
+        if (videoStatus.title.isEmpty && videoStatus.resources.isNotEmpty) {
+          final firstResourceTitle = videoStatus.resources[0].title;
+          _titleController.text = firstResourceTitle.endsWith('.mp4')
+              ? firstResourceTitle.substring(0, firstResourceTitle.length - 4)
+              : firstResourceTitle;
+          print('✅ 使用第一个资源标题作为默认标题: ${_titleController.text}');
+        } else {
+          _titleController.text = videoStatus.title;
+        }
+
         _descController.text = videoStatus.desc;
         _tags = videoStatus.tags.split(',').where((t) => t.isNotEmpty).toList();
         _copyright = videoStatus.copyright;
@@ -195,22 +251,53 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
   }
 
   Future<void> _pickVideo() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickVideo(source: ImageSource.gallery);
+      // 【修改点1】使用 FilePicker 替代 ImagePicker
+      // ImagePicker 会把文件名改成数字ID (如 1383.mp4)，FilePicker 能保留原始文件名
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.video, // 限制只选视频
+        allowMultiple: false, // 单选
+      );
 
-    if (pickedFile != null) {
-      setState(() {
-        _videoFile = File(pickedFile.path);
-      });
+      if (result != null && result.files.single.path != null) {
+        final platformFile = result.files.single;
+        final file = File(platformFile.path!);
+        
+        // 【修改点2】获取真实的原始文件名 (例如: screen-20231212.mp4)
+        final originalName = platformFile.name; 
+
+        setState(() {
+          _videoFile = file;
+          _videoFileName = originalName; // 赋值给状态变量
+        });
+
+        print('🎥 [FilePicker] 选中视频路径: ${file.path}');
+        print('📝 [FilePicker] 原始文件名: $originalName');
+
+        // 初次投稿模式：选择视频后自动上传
+        if (!isEditMode) {
+          // 【修改点3】智能提取标题（去除任意后缀名，不仅限于.mp4）
+          final dotIndex = originalName.lastIndexOf('.');
+          final titleWithoutExtension = dotIndex != -1
+              ? originalName.substring(0, dotIndex)
+              : originalName;
+
+          // 这里的 title 用于显示，_videoFileName (在_uploadVideo里用到) 用于告诉后端真实文件名
+          await _uploadVideo(title: titleWithoutExtension);
+        }
+      } else {
+        print('❌ 未选择视频');
+      }
     }
-  }
-
-  Future<void> _uploadVideo() async {
+Future<void> _uploadVideo({String? title}) async {
     if (_videoFile == null) {
       _showError('请选择视频文件');
       return;
     }
 
+    // 重置取消标志
+    _cancelUpload = false;
+
+    // 初始状态更新
     setState(() {
       _isUploading = true;
       _uploadProgress = 0.0;
@@ -218,15 +305,29 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     });
 
     try {
+      final videoTitle = title ?? _titleController.text.trim();
+
+      final actualFilename = _videoFileName ?? _videoFile!.path.split('/').last;
+
+      print('🚀 准备上传: $actualFilename (标题: $videoTitle)');
+
       final videoInfo = await UploadApiService.uploadVideo(
         file: _videoFile!,
-        title: _titleController.text.trim(),
+        filename: actualFilename,
+        title: videoTitle,
         onProgress: (progress) {
-          setState(() {
-            _uploadProgress = progress;
-          });
+          if (mounted) {
+            setState(() {
+              _uploadProgress = progress;
+            });
+          }
         },
+        // 传递取消检查回调：返回 _cancelUpload 的值
+        onCancel: () => _cancelUpload,
       );
+
+      // 异步操作结束后，必须检查页面是否还存在
+      if (!mounted) return;
 
       setState(() {
         _isUploading = false;
@@ -236,27 +337,36 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       print('📦 视频上传完成:');
       print('  - Resource ID: ${videoInfo['id']}');
       print('  - VID: $vid');
+      print('  - 标题: $videoTitle');
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('视频上传成功，跳转到编辑页面')),
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('上传完成')),
+      );
+
+      if (vid != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoUploadPage(vid: vid),
+          ),
         );
-
-        // 上传完成后跳转到编辑页面（参考PC端逻辑）
-        if (vid != null) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => VideoUploadPage(vid: vid),
-            ),
-          );
-        }
       }
     } catch (e) {
-      setState(() {
-        _isUploading = false;
-      });
-      _showError('视频上传失败: $e');
+      print('❌ 上传异常: $e');
+
+      // 如果是用户主动取消，不显示错误提示
+      if (e.toString().contains('上传已取消') || e.toString().contains('MD5计算已取消')) {
+        print('ℹ️ 用户主动取消上传，不显示错误提示');
+      } else if (mounted) {
+        // 其他错误才显示错误提示
+        _showError('视频上传失败: $e');
+      }
+
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
     }
   }
 
@@ -326,25 +436,54 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       final tagsString = _tags.join(',');
       print('🏷️ 标签字符串: $tagsString');
 
-      // 编辑模式：提交视频信息（调用编辑接口）
-      final editVideo = EditVideo(
-        vid: widget.vid!,
-        title: _titleController.text.trim(),
-        cover: coverUrl!,
-        desc: _descController.text.trim(),
-        tags: tagsString,
-      );
+      // 参考PC端逻辑（UploadVideoInfo.vue:143）：
+      // - 如果 partitionId 为 0（未设置分区） → 使用 uploadVideoInfo 接口（包含 partitionId）
+      // - 如果 partitionId 不为 0（已设置分区） → 使用 editVideoInfo 接口（不包含 partitionId，分区不可修改）
+      final currentPartitionId = _resources.isNotEmpty && _resources[0].vid != null
+          ? await _getCurrentPartitionId()
+          : 0;
 
-      print('\n📤 准备提交视频编辑信息到服务器...');
-      print('📦 提交数据: ${editVideo.toJson()}');
+      print('📂 当前分区ID: $currentPartitionId (0=未设置，需要使用uploadVideoInfo)');
 
-      await VideoSubmitApiService.editVideo(editVideo);
-      print('✅ 视频编辑提交成功！');
+      if (currentPartitionId == 0) {
+        // 首次提交：使用 uploadVideoInfo（包含 partitionId）
+        final uploadVideo = UploadVideo(
+          vid: widget.vid!,
+          title: _titleController.text.trim(),
+          cover: coverUrl!,
+          desc: _descController.text.trim(),
+          tags: tagsString,
+          copyright: _copyright,
+          partitionId: partitionId,
+        );
+
+        print('\n📤 【首次提交】使用 uploadVideoInfo 接口提交视频信息（包含分区）...');
+        print('📦 提交数据: ${uploadVideo.toJson()}');
+
+        await VideoSubmitApiService.uploadVideo(uploadVideo);
+        print('✅ 视频信息提交成功！');
+      } else {
+        // 后续编辑：使用 editVideoInfo（不包含 partitionId）
+        final editVideo = EditVideo(
+          vid: widget.vid!,
+          title: _titleController.text.trim(),
+          cover: coverUrl!,
+          desc: _descController.text.trim(),
+          tags: tagsString,
+        );
+
+        print('\n📤 【编辑模式】使用 editVideoInfo 接口提交视频信息（不含分区）...');
+        print('📦 提交数据: ${editVideo.toJson()}');
+
+        await VideoSubmitApiService.editVideo(editVideo);
+        print('✅ 视频编辑提交成功！');
+      }
+
       print('🎬 ========== 视频投稿完成 ==========\n');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('稿件信息更新成功，已提交审核')),
+          SnackBar(content: Text(currentPartitionId == 0 ? '稿件发布成功，请等待审核' : '稿件更新成功，请等待审核')),
         );
         Navigator.pop(context, true);
       }
@@ -358,6 +497,17 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  /// 获取当前视频的分区ID（通过重新获取视频状态）
+  Future<int> _getCurrentPartitionId() async {
+    try {
+      final videoStatus = await VideoSubmitApiService.getVideoStatus(widget.vid!);
+      return videoStatus.partitionId;
+    } catch (e) {
+      print('⚠️ 获取当前分区ID失败，默认为0: $e');
+      return 0;
     }
   }
 
@@ -376,196 +526,192 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       appBar: AppBar(
         title: Text(isEditMode ? '编辑视频' : '视频投稿'),
         actions: [
-          if (_isLoading)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+          if (isEditMode) ...[
+            if (_isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ),
+              )
+            else
+              TextButton(
+                onPressed: _submit,
+                child: const Text('提交'),
               ),
-            )
-          else
-            TextButton(
-              onPressed: _submit,
-              child: const Text('提交'),
-            ),
+          ],
         ],
       ),
       body: _isLoading && isEditMode
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 编辑模式：显示两区域布局（文件上传区 + 基本信息区）
-                    if (isEditMode) ...[
-                      // 文件上传区：视频资源列表（多分P管理）
-                      VideoResourceList(
-                        vid: widget.vid,
-                        initialResources: _resources,
-                        onResourcesChanged: (resources) {
-                          setState(() {
-                            _resources = resources;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      // 分隔线
-                      Container(
-                        height: 24,
-                        color: Colors.grey[100],
-                      ),
-                      const SizedBox(height: 24),
-                      // 基本信息标题
-                      const Text(
-                        '基本信息',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // 上传模式：只显示视频上传区域
-                    if (!isEditMode) ...[
-                      _buildVideoSection(),
-                      const SizedBox(height: 24),
-                    ],
-
-                    // 封面选择
-                    _buildCoverSection(),
-                    const SizedBox(height: 24),
-
-                    // 标题
-                    TextFormField(
-                      controller: _titleController,
-                      decoration: const InputDecoration(
-                        labelText: '标题',
-                        hintText: '请输入视频标题',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLength: 80,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return '请输入标题';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 简介
-                    TextFormField(
-                      controller: _descController,
-                      decoration: const InputDecoration(
-                        labelText: '简介',
-                        hintText: '简单介绍一下视频~',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 5,
-                      maxLength: 200,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 标签
-                    Column(
+          : isEditMode
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '标签',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                        // 编辑模式：显示两区域布局（文件上传区 + 基本信息区）
+                        // 文件上传区：视频资源列表（多分P管理）
+                        VideoResourceList(
+                          vid: widget.vid,
+                          initialResources: _resources,
+                          onResourcesChanged: (resources) {
+                            setState(() {
+                              _resources = resources;
+                            });
+                          },
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 24),
+                        // 分隔线
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ..._tags.map((tag) => Chip(
-                                    label: Text(tag),
-                                    onDeleted: () => _removeTag(tag),
-                                    deleteIconColor: Colors.grey[600],
-                                  )),
-                              SizedBox(
-                                width: 120,
-                                child: TextField(
-                                  controller: _tagInputController,
-                                  decoration: const InputDecoration(
-                                    hintText: '输入标签后回车',
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding: EdgeInsets.symmetric(vertical: 8),
-                                  ),
-                                  onSubmitted: (_) => _addTag(),
-                                ),
-                              ),
-                            ],
-                          ),
+                          height: 24,
+                          color: Colors.grey[100],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '已添加 ${_tags.length} 个标签，至少需要 3 个',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _tags.length < 3 ? Colors.red : Colors.grey,
+                        const SizedBox(height: 24),
+                        // 基本信息标题
+                        const Text(
+                          '基本信息',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // 封面选择
+                        _buildCoverSection(),
+                        const SizedBox(height: 24),
+
+                        // 标题
+                        TextFormField(
+                          controller: _titleController,
+                          decoration: const InputDecoration(
+                            labelText: '标题',
+                            hintText: '请输入视频标题',
+                            border: OutlineInputBorder(),
                           ),
+                          maxLength: 80,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return '请输入标题';
+                            }
+                            return null;
+                          },
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
+                        const SizedBox(height: 16),
 
-                    // 分区选择
-                    _buildPartitionSection(),
-                    const SizedBox(height: 16),
-
-                    // 版权声明
-                    SwitchListTile(
-                      title: const Text('原创声明'),
-                      subtitle: const Text('声明视频为原创内容'),
-                      value: _copyright,
-                      onChanged: (value) {
-                        setState(() {
-                          _copyright = value;
-                        });
-                      },
-                    ),
-
-                    // 错误信息
-                    if (_errorMessage != null) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(8),
+                        // 简介
+                        TextFormField(
+                          controller: _descController,
+                          decoration: const InputDecoration(
+                            labelText: '简介',
+                            hintText: '简单介绍一下视频~',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: 5,
+                          maxLength: 200,
                         ),
-                        child: Row(
+                        const SizedBox(height: 16),
+
+                        // 标签
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade700),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: TextStyle(color: Colors.red.shade700),
+                            const Text(
+                              '标签',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  ..._tags.map((tag) => Chip(
+                                        label: Text(tag),
+                                        onDeleted: () => _removeTag(tag),
+                                        deleteIconColor: Colors.grey[600],
+                                      )),
+                                  SizedBox(
+                                    width: 120,
+                                    child: TextField(
+                                      controller: _tagInputController,
+                                      decoration: const InputDecoration(
+                                        hintText: '输入标签后回车',
+                                        border: InputBorder.none,
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                                      ),
+                                      onSubmitted: (_) => _addTag(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '已添加 ${_tags.length} 个标签，至少需要 3 个',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _tags.length < 3 ? Colors.red : Colors.grey,
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+                        const SizedBox(height: 16),
+
+                        // 分区选择
+                        _buildPartitionSection(),
+                        const SizedBox(height: 16),
+
+                        // 版权声明
+                        SwitchListTile(
+                          title: const Text('原创声明'),
+                          subtitle: const Text('声明视频为原创内容'),
+                          value: _copyright,
+                          onChanged: (value) {
+                            setState(() {
+                              _copyright = value;
+                            });
+                          },
+                        ),
+
+                        // 错误信息
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red.shade700),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _errorMessage!,
+                                    style: TextStyle(color: Colors.red.shade700),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                )
+              : _buildUploadOnlyView(),
     );
   }
 
@@ -667,80 +813,121 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     );
   }
 
-  Widget _buildVideoSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '视频文件',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
+  /// 构建初次上传专用UI（参考PC端 VideoUploader.vue）
+  Widget _buildUploadOnlyView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // 上传区域
+              GestureDetector(
+                onTap: _isUploading ? null : _pickVideo,
+                child: Container(
+                  padding: const EdgeInsets.all(48),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300, width: 2),
+                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.grey.shade50,
+                  ),
+                  child: _isUploading
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 4,
+                                value: _uploadProgress,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              '上传中 ${(_uploadProgress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.cloud_upload_outlined,
+                              size: 64,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              '点击或拖拽视频到此处上传视频',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '仅支持.mp4格式文件',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            ElevatedButton(
+                              onPressed: _pickVideo,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 48,
+                                  vertical: 16,
+                                ),
+                              ),
+                              child: const Text(
+                                '上传视频',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
 
-        if (_videoFile == null)
-          OutlinedButton.icon(
-            onPressed: _pickVideo,
-            icon: const Icon(Icons.video_library),
-            label: const Text('选择视频文件'),
-          )
-        else ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.video_file),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _videoFile!.path.split('/').last,
-                    overflow: TextOverflow.ellipsis,
+              // 错误信息
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade700),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(color: Colors.red.shade700),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () {
-                    setState(() {
-                      _videoFile = null;
-                    });
-                  },
-                ),
               ],
-            ),
+            ],
           ),
-          const SizedBox(height: 12),
-
-          // 上传按钮
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isUploading ? null : _uploadVideo,
-              child: _isUploading
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            value: _uploadProgress,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text('上传中 ${(_uploadProgress * 100).toStringAsFixed(0)}%'),
-                      ],
-                    )
-                  : const Text('上传视频'),
-            ),
-          ),
-        ],
-      ],
+        ),
+      ),
     );
   }
+
 
   Widget _buildPartitionSection() {
     return Column(

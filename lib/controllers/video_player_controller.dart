@@ -51,6 +51,7 @@ class VideoPlayerController extends ChangeNotifier {
   bool _hasTriggeredCompletion = false;
   bool _isRecovering = false;
   bool _wasPlayingBeforeBackground = false;
+  Duration? _positionBeforeBackground; // 保存进入后台前的播放位置
   StreamSubscription<bool>? _playingSubscription;
 
   // 网络状态监听
@@ -60,6 +61,10 @@ class VideoPlayerController extends ChangeNotifier {
   // 播放卡顿监听
   Timer? _stalledTimer;
   int _stalledCount = 0;
+
+  // 智能缓冲检测（防止在已缓存范围内快进时显示加载动画）
+  bool _isSeekingWithinCache = false;
+  Timer? _seekDebounceTimer;
 
   // 预加载清晰度缓存
   final Map<String, Uint8List> _qualityCache = {};
@@ -171,7 +176,14 @@ class VideoPlayerController extends ChangeNotifier {
     });
 
     // 4. 缓冲状态监听 + 超时检测（替代 error 监听）
+    // 【优化】智能检测：如果是在已缓存范围内快进，不显示加载动画
     player.stream.buffering.listen((buffering) {
+      // 如果正在已缓存范围内快进，忽略短暂的缓冲状态
+      if (_isSeekingWithinCache && buffering) {
+        print('✅ 在已缓存范围内快进，跳过加载动画');
+        return;
+      }
+
       isBuffering.value = buffering;
 
       if (buffering) {
@@ -188,6 +200,9 @@ class VideoPlayerController extends ChangeNotifier {
         // 缓冲结束，取消超时
         _stalledTimer?.cancel();
         _stalledCount = 0; // 重置卡顿计数
+
+        // 清除快进标记
+        _isSeekingWithinCache = false;
       }
     });
   }
@@ -271,8 +286,8 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   /// 处理播放卡顿（智能恢复方案）
-  /// 优先使用轻量级恢复，避免重新加载 m3u8
-  Future<void> _handleStalledPlayback() async {
+  /// [fallbackPosition] 可选的备用位置，当 player.state.position 不可靠时使用
+  Future<void> _handleStalledPlayback({Duration? fallbackPosition}) async {
     if (_isRecovering || currentQuality.value == null) return;
 
     _isRecovering = true;
@@ -281,11 +296,17 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       print('🔧 卡顿恢复尝试 $_stalledCount/2');
 
+      // 获取可靠的播放位置：优先使用当前位置，如果看起来不可靠则使用备用位置
+      final currentPos = player.state.position;
+      final reliablePosition = (currentPos.inSeconds > 0 || fallbackPosition == null)
+          ? currentPos
+          : fallbackPosition;
+      print('📍 恢复位置: ${reliablePosition.inSeconds}s (当前=${currentPos.inSeconds}s, 备用=${fallbackPosition?.inSeconds}s)');
+
       if (_stalledCount == 1) {
         // 第一次卡顿：尝试轻量级恢复 - 跳过坏的 TS 分片
         print('💡 方案1: 尝试跳过损坏分片 (+2秒)');
-        final currentPos = player.state.position;
-        final newPos = currentPos + const Duration(seconds: 2);
+        final newPos = reliablePosition + const Duration(seconds: 2);
 
         // 直接 seek，依靠 MPV 的底层重连机制
         await player.seek(newPos);
@@ -302,8 +323,7 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       // 第二次卡顿或第一次失败：重新加载 m3u8
-      print('💡 方案2: 重新加载 m3u8');
-      final position = player.state.position;
+      print('💡 方案2: 重新加载 m3u8，恢复到 ${reliablePosition.inSeconds}s');
       final wasPlaying = player.state.playing;
 
       // 获取新的 m3u8 内容
@@ -317,7 +337,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 重新打开
       await player.open(media, play: false);
       await _waitForPlayerReady();
-      await player.seek(position);
+      await player.seek(reliablePosition);
 
       if (wasPlaying) {
         await player.play();
@@ -504,7 +524,7 @@ class VideoPlayerController extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 100));
         final currentPos = player.state.position;
         // 如果位置接近目标位置（误差 < 2 秒），说明 seek 成功
-        if ((currentPos.inSeconds - seekPos.inSeconds).abs() < 2) {
+         if ((currentPos.inSeconds - seekPos.inSeconds).abs() < 2) {
           break;
         }
       }
@@ -613,15 +633,37 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> play() async => await player.play();
   Future<void> pause() async => await player.pause();
 
-  /// 快进/快退方法 - 带分片恢复保障
+  /// 快进/快退方法 - 带分片恢复保障 + 智能缓存检测
   ///
   /// 确保无论什么情况下,快进都不会丢失分片跳过
   /// 如果遇到加载失败,会尝试重新加载并恢复到目标位置
+  /// 【优化】在已缓存范围内快进时，不显示加载动画
   Future<void> seek(Duration position) async {
     final targetPosition = position;
     final wasPlaying = player.state.playing;
+    final currentPosition = player.state.position;
 
     try {
+      // 【智能缓存检测】判断是否在预缓冲范围内（120秒）
+      // 如果快进目标在当前位置的120秒内，认为很可能已缓存
+      final seekDistance = (targetPosition.inSeconds - currentPosition.inSeconds).abs();
+      final isLikelyInCache = seekDistance <= 120;
+
+      if (isLikelyInCache) {
+        _isSeekingWithinCache = true;
+        print('📍 检测到在缓存范围内快进（$seekDistance秒），优化加载体验');
+
+        // 设置3秒超时：如果3秒后还在缓冲，说明没缓存，恢复正常加载显示
+        _seekDebounceTimer?.cancel();
+        _seekDebounceTimer = Timer(const Duration(seconds: 3), () {
+          if (player.state.buffering) {
+            print('⚠️ 超过3秒仍在缓冲，显示加载动画');
+            _isSeekingWithinCache = false;
+            isBuffering.value = true;
+          }
+        });
+      }
+
       // 1. 执行 seek 操作
       await player.seek(targetPosition);
 
@@ -635,12 +677,16 @@ class VideoPlayerController extends ChangeNotifier {
       // 如果位置偏差超过 3 秒,可能是分片加载失败
       if (positionDiff > 3) {
         print('⚠️ 快进位置偏差 ${positionDiff}s，重新加载');
+        _isSeekingWithinCache = false; // 清除缓存标记
+        _seekDebounceTimer?.cancel();
         await _recoverSeekPosition(targetPosition, wasPlaying);
       }
 
     } catch (e) {
       print('❌ 快进失败: $e');
-      // 快进失败时尝试恢复
+      // 快进失败时清除缓存标记并尝试恢复
+      _isSeekingWithinCache = false;
+      _seekDebounceTimer?.cancel();
       await _recoverSeekPosition(targetPosition, wasPlaying);
     }
   }
@@ -858,22 +904,27 @@ class VideoPlayerController extends ChangeNotifier {
 
   void handleAppLifecycleState(bool isPaused) {
     if (isPaused) {
-      // 进入后台
+      // 进入后台：保存当前状态
+      _wasPlayingBeforeBackground = player.state.playing;
+      _positionBeforeBackground = player.state.position;
+      print('📱 进入后台: playing=$_wasPlayingBeforeBackground, position=${_positionBeforeBackground?.inSeconds}s');
+
       if (backgroundPlayEnabled.value) {
         // 启用后台播放
         _enableBackgroundPlayback();
       } else {
         // 暂停播放
-        _wasPlayingBeforeBackground = player.state.playing;
         if (_wasPlayingBeforeBackground) player.pause();
       }
     } else {
       // 返回前台
+      print('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s');
+
       if (backgroundPlayEnabled.value) {
         // 禁用后台播放 (回到前台使用正常的视频渲染)
         _disableBackgroundPlayback();
       } else if (_wasPlayingBeforeBackground) {
-        // 恢复播放 - 添加网络恢复检测
+        // 恢复播放
         _resumePlaybackAfterBackground();
         _wasPlayingBeforeBackground = false;
       }
@@ -881,20 +932,37 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   /// 后台返回前台后恢复播放
-  /// 如果播放失败，自动尝试重新加载
   Future<void> _resumePlaybackAfterBackground() async {
+    final savedPosition = _positionBeforeBackground;
+    _positionBeforeBackground = null; // 清除保存的位置
+
     try {
+      // 检查播放器位置是否异常（被重置或偏差过大）
+      final currentPos = player.state.position;
+      final positionDrift = savedPosition != null
+          ? (currentPos.inMilliseconds - savedPosition.inMilliseconds).abs()
+          : 0;
+
+      // 如果位置偏差超过3秒，说明播放器状态可能被重置
+      if (savedPosition != null && positionDrift > 3000) {
+        print('⚠️ 检测到位置偏移: 保存=${savedPosition.inSeconds}s, 当前=${currentPos.inSeconds}s, 偏差=${positionDrift}ms');
+        // 先恢复到正确位置再播放
+        await player.seek(savedPosition);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
       await player.play();
 
       // 等待一小段时间检查是否能正常播放
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      // 如果播放状态异常，尝试重新加载
+      // 如果播放状态异常，尝试重新加载（使用保存的位置）
       if (!player.state.playing && errorMessage.value == null) {
-        _handleStalledPlayback();
+        _handleStalledPlayback(fallbackPosition: savedPosition);
       }
     } catch (e) {
-      _handleStalledPlayback();
+      print('❌ 后台恢复播放异常: $e');
+      _handleStalledPlayback(fallbackPosition: savedPosition);
     }
   }
 
@@ -936,6 +1004,7 @@ class VideoPlayerController extends ChangeNotifier {
     _debounceTimer?.cancel();
     _stalledTimer?.cancel();
     _preloadTimer?.cancel();
+    _seekDebounceTimer?.cancel();
     _playingSubscription?.cancel();
     _connectivitySubscription?.cancel();
     _positionStreamController.close();
@@ -945,6 +1014,9 @@ class VideoPlayerController extends ChangeNotifier {
 
     // 清理时禁用 wakelock
     WakelockManager.disable();
+
+    // 【新增】清理播放器缓存文件（HLS临时文件 + MPV缓存）
+    _hlsService.cleanupAllTempCache();
 
     player.dispose();
     availableQualities.dispose();

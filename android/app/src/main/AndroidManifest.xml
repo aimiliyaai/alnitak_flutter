@@ -19,7 +19,6 @@
 
     <!-- 通知权限（用于后台播放通知） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-
     <application
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config"

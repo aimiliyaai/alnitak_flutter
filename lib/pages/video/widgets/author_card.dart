@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/video_detail.dart';
 import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
+import '../../../utils/login_guard.dart';
 
 /// 作者信息卡片
 class AuthorCard extends StatefulWidget {
@@ -52,6 +53,24 @@ class _AuthorCardState extends State<AuthorCard> {
   Future<void> _handleFollow() async {
     if (_isLoading) return;
 
+    // 在 await 之前获取 ScaffoldMessenger
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // 登录检测
+    if (!await LoginGuard.check(context, actionName: '关注')) return;
+
+    // 检查是否关注自己
+    final currentUserId = await LoginGuard.getCurrentUserId();
+    if (currentUserId != null && currentUserId == widget.author.uid) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('不能关注自己'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -83,7 +102,7 @@ class _AuthorCardState extends State<AuthorCard> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             SnackBar(
               content: Text(previousStatus == 0 ? '关注成功' : '已取消关注'),
               duration: const Duration(seconds: 1),
@@ -92,7 +111,7 @@ class _AuthorCardState extends State<AuthorCard> {
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             const SnackBar(content: Text('操作失败，请重试')),
           );
         }
@@ -100,7 +119,7 @@ class _AuthorCardState extends State<AuthorCard> {
     } catch (e) {
       print('关注操作失败: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('操作失败，请重试')),
         );
       }

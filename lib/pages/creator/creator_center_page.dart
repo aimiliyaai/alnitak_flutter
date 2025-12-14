@@ -4,13 +4,41 @@ import 'video_manage_page.dart';
 import '../upload/article_manuscript_page.dart';
 import '../upload/video_upload_page.dart';
 import '../upload/article_upload_page.dart';
+import '../../utils/login_guard.dart';
 
 /// 创作中心页面
-class CreatorCenterPage extends StatelessWidget {
+class CreatorCenterPage extends StatefulWidget {
   const CreatorCenterPage({super.key});
 
+  @override
+  State<CreatorCenterPage> createState() => _CreatorCenterPageState();
+}
+
+class _CreatorCenterPageState extends State<CreatorCenterPage> {
+  @override
+  void initState() {
+    super.initState();
+    _checkLogin();
+  }
+
+  /// 检查登录状态
+  Future<void> _checkLogin() async {
+    final isLoggedIn = await LoginGuard.isLoggedIn();
+
+    if (!isLoggedIn && mounted) {
+      // 未登录，显示提示并跳转登录
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final result = await LoginGuard.navigateToLogin(context);
+        if (result != true && mounted) {
+          // 用户没有登录成功，返回上一页
+          Navigator.pop(context);
+        }
+      });
+    }
+  }
+
   /// 显示上传类型选择对话框
-  static void _showUploadTypeDialog(BuildContext context) {
+  void _showUploadTypeDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -74,7 +102,6 @@ class CreatorCenterPage extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 _buildMenuItem(
-                  context,
                   icon: Icons.video_library_outlined,
                   title: '视频管理',
                   onTap: () {
@@ -85,7 +112,6 @@ class CreatorCenterPage extends StatelessWidget {
                   },
                 ),
                 _buildMenuItem(
-                  context,
                   icon: Icons.article_outlined,
                   title: '文章管理',
                   onTap: () {
@@ -96,7 +122,6 @@ class CreatorCenterPage extends StatelessWidget {
                   },
                 ),
                 _buildMenuItem(
-                  context,
                   icon: Icons.comment_outlined,
                   title: '评论管理',
                   onTap: () {
@@ -128,7 +153,7 @@ class CreatorCenterPage extends StatelessWidget {
                 width: double.infinity,
                 height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: () => _showUploadTypeDialog(context),
+                  onPressed: _showUploadTypeDialog,
                   icon: const Icon(Icons.add, color: Colors.white),
                   label: const Text(
                     '发布新稿件',
@@ -155,8 +180,7 @@ class CreatorCenterPage extends StatelessWidget {
   }
 
   /// 构建菜单项
-  Widget _buildMenuItem(
-    BuildContext context, {
+  Widget _buildMenuItem({
     required IconData icon,
     required String title,
     required VoidCallback onTap,

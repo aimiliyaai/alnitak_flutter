@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -48,7 +49,7 @@ class UploadApiService {
     // 添加文件（参考PC端：字段名使用 "image"）
     request.files.add(
       await http.MultipartFile.fromPath(
-        'image',  // PC端使用 "image" 作为字段名
+        'image', // PC端使用 "image" 作为字段名
         file.path,
         filename: path.basename(file.path),
       ),
@@ -90,22 +91,38 @@ class UploadApiService {
   /// 返回视频资源信息
   ///
   /// [vid] 可选的视频ID，用于添加多分P（参考PC端：有vid时使用不同的endpoint）
+  /// [filename] 可选的原始文件名，如果不传则使用file路径的文件名
+  /// [onCancel] 可选的取消回调，返回true表示需要取消上传
   static Future<Map<String, dynamic>> uploadVideo({
     required File file,
     required String title,
     required Function(double) onProgress,
     int? vid,
+    String? filename,
+    bool Function()? onCancel, // 新增：取消检查回调
   }) async {
-    // 1. 计算文件MD5
-    final fileBytes = await file.readAsBytes();
-    final fileMd5 = md5.convert(fileBytes).toString();
-    final fileName = path.basename(file.path);
+    // 1. 计算文件MD5（使用流式计算，避免大文件内存溢出）
+    final fileMd5 = await _calculateFileMd5(file, onCancel: onCancel);
+
+    // 检查是否已取消
+    if (onCancel?.call() == true) {
+      print('❌ 上传已取消（MD5计算后）');
+      throw Exception('上传已取消');
+    }
+
+    final fileName = filename ?? path.basename(file.path);
 
     print('📹 准备上传视频: $fileName (MD5: $fileMd5)${vid != null ? ' (添加到VID: $vid)' : ''}');
 
     // 2. 检查已上传分片
     final uploadedChunks = await _checkUploadedChunks(fileMd5);
     print('✅ 已上传分片: ${uploadedChunks.length}');
+
+    // 检查是否已取消
+    if (onCancel?.call() == true) {
+      print('❌ 上传已取消（检查分片后）');
+      throw Exception('上传已取消');
+    }
 
     // 3. 分片上传
     await _uploadInChunks(
@@ -114,19 +131,60 @@ class UploadApiService {
       fileName: fileName,
       uploadedChunks: uploadedChunks,
       onProgress: onProgress,
+      onCancel: onCancel, // 传递取消回调
     );
 
     print('✅ 分片上传完成');
+
+    // 检查是否已取消
+    if (onCancel?.call() == true) {
+      print('❌ 上传已取消（分片上传后）');
+      throw Exception('上传已取消');
+    }
 
     // 4. 合并分片
     await _mergeChunks(fileMd5);
     print('✅ 分片合并完成');
 
+    // 检查是否已取消
+    if (onCancel?.call() == true) {
+      print('❌ 上传已取消（合并分片后）');
+      throw Exception('上传已取消');
+    }
+
     // 5. 获取视频信息（参考PC端：有vid时使用不同endpoint）
-    final videoInfo = await _getVideoInfo(fileMd5, vid: vid);
+    final videoInfo = await _getVideoInfo(fileMd5, title: title, vid: vid);
     print('✅ 视频上传成功，资源ID: ${videoInfo['id']}');
 
     return videoInfo;
+  }
+
+  /// 流式计算文件MD5（避免大文件内存溢出）
+  static Future<String> _calculateFileMd5(File file, {bool Function()? onCancel}) async {
+    final fileSize = await file.length();
+    print('📊 开始计算MD5: 文件大小 ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
+
+    // 使用流式读取，默认每次读取64KB，不会占用大量内存
+    final stream = file.openRead();
+
+    // 定期检查取消标志
+    Stream<List<int>> cancelableStream = stream.transform(
+      StreamTransformer.fromHandlers(
+        handleData: (data, sink) {
+          if (onCancel?.call() == true) {
+            sink.close();
+            throw Exception('MD5计算已取消');
+          }
+          sink.add(data);
+        },
+      ),
+    );
+
+    final digest = await md5.bind(cancelableStream).first;
+    final md5Hash = digest.toString();
+
+    print('✅ MD5计算完成: $md5Hash');
+    return md5Hash;
   }
 
   /// 检查已上传的分片
@@ -168,6 +226,7 @@ class UploadApiService {
     required String fileName,
     required List<int> uploadedChunks,
     required Function(double) onProgress,
+    bool Function()? onCancel, // 新增：取消检查回调
   }) async {
     const int chunkSize = 5 * 1024 * 1024; // 5MB
     const int maxConcurrent = 5; // 最大并发数
@@ -194,6 +253,12 @@ class UploadApiService {
 
     // 分批并发上传
     for (int i = 0; i < chunksToUpload.length; i += maxConcurrent) {
+      // 每批上传前检查是否取消
+      if (onCancel?.call() == true) {
+        print('❌ 分片上传已取消（批次 ${i ~/ maxConcurrent + 1}）');
+        throw Exception('上传已取消');
+      }
+
       final endIndex = (i + maxConcurrent > chunksToUpload.length)
           ? chunksToUpload.length
           : i + maxConcurrent;
@@ -252,7 +317,7 @@ class UploadApiService {
 
     // 添加表单字段
     request.fields['hash'] = hash;
-    request.fields['name'] = fileName;
+    request.fields['name'] = fileName; // 这里会使用我们传入的正确文件名 (screen-xxx.mp4)
     request.fields['chunkIndex'] = chunkIndex.toString();
     request.fields['totalChunks'] = totalChunks.toString();
 
@@ -308,16 +373,13 @@ class UploadApiService {
   }
 
   /// 获取视频信息
-  ///
-  /// [vid] 可选的视频ID，参考PC端：有vid时使用 `v1/upload/video/{vid}` endpoint
-  static Future<Map<String, dynamic>> _getVideoInfo(String hash, {int? vid}) async {
-    // 参考PC端 UploadVideoFile.vue:160
-    // action: props.vid ? `v1/upload/video/${props.vid}` : `v1/upload/video`
+  static Future<Map<String, dynamic>> _getVideoInfo(String hash, {required String title, int? vid}) async {
     final endpoint = vid != null ? '/api/v1/upload/video/$vid' : '/api/v1/upload/video';
     final url = Uri.parse('$baseUrl$endpoint');
     final token = await _getAuthToken();
 
     print('📡 获取视频信息: $endpoint');
+    print('📝 视频标题: $title');
 
     final headers = {
       'Content-Type': 'application/json',
@@ -330,7 +392,10 @@ class UploadApiService {
     final response = await http.post(
       url,
       headers: headers,
-      body: json.encode({'hash': hash}),
+      body: json.encode({
+        'hash': hash,
+        'title': title,
+      }),
     );
 
     if (response.statusCode == 200) {

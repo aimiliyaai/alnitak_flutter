@@ -47,7 +47,9 @@
       "Bash(flutter pub:*)",
       "Bash(flutter build:*)",
       "Bash(ls:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(taskkill:*)",
+      "Bash(if exist .gradle rmdir /s /q .gradle)"
     ],
     "deny": [],
     "ask": []

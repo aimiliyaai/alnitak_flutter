@@ -4,6 +4,7 @@ import '../../models/comment.dart';
 import '../../services/video_service.dart';
 import '../../services/hls_service.dart';
 import '../../services/history_service.dart';
+import '../../utils/auth_state_manager.dart';
 import 'widgets/media_player_widget.dart';
 import 'widgets/author_card.dart';
 import 'widgets/video_info_card.dart';
@@ -31,6 +32,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   final VideoService _videoService = VideoService();
   final HlsService _hlsService = HlsService();
   final HistoryService _historyService = HistoryService();
+  final AuthStateManager _authStateManager = AuthStateManager();
   final ScrollController _scrollController = ScrollController();
 
   // 使用 GlobalKey 保持播放器状态（使用固定的key，不随分P变化而重建）
@@ -61,6 +63,34 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _loadVideoData();
     // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
+    // 监听登录状态变化
+    _authStateManager.addListener(_onAuthStateChanged);
+  }
+
+  /// 登录状态变化回调
+  void _onAuthStateChanged() {
+    // 当登录状态变化时，刷新用户操作状态（点赞、收藏、关注）
+    _refreshUserActionStatus();
+  }
+
+  /// 刷新用户操作状态
+  Future<void> _refreshUserActionStatus() async {
+    if (_videoDetail == null) return;
+
+    try {
+      final actionStatus = await _videoService.getUserActionStatus(
+        widget.vid,
+        _videoDetail!.author.uid,
+      );
+      if (actionStatus != null && mounted) {
+        setState(() {
+          _actionStatus = actionStatus;
+        });
+        print('✅ 用户操作状态已刷新: hasLiked=${actionStatus.hasLiked}, hasCollected=${actionStatus.hasCollected}');
+      }
+    } catch (e) {
+      print('刷新用户操作状态失败: $e');
+    }
   }
 
   @override
@@ -76,6 +106,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   void dispose() {
     // 移除生命周期监听
     WidgetsBinding.instance.removeObserver(this);
+    // 移除登录状态监听
+    _authStateManager.removeListener(_onAuthStateChanged);
 
     // 页面关闭前上报最后播放进度（参考PC端逻辑）
     if (_lastReportedPosition != null) {
@@ -98,8 +130,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     _scrollController.dispose();
-    // 清理临时 m3u8 文件
-    _hlsService.cleanupTempFiles();
+    // 清理所有播放器缓存（HLS临时文件 + MPV缓存）
+    _hlsService.cleanupAllTempCache();
     super.dispose();
   }
 
@@ -429,6 +461,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             initialPosition: _initialProgress,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
+            title: currentResource.title, // 传递分P标题
             totalParts: _videoDetail!.resources.length,
             currentPart: _currentPart,
             onPartChange: _changePart,

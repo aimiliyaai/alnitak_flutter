@@ -5,6 +5,7 @@ import '../../../models/video_detail.dart';
 import '../../../models/collection.dart';
 import '../../../services/video_service.dart';
 import '../../../services/collection_service.dart';
+import '../../../utils/login_guard.dart';
 
 /// 视频操作按钮（点赞、收藏、分享）
 class VideoActionButtons extends StatefulWidget {
@@ -71,6 +72,9 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   Future<void> _handleLike() async {
     if (_isLiking) return;
 
+    // 登录检测
+    if (!await LoginGuard.check(context, actionName: '点赞')) return;
+
     setState(() {
       _isLiking = true;
     });
@@ -129,6 +133,9 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   /// 显示收藏对话框（参考PC端实现）
   Future<void> _showCollectDialog() async {
     if (_isCollecting) return;
+
+    // 登录检测
+    if (!await LoginGuard.check(context, actionName: '收藏')) return;
 
     setState(() {
       _isCollecting = true;

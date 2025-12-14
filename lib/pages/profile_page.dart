@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../models/user_model.dart';
 import '../utils/image_utils.dart';
+import '../utils/auth_state_manager.dart';
 import 'login_page.dart';
 import 'edit_profile_page.dart';
 import 'creator/creator_center_page.dart';
@@ -19,6 +20,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
+  final AuthStateManager _authStateManager = AuthStateManager();
 
   // 用户数据
   UserBaseInfo? _userInfo;
@@ -28,6 +30,20 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    // 监听登录状态变化
+    _authStateManager.addListener(_onAuthStateChanged);
+    _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    _authStateManager.removeListener(_onAuthStateChanged);
+    super.dispose();
+  }
+
+  /// 登录状态变化回调
+  void _onAuthStateChanged() {
+    // 当登录状态变化时，重新加载用户数据
     _loadUserData();
   }
 
@@ -92,6 +108,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     if (confirmed == true) {
       await _authService.logout();
+      // 通知全局登录状态变化
+      _authStateManager.onLogout();
       setState(() {
         _isLoggedIn = false;
         _userInfo = null;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/slider_captcha_widget.dart';
+import '../utils/auth_state_manager.dart';
 import 'register_page.dart';
 
 /// 登录页面
@@ -72,6 +73,8 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       );
 
       if (response != null) {
+        // 通知全局登录状态变化
+        AuthStateManager().onLoginSuccess();
         if (mounted) {
           _showMessage('登录成功');
           Navigator.of(context).pop(true); // 返回 true 表示登录成功
@@ -141,6 +144,8 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       );
 
       if (response != null) {
+        // 通知全局登录状态变化
+        AuthStateManager().onLoginSuccess();
         if (mounted) {
           _showMessage('登录成功');
           Navigator.of(context).pop(true);

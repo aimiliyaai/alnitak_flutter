@@ -32,6 +32,7 @@ class UploadVideo {
 }
 
 /// 编辑视频模型
+/// 参考PC端：编辑时不允许修改分区（EditVideoType不包含partitionId字段）
 class EditVideo {
   final int vid;
   final String title;

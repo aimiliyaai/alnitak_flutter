@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
 import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
+import '../../../utils/login_guard.dart';
 
 /// 评论列表组件 - 优化输入体验
 class CommentList extends StatefulWidget {
@@ -216,7 +217,12 @@ class _CommentListContentState extends State<CommentListContent> {
     final content = _commentController.text.trim();
     if (content.isEmpty) return;
 
+    // 在 await 之前获取 ScaffoldMessenger，避免 use_build_context_synchronously 警告
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    // 登录检测
+    if (!await LoginGuard.check(context, actionName: '发表评论')) return;
+
     scaffoldMessenger.showSnackBar(
       const SnackBar(
         content: Text('正在发表评论...'),

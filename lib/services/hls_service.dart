@@ -194,9 +194,10 @@ class HlsService {
     }
   }
 
-  /// 清理所有缓存目录
+  /// 清理所有缓存目录（包括HLS缓存和MPV缓存）
   Future<void> clearAllCache() async {
     try {
+      // 1. 清理HLS缓存
       await _initCacheDir();
       if (await _cacheDir!.exists()) {
         await _cacheDir!.delete(recursive: true);
@@ -204,8 +205,82 @@ class HlsService {
         _tempFilePaths.clear();
         print('🗑️  已清空所有HLS缓存');
       }
+
+      // 2. 清理MPV缓存
+      await cleanupMpvCache();
     } catch (e) {
       print('❌ 清空缓存错误: $e');
+    }
+  }
+
+  /// 清理 MPV 播放器缓存
+  ///
+  /// MPV 会在临时目录中缓存 TS 分片，需要定期清理以节省存储空间
+  Future<void> cleanupMpvCache() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+
+      // MPV 缓存目录可能的位置
+      final mpvCacheDirs = [
+        Directory('${tempDir.path}/mpv_cache'),
+        Directory('${tempDir.path}/.mpv_cache'),
+        Directory('${tempDir.path}/media_kit_cache'),
+      ];
+
+      int totalDeleted = 0;
+      int totalSize = 0;
+
+      for (final dir in mpvCacheDirs) {
+        if (await dir.exists()) {
+          final files = dir.listSync(recursive: true);
+          for (final file in files) {
+            if (file is File) {
+              try {
+                final stat = await file.stat();
+                totalSize += stat.size;
+                await file.delete();
+                totalDeleted++;
+              } catch (e) {
+                // 文件可能正在使用中，跳过
+                print('⚠️ 跳过文件: ${file.path}');
+              }
+            }
+          }
+
+          // 尝试删除空目录
+          try {
+            if (dir.listSync().isEmpty) {
+              await dir.delete();
+            }
+          } catch (e) {
+            // 目录可能不为空或正在使用
+          }
+        }
+      }
+
+      if (totalDeleted > 0) {
+        final sizeMB = (totalSize / (1024 * 1024)).toStringAsFixed(2);
+        print('🗑️  已清理 MPV 缓存: $totalDeleted 个文件，释放 ${sizeMB}MB 空间');
+      }
+    } catch (e) {
+      print('❌ 清理 MPV 缓存错误: $e');
+    }
+  }
+
+  /// 清理所有临时缓存（退出播放时调用）
+  ///
+  /// 包括：HLS临时文件 + MPV缓存文件
+  Future<void> cleanupAllTempCache() async {
+    try {
+      // 1. 清理HLS临时文件
+      await cleanupTempFiles();
+
+      // 2. 清理MPV缓存
+      await cleanupMpvCache();
+
+      print('🗑️  播放器缓存已清理完成');
+    } catch (e) {
+      print('❌ 清理播放器缓存错误: $e');
     }
   }
 
