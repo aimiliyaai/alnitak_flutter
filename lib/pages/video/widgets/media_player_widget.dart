@@ -16,10 +16,13 @@ class MediaPlayerWidget extends StatefulWidget {
   final Function(Duration position)? onProgressUpdate;
   final Function(String quality)? onQualityChanged;
   final String? title;
+  final String? author;
+  final String? coverUrl;
   final VoidCallback? onFullscreenToggle;
   final int? totalParts;
   final int? currentPart;
   final Function(int part)? onPartChange;
+  final Function(VideoPlayerController)? onControllerReady;
 
   const MediaPlayerWidget({
     super.key,
@@ -29,10 +32,13 @@ class MediaPlayerWidget extends StatefulWidget {
     this.onProgressUpdate,
     this.onQualityChanged,
     this.title,
+    this.author,
+    this.coverUrl,
     this.onFullscreenToggle,
     this.totalParts,
     this.currentPart,
     this.onPartChange,
+    this.onControllerReady,
   });
 
   @override
@@ -55,11 +61,23 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     _controller.onProgressUpdate = widget.onProgressUpdate;
     _controller.onQualityChanged = widget.onQualityChanged;
 
+    // 设置视频元数据（用于后台播放通知）
+    if (widget.title != null) {
+      _controller.setVideoMetadata(
+        title: widget.title!,
+        author: widget.author,
+        coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+      );
+    }
+
     // 初始化播放器
     _controller.initialize(
       resourceId: widget.resourceId,
       initialPosition: widget.initialPosition,
     );
+
+    // 通知父组件控制器已就绪
+    widget.onControllerReady?.call(_controller);
 
     // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);

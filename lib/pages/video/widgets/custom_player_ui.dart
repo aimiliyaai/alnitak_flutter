@@ -720,6 +720,25 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 },
               ),
 
+              // 后台播放按钮
+              ValueListenableBuilder<bool>(
+                valueListenable: widget.logic.backgroundPlayEnabled,
+                builder: (context, bgEnabled, _) {
+                  return IconButton(
+                    icon: Icon(
+                      bgEnabled ? Icons.headphones : Icons.headphones_outlined,
+                      color: bgEnabled ? Colors.blue : Colors.white,
+                      size: 22,
+                    ),
+                    tooltip: bgEnabled ? '后台播放：开' : '后台播放：关',
+                    onPressed: () {
+                      widget.logic.toggleBackgroundPlay();
+                      _startHideTimer();
+                    },
+                  );
+                },
+              ),
+
               ValueListenableBuilder(
                 valueListenable: widget.logic.loopMode,
                 builder: (context, loopMode, _) {

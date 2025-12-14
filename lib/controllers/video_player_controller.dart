@@ -167,7 +167,6 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       // Wakelock 控制：严格绑定播放状态
-      // 只要是在播放状态下，必须保持唤醒
       if (playing) {
         WakelockManager.enable();
       } else {
@@ -904,27 +903,27 @@ class VideoPlayerController extends ChangeNotifier {
 
   void handleAppLifecycleState(bool isPaused) {
     if (isPaused) {
-      // 进入后台：保存当前状态
+      // 进入后台
       _wasPlayingBeforeBackground = player.state.playing;
       _positionBeforeBackground = player.state.position;
-      print('📱 进入后台: playing=$_wasPlayingBeforeBackground, position=${_positionBeforeBackground?.inSeconds}s');
+      print('📱 进入后台: playing=$_wasPlayingBeforeBackground, position=${_positionBeforeBackground?.inSeconds}s, backgroundPlay=${backgroundPlayEnabled.value}');
 
-      if (backgroundPlayEnabled.value) {
-        // 启用后台播放
+      if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
+        // 后台播放模式：启用AudioService，保持播放
         _enableBackgroundPlayback();
       } else {
-        // 暂停播放
+        // 非后台播放模式：暂停播放
         if (_wasPlayingBeforeBackground) player.pause();
       }
     } else {
       // 返回前台
       print('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s');
 
-      if (backgroundPlayEnabled.value) {
-        // 禁用后台播放 (回到前台使用正常的视频渲染)
-        _disableBackgroundPlayback();
+      if (backgroundPlayEnabled.value && _audioHandler != null) {
+        // 从后台播放返回，检查并恢复播放状态
+        _resumePlaybackAfterBackground();
       } else if (_wasPlayingBeforeBackground) {
-        // 恢复播放
+        // 从普通后台返回，恢复播放
         _resumePlaybackAfterBackground();
         _wasPlayingBeforeBackground = false;
       }
@@ -934,69 +933,165 @@ class VideoPlayerController extends ChangeNotifier {
   /// 后台返回前台后恢复播放
   Future<void> _resumePlaybackAfterBackground() async {
     final savedPosition = _positionBeforeBackground;
-    _positionBeforeBackground = null; // 清除保存的位置
+    _positionBeforeBackground = null;
 
     try {
-      // 检查播放器位置是否异常（被重置或偏差过大）
+      // 检查播放器是否处于有效状态
+      final duration = player.state.duration;
+      if (duration.inSeconds <= 0) {
+        print('⚠️ 播放器状态无效，尝试重新加载');
+        await _reloadAndResumePlayback(savedPosition);
+        return;
+      }
+
+      // 检查播放位置是否异常
       final currentPos = player.state.position;
       final positionDrift = savedPosition != null
           ? (currentPos.inMilliseconds - savedPosition.inMilliseconds).abs()
           : 0;
 
-      // 如果位置偏差超过3秒，说明播放器状态可能被重置
       if (savedPosition != null && positionDrift > 3000) {
-        print('⚠️ 检测到位置偏移: 保存=${savedPosition.inSeconds}s, 当前=${currentPos.inSeconds}s, 偏差=${positionDrift}ms');
-        // 先恢复到正确位置再播放
+        print('⚠️ 位置偏移: 保存=${savedPosition.inSeconds}s, 当前=${currentPos.inSeconds}s');
         await player.seek(savedPosition);
-        await Future.delayed(const Duration(milliseconds: 200));
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
       await player.play();
 
-      // 等待一小段时间检查是否能正常播放
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      // 如果播放状态异常，尝试重新加载（使用保存的位置）
+      // 验证播放是否成功恢复
+      await Future.delayed(const Duration(milliseconds: 500));
       if (!player.state.playing && errorMessage.value == null) {
-        _handleStalledPlayback(fallbackPosition: savedPosition);
+        print('⚠️ 播放恢复失败，重试...');
+        await _reloadAndResumePlayback(savedPosition);
       }
     } catch (e) {
-      print('❌ 后台恢复播放异常: $e');
-      _handleStalledPlayback(fallbackPosition: savedPosition);
+      print('❌ 恢复播放异常: $e');
+      await _reloadAndResumePlayback(savedPosition);
     }
+  }
+
+  /// 重新加载并恢复播放
+  Future<void> _reloadAndResumePlayback(Duration? position) async {
+    if (_currentResourceId == null || currentQuality.value == null) return;
+
+    try {
+      print('🔄 重新加载视频...');
+      final m3u8Content = await _hlsService.getHlsStreamContent(
+        _currentResourceId!,
+        currentQuality.value!,
+      );
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+      final media = await Media.memory(m3u8Bytes);
+
+      await player.open(media, play: false);
+      await _waitForPlayerReadyFast();
+
+      if (position != null && position.inSeconds > 0) {
+        await player.seek(position);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
+      await player.play();
+      print('✅ 播放已恢复');
+    } catch (e) {
+      print('❌ 重新加载失败: $e');
+      errorMessage.value = '播放恢复失败，请重试';
+    }
+  }
+
+  // 视频标题（用于后台播放通知显示）
+  String? _videoTitle;
+  String? _videoAuthor;
+  Uri? _videoCoverUri;
+
+  /// 设置视频元数据（供后台播放通知使用）
+  void setVideoMetadata({
+    required String title,
+    String? author,
+    Uri? coverUri,
+  }) {
+    _videoTitle = title;
+    _videoAuthor = author;
+    _videoCoverUri = coverUri;
+
+    // 如果已经在后台播放，更新媒体信息
+    if (_audioHandler != null) {
+      _audioHandler!.setMediaItem(
+        title: title,
+        artist: author,
+        duration: player.state.duration,
+        artUri: coverUri,
+      );
+    }
+  }
+
+  /// 切换后台播放开关
+  Future<void> toggleBackgroundPlay() async {
+    backgroundPlayEnabled.value = !backgroundPlayEnabled.value;
+    await _saveBackgroundPlaySetting(backgroundPlayEnabled.value);
+    debugPrint('🎵 后台播放: ${backgroundPlayEnabled.value ? "开启" : "关闭"}');
+  }
+
+  /// 保存后台播放设置
+  Future<void> _saveBackgroundPlaySetting(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_backgroundPlayKey, enabled);
   }
 
   /// 启用后台播放
   Future<void> _enableBackgroundPlayback() async {
-    _audioHandler ??= await AudioService.init(
-      builder: () => VideoAudioHandler(player),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.alnitak.video_playback',
-        androidNotificationChannelName: '视频播放',
-        androidNotificationOngoing: false,
-        androidStopForegroundOnPause: true,
-      ),
-    );
+    try {
+      // 只初始化一次 AudioService
+      _audioHandler ??= await AudioService.init(
+        builder: () => VideoAudioHandler(player),
+        config: AudioServiceConfig(
+          androidNotificationChannelId: 'com.alnitak.video_playback',
+          androidNotificationChannelName: '视频播放',
+          androidNotificationOngoing: false,
+          androidStopForegroundOnPause: true,
+          androidNotificationIcon: 'mipmap/ic_launcher',
+          androidShowNotificationBadge: true,
+          fastForwardInterval: const Duration(seconds: 10),
+          rewindInterval: const Duration(seconds: 10),
+        ),
+      );
 
-    // 更新播放信息
-    _audioHandler?.setMediaItem(
-      title: '视频播放', // 可以从视频元数据获取
-      artist: '',
-      duration: player.state.duration,
-    );
+      // 更新播放信息
+      _audioHandler!.setMediaItem(
+        title: _videoTitle ?? '视频播放',
+        artist: _videoAuthor,
+        duration: player.state.duration,
+        artUri: _videoCoverUri,
+      );
 
-    _audioHandler?.updatePlaybackState(
-      playing: player.state.playing,
-      position: player.state.position,
-    );
+      // 强制恢复播放（防止系统暂停）
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (backgroundPlayEnabled.value && !player.state.playing) {
+          player.play();
+          debugPrint('🎵 [AudioService] 强制恢复播放');
+        }
+      });
 
-    debugPrint('🎵 [AudioService] 后台播放已启用');
+      debugPrint('🎵 [AudioService] 后台播放已启用: ${_videoTitle ?? "视频播放"}');
+    } catch (e) {
+      debugPrint('❌ [AudioService] 启用失败: $e');
+    }
   }
 
-  /// 禁用后台播放
+  /// 禁用后台播放（返回前台时）
   Future<void> _disableBackgroundPlayback() async {
-    // AudioService 会自动处理，无需手动停止
-    debugPrint('🎵 [AudioService] 返回前台');
+    debugPrint('🎵 [AudioService] 返回前台，保持播放状态');
+    // 返回前台后不需要停止AudioService，让它继续同步状态
+  }
+
+  /// 完全停止后台播放服务（退出播放页时调用）
+  Future<void> stopBackgroundPlayback() async {
+    if (_audioHandler != null) {
+      await _audioHandler!.stop();
+      _audioHandler!.dispose();
+      _audioHandler = null;
+      debugPrint('🎵 [AudioService] 后台播放服务已销毁');
+    }
   }
 
   @override
@@ -1014,6 +1109,13 @@ class VideoPlayerController extends ChangeNotifier {
 
     // 清理时禁用 wakelock
     WakelockManager.disable();
+
+    // 清理后台播放服务（先stop再dispose）
+    if (_audioHandler != null) {
+      _audioHandler!.stop();
+      _audioHandler!.dispose();
+      _audioHandler = null;
+    }
 
     // 【新增】清理播放器缓存文件（HLS临时文件 + MPV缓存）
     _hlsService.cleanupAllTempCache();

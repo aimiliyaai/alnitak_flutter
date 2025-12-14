@@ -462,6 +462,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
             title: currentResource.title, // 传递分P标题
+            author: _videoDetail!.author.name, // 传递作者名（后台播放通知用）
+            coverUrl: _videoDetail!.cover, // 传递封面（后台播放通知用）
             totalParts: _videoDetail!.resources.length,
             currentPart: _currentPart,
             onPartChange: _changePart,
