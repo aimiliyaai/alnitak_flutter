@@ -140,10 +140,9 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  void _setupPlayerListeners() {
+ void _setupPlayerListeners() {
     // 1. 进度监听
     player.stream.position.listen((position) {
-      // 如果处于冻结状态（切换中），发送锚点位置，而不是真实位置
       if (_isFreezingPosition && _anchorPosition != null) {
         _positionStreamController.add(_anchorPosition!);
         return;
@@ -156,7 +155,6 @@ class VideoPlayerController extends ChangeNotifier {
 
     // 2. 完播监听
     player.stream.completed.listen((completed) {
-      // 切换期间忽略 completed 事件
       if (completed && !_hasTriggeredCompletion && !_isFreezingPosition) {
         _hasTriggeredCompletion = true;
         _handlePlaybackEnd();
@@ -168,8 +166,6 @@ class VideoPlayerController extends ChangeNotifier {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
       }
-
-      // Wakelock 控制：严格绑定播放状态
       if (playing) {
         WakelockManager.enable();
       } else {
@@ -177,37 +173,49 @@ class VideoPlayerController extends ChangeNotifier {
       }
     });
 
-    // 4. 缓冲状态监听 + 超时检测（替代 error 监听）
-    // 【优化】智能检测：如果是在已缓存范围内快进，不显示加载动画
+    // 4. 缓冲状态监听 + 超时检测
     player.stream.buffering.listen((buffering) {
-      // 如果正在已缓存范围内快进，完全忽略缓冲状态变化
-      if (_isSeekingWithinCache) {
-        if (buffering) {
-          print('✅ 在缓冲范围内seek，忽略缓冲状态');
-        }
-        return; // 不更新 isBuffering.value，不启动超时计时器
+      // 【修复】智能检测逻辑优化
+      // 只有在试图“显示”加载动画且处于保护期时才拦截
+      // 如果是“隐藏”加载动画(buffering=false)，无论是否在保护期都必须放行
+      if (_isSeekingWithinCache && buffering) {
+        // print('✅ 在缓冲范围内seek，忽略缓冲状态(true)');
+        return; 
       }
 
       isBuffering.value = buffering;
 
       if (buffering) {
-        // 开始缓冲，启动 15 秒超时监听
         _stalledTimer?.cancel();
         _stalledTimer = Timer(const Duration(seconds: 15), () {
-          // 15秒还在缓冲，认为播放卡死
           if (player.state.buffering) {
             print('⚠️ 播放卡住超过15秒，尝试智能恢复...');
             _handleStalledPlayback();
           }
         });
       } else {
-        // 缓冲结束，取消超时
         _stalledTimer?.cancel();
-        _stalledCount = 0; // 重置卡顿计数
+        _stalledCount = 0;
       }
     });
   }
 
+  void _handlePlaybackEnd() {
+    switch (loopMode.value) {
+      case LoopMode.on:
+        // 【修复】重置缓冲状态，防止上一轮播放结束时的缓冲状态残留
+        isBuffering.value = false;
+        
+        seek(Duration.zero).then((_) {
+          player.play();
+          WakelockManager.enable();
+        });
+        break;
+      case LoopMode.off:
+        onVideoEnd?.call();
+        break;
+    }
+  }
   /// 设置网络状态监听
   void _setupConnectivityListener() {
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
@@ -815,22 +823,6 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   Future<void> setRate(double rate) async => await player.setRate(rate);
-
-  void _handlePlaybackEnd() {
-    switch (loopMode.value) {
-      case LoopMode.on:
-        // 使用增强后的 seek 方法确保循环播放时也能正确恢复
-        seek(Duration.zero).then((_) {
-          player.play();
-          // 循环播放时重新启用 wakelock（防止循环后失效）
-          WakelockManager.enable();
-        });
-        break;
-      case LoopMode.off:
-        onVideoEnd?.call();
-        break;
-    }
-  }
 
   // ============ 偏好设置与辅助方法 ============
   Future<void> _loadLoopMode() async {
