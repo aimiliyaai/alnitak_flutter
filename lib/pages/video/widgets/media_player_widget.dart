@@ -51,7 +51,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   @override
   void initState() {
     super.initState();
-    print('📹 [MediaPlayerWidget] 初始化 - resourceId: ${widget.resourceId}');
+    debugPrint('📹 [MediaPlayerWidget] 初始化 - resourceId: ${widget.resourceId}');
 
     // 创建 Controller
     _controller = VideoPlayerController();
@@ -86,10 +86,10 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   @override
   void didUpdateWidget(MediaPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    print('📹 [didUpdateWidget] old resourceId: ${oldWidget.resourceId}, new resourceId: ${widget.resourceId}');
+    debugPrint('📹 [didUpdateWidget] old resourceId: ${oldWidget.resourceId}, new resourceId: ${widget.resourceId}');
 
     if (oldWidget.resourceId != widget.resourceId) {
-      print('📹 resourceId 改变，重新初始化');
+      debugPrint('📹 resourceId 改变，重新初始化');
 
       // 【关键】先更新视频元数据（确保通知栏显示新视频信息）
       if (widget.title != null) {
@@ -115,7 +115,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
   @override
   void dispose() {
-    print('📹 [MediaPlayerWidget] 销毁');
+    debugPrint('📹 [MediaPlayerWidget] 销毁');
     WidgetsBinding.instance.removeObserver(this);
 
     // 【关键】先停止后台播放服务，再dispose控制器

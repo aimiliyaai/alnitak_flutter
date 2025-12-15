@@ -80,16 +80,16 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       // 恢复音量（默认 50%）
       final savedVolume = prefs.getDouble(_volumeKey) ?? 50.0;
       widget.controller.player.setVolume(savedVolume);
-      print('✅ 恢复音量设置: ${savedVolume.toInt()}%');
+      debugPrint('✅ 恢复音量设置: ${savedVolume.toInt()}%');
 
       // 恢复亮度（默认 100%）
       final savedBrightness = prefs.getDouble(_brightnessKey) ?? 1.0;
       setState(() {
         _playerBrightness = savedBrightness;
       });
-      print('✅ 恢复亮度设置: ${(savedBrightness * 100).toInt()}%');
+      debugPrint('✅ 恢复亮度设置: ${(savedBrightness * 100).toInt()}%');
     } catch (e) {
-      print('⚠️ 加载播放器设置失败: $e');
+      debugPrint('⚠️ 加载播放器设置失败: $e');
     }
   }
 
@@ -99,7 +99,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_volumeKey, volume);
     } catch (e) {
-      print('⚠️ 保存音量设置失败: $e');
+      debugPrint('⚠️ 保存音量设置失败: $e');
     }
   }
 
@@ -109,7 +109,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_brightnessKey, brightness);
     } catch (e) {
-      print('⚠️ 保存亮度设置失败: $e');
+      debugPrint('⚠️ 保存亮度设置失败: $e');
     }
   }
 
@@ -259,11 +259,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       // 音量调节结束，保存设置
       final currentVolume = widget.controller.player.state.volume;
       _saveVolume(currentVolume);
-      print('💾 保存音量设置: ${currentVolume.toInt()}%');
+      debugPrint('💾 保存音量设置: ${currentVolume.toInt()}%');
     } else if (_gestureType == 2) {
       // 亮度调节结束，保存设置
       _saveBrightness(_playerBrightness);
-      print('💾 保存亮度设置: ${(_playerBrightness * 100).toInt()}%');
+      debugPrint('💾 保存亮度设置: ${(_playerBrightness * 100).toInt()}%');
     }
     _gestureType = 0;
 

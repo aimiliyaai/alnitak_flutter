@@ -91,7 +91,17 @@ class VideoPlayerController extends ChangeNotifier {
       ),
     );
 
-    videoController = VideoController(player);
+    // 【性能优化】配置 VideoController，增加帧缓冲区大小
+    // 解决 "Unable to acquire a buffer item" 警告
+    videoController = VideoController(
+      player,
+      configuration: const VideoControllerConfiguration(
+        // 启用硬件加速
+        enableHardwareAcceleration: true,
+        // Android 纹理输出（性能更好）
+        androidAttachSurfaceAfterVideoParameters: false,
+      ),
+    );
     _setupPlayerListeners();
     _setupConnectivityListener();
   }
@@ -140,16 +150,28 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
- void _setupPlayerListeners() {
-    // 1. 进度监听
+ // 【性能优化】上一次更新的进度（用于节流）
+  Duration _lastReportedPosition = Duration.zero;
+  // 【性能优化】上一次 Wakelock 状态
+  bool _lastWakelockState = false;
+
+  void _setupPlayerListeners() {
+    // 1. 进度监听（节流优化：每500ms最多更新一次回调，UI流仍然实时）
     player.stream.position.listen((position) {
       if (_isFreezingPosition && _anchorPosition != null) {
         _positionStreamController.add(_anchorPosition!);
         return;
       }
+      // UI 进度条始终实时更新
       _positionStreamController.add(position);
-      if (!isSwitchingQuality.value) {
-        onProgressUpdate?.call(position);
+
+      // 【性能优化】onProgressUpdate 回调节流（每500ms调用一次）
+      if (!isSwitchingQuality.value && onProgressUpdate != null) {
+        final diff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
+        if (diff >= 500) {
+          _lastReportedPosition = position;
+          onProgressUpdate!(position);
+        }
       }
     });
 
@@ -162,25 +184,36 @@ class VideoPlayerController extends ChangeNotifier {
     });
 
     // 3. 播放状态监听 + Wakelock 控制
+    // 【简化逻辑】只要播放器正在播放就保持亮屏，暂停/停止时才关闭
     _playingSubscription = player.stream.playing.listen((playing) {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
       }
+
+      // 【关键修复】直接绑定播放状态，播放中始终保持亮屏
       if (playing) {
-        WakelockManager.enable();
+        // 播放中 -> 保持亮屏
+        if (!_lastWakelockState) {
+          _lastWakelockState = true;
+          WakelockManager.enable();
+        }
       } else {
-        WakelockManager.disable();
+        // 暂停/停止时，延迟检查：如果很快又恢复播放（如循环播放），则不关闭亮屏
+        Future.delayed(const Duration(milliseconds: 500), () {
+          // 500ms 后再次检查播放状态
+          if (!player.state.playing && _lastWakelockState) {
+            _lastWakelockState = false;
+            WakelockManager.disable();
+          }
+        });
       }
     });
 
     // 4. 缓冲状态监听 + 超时检测
     player.stream.buffering.listen((buffering) {
       // 【修复】智能检测逻辑优化
-      // 只有在试图“显示”加载动画且处于保护期时才拦截
-      // 如果是“隐藏”加载动画(buffering=false)，无论是否在保护期都必须放行
       if (_isSeekingWithinCache && buffering) {
-        // print('✅ 在缓冲范围内seek，忽略缓冲状态(true)');
-        return; 
+        return;
       }
 
       isBuffering.value = buffering;
@@ -189,7 +222,7 @@ class VideoPlayerController extends ChangeNotifier {
         _stalledTimer?.cancel();
         _stalledTimer = Timer(const Duration(seconds: 15), () {
           if (player.state.buffering) {
-            print('⚠️ 播放卡住超过15秒，尝试智能恢复...');
+            debugPrint('⚠️ 播放卡住超过15秒，尝试智能恢复...');
             _handleStalledPlayback();
           }
         });
@@ -205,10 +238,11 @@ class VideoPlayerController extends ChangeNotifier {
       case LoopMode.on:
         // 【修复】重置缓冲状态，防止上一轮播放结束时的缓冲状态残留
         isBuffering.value = false;
-        
+
+        // 循环播放：直接 seek 到开头并播放
+        // Wakelock 由播放状态监听器自动管理（延迟关闭机制会保护循环播放）
         seek(Duration.zero).then((_) {
           player.play();
-          WakelockManager.enable();
         });
         break;
       case LoopMode.off:
@@ -223,13 +257,13 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 从断网恢复到联网
       if (!_wasConnected && isConnected) {
-        print('📡 网络已恢复，尝试重新连接...');
+        debugPrint('📡 网络已恢复，尝试重新连接...');
         _onNetworkRestored();
       }
 
       // 检测到断网
       if (_wasConnected && !isConnected) {
-        print('📡 网络已断开');
+        debugPrint('📡 网络已断开');
       }
 
       _wasConnected = isConnected;
@@ -276,7 +310,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 异步预加载
       for (final quality in toPreload) {
         if (_qualityCache.containsKey(quality)) {
-          print('✅ 清晰度已缓存: ${HlsService.getQualityLabel(quality)}');
+          debugPrint('✅ 清晰度已缓存: ${HlsService.getQualityLabel(quality)}');
           continue;
         }
 
@@ -286,9 +320,9 @@ class VideoPlayerController extends ChangeNotifier {
             quality,
           );
           _qualityCache[quality] = Uint8List.fromList(utf8.encode(m3u8Content));
-          print('✅ 预加载完成: ${HlsService.getQualityLabel(quality)} (${(_qualityCache[quality]!.length / 1024).toStringAsFixed(1)} KB)');
+          debugPrint('✅ 预加载完成: ${HlsService.getQualityLabel(quality)} (${(_qualityCache[quality]!.length / 1024).toStringAsFixed(1)} KB)');
         } catch (e) {
-          print('⚠️ 预加载失败: ${HlsService.getQualityLabel(quality)} - $e');
+          debugPrint('⚠️ 预加载失败: ${HlsService.getQualityLabel(quality)} - $e');
         }
       }
     });
@@ -303,18 +337,18 @@ class VideoPlayerController extends ChangeNotifier {
     _stalledCount++;
 
     try {
-      print('🔧 卡顿恢复尝试 $_stalledCount/2');
+      debugPrint('🔧 卡顿恢复尝试 $_stalledCount/2');
 
       // 获取可靠的播放位置：优先使用当前位置，如果看起来不可靠则使用备用位置
       final currentPos = player.state.position;
       final reliablePosition = (currentPos.inSeconds > 0 || fallbackPosition == null)
           ? currentPos
           : fallbackPosition;
-      print('📍 恢复位置: ${reliablePosition.inSeconds}s (当前=${currentPos.inSeconds}s, 备用=${fallbackPosition?.inSeconds}s)');
+      debugPrint('📍 恢复位置: ${reliablePosition.inSeconds}s (当前=${currentPos.inSeconds}s, 备用=${fallbackPosition?.inSeconds}s)');
 
       if (_stalledCount == 1) {
         // 第一次卡顿：尝试轻量级恢复 - 跳过坏的 TS 分片
-        print('💡 方案1: 尝试跳过损坏分片 (+2秒)');
+        debugPrint('💡 方案1: 尝试跳过损坏分片 (+2秒)');
         final newPos = reliablePosition + const Duration(seconds: 2);
 
         // 直接 seek，依靠 MPV 的底层重连机制
@@ -324,7 +358,7 @@ class VideoPlayerController extends ChangeNotifier {
         await Future.delayed(const Duration(seconds: 3));
 
         if (!player.state.buffering) {
-          print('✅ 轻量级恢复成功');
+          debugPrint('✅ 轻量级恢复成功');
           _isRecovering = false;
           _stalledCount = 0;
           return;
@@ -332,7 +366,7 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       // 第二次卡顿或第一次失败：重新加载 m3u8
-      print('💡 方案2: 重新加载 m3u8，恢复到 ${reliablePosition.inSeconds}s');
+      debugPrint('💡 方案2: 重新加载 m3u8，恢复到 ${reliablePosition.inSeconds}s');
       final wasPlaying = player.state.playing;
 
       // 获取新的 m3u8 内容
@@ -352,10 +386,10 @@ class VideoPlayerController extends ChangeNotifier {
         await player.play();
       }
 
-      print('✅ m3u8 重载恢复成功');
+      debugPrint('✅ m3u8 重载恢复成功');
       _stalledCount = 0;
     } catch (e) {
-      print('❌ 卡顿恢复失败: $e');
+      debugPrint('❌ 卡顿恢复失败: $e');
       errorMessage.value = '播放出现问题，请稍后重试';
     } finally {
       _isRecovering = false;
@@ -434,9 +468,20 @@ class VideoPlayerController extends ChangeNotifier {
       // 关闭直接渲染
       await nativePlayer.setProperty('vd-lavc-dr', 'no');
 
-      print('✅ MPV 底层配置完成：激进预载模式 (120秒前向读取)');
+      // ========== 7. 帧缓冲优化（解决 ImageReader buffer 不足）==========
+
+      // 允许丢帧以保持音视频同步（减少缓冲区压力）
+      await nativePlayer.setProperty('framedrop', 'vo');
+
+      // 视频输出队列大小（增加缓冲帧数）
+      await nativePlayer.setProperty('vo-queue-max-frames', '4');
+
+      // 减少视频输出延迟
+      await nativePlayer.setProperty('video-latency-hacks', 'yes');
+
+      debugPrint('✅ MPV 底层配置完成：激进预载模式 (120秒前向读取)');
     } catch (e) {
-      print('⚠️ 配置失败: $e');
+      debugPrint('⚠️ 配置失败: $e');
     }
   }
 
@@ -457,9 +502,9 @@ class VideoPlayerController extends ChangeNotifier {
       // 方式1: 清理 demuxer 缓存
       await nativePlayer.setProperty('demuxer-cache-clear', 'yes');
 
-      print('🗑️ MPV 底层缓存已清理');
+      debugPrint('🗑️ MPV 底层缓存已清理');
     } catch (e) {
-      print('⚠️ 清理缓存失败: $e');
+      debugPrint('⚠️ 清理缓存失败: $e');
     }
   }
   // ============ 核心：防抖切换清晰度 ============
@@ -514,14 +559,14 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (m3u8Bytes == null) {
         // 缓存未命中，实时加载
-        print('⚠️ 缓存未命中，实时加载: ${HlsService.getQualityLabel(quality)}');
+        debugPrint('⚠️ 缓存未命中，实时加载: ${HlsService.getQualityLabel(quality)}');
         final m3u8Content = await _hlsService.getHlsStreamContent(
           _currentResourceId!,
           quality,
         );
         m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
       } else {
-        print('✅ 使用预加载缓存: ${HlsService.getQualityLabel(quality)} - 切换速度提升 80%');
+        debugPrint('✅ 使用预加载缓存: ${HlsService.getQualityLabel(quality)} - 切换速度提升 80%');
       }
 
       // 4. 创建媒体对象
@@ -570,7 +615,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       onQualityChanged?.call(quality);
     } catch (e) {
-      print('❌ 切换清晰度失败: $e');
+      debugPrint('❌ 切换清晰度失败: $e');
       rethrow;
     }
   }
@@ -643,7 +688,7 @@ class VideoPlayerController extends ChangeNotifier {
     }
     // 如果2秒内还没就绪，也继续（让播放器边播边加载）
     if (player.state.duration.inSeconds <= 0) {
-      print('⚠️ 播放器未完全就绪，但继续加载（边播边缓冲）');
+      debugPrint('⚠️ 播放器未完全就绪，但继续加载（边播边缓冲）');
     }
   }
 
@@ -676,7 +721,7 @@ class VideoPlayerController extends ChangeNotifier {
       final isInBufferedRange = await _isPositionInBufferedRange(targetPosition);
 
       if (isInBufferedRange) {
-        print('📍 目标位置在缓冲范围内，跳过加载动画');
+        debugPrint('📍 目标位置在缓冲范围内，跳过加载动画');
 
         // 设置较短的超时保护（缓冲范围内应该很快完成）
         _seekDebounceTimer = Timer(const Duration(milliseconds: 500), () {
@@ -690,7 +735,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 不在缓冲范围内
       final seekDistance = (targetPosition.inSeconds - currentPosition.inSeconds).abs();
-      print('📍 快进到缓冲范围外（距离$seekDistance秒）');
+      debugPrint('📍 快进到缓冲范围外（距离$seekDistance秒）');
 
       // 取消保护，允许显示加载动画
       _isSeekingWithinCache = false;
@@ -707,12 +752,12 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 如果位置偏差超过 3 秒,可能是分片加载失败
       if (positionDiff > 3) {
-        print('⚠️ 快进位置偏差 ${positionDiff}s，重新加载');
+        debugPrint('⚠️ 快进位置偏差 ${positionDiff}s，重新加载');
         await _recoverSeekPosition(targetPosition, wasPlaying);
       }
 
     } catch (e) {
-      print('❌ 快进失败: $e');
+      debugPrint('❌ 快进失败: $e');
       _isSeekingWithinCache = false;
       await _recoverSeekPosition(targetPosition, wasPlaying);
     }
@@ -752,7 +797,7 @@ class VideoPlayerController extends ChangeNotifier {
             // seekable-end 是绝对时间点
             final targetSeconds = targetPosition.inMilliseconds / 1000.0;
             if (targetSeconds <= seekableEnd) {
-              print('✅ 缓冲检测(seekable): 目标=${targetPosition.inSeconds}s, seekable-end=${seekableEnd.toStringAsFixed(1)}s');
+              debugPrint('✅ 缓冲检测(seekable): 目标=${targetPosition.inSeconds}s, seekable-end=${seekableEnd.toStringAsFixed(1)}s');
               return true;
             }
           }
@@ -771,14 +816,14 @@ class VideoPlayerController extends ChangeNotifier {
             targetPosition >= Duration.zero;
 
         if (isForwardInCache || isBackwardInCache) {
-          print('✅ 缓冲检测: 目标=${targetPosition.inSeconds}s, 当前=${currentPos.inSeconds}s, 前向缓冲=${forwardCachedSeconds.toStringAsFixed(1)}s');
+          debugPrint('✅ 缓冲检测: 目标=${targetPosition.inSeconds}s, 当前=${currentPos.inSeconds}s, 前向缓冲=${forwardCachedSeconds.toStringAsFixed(1)}s');
           return true;
         }
       }
 
-      print('⚠️ 缓冲检测: 目标=${targetPosition.inSeconds}s 不在缓冲范围内 (当前=${currentPos.inSeconds}s, 前向=${forwardCachedSeconds.toStringAsFixed(1)}s)');
+      debugPrint('⚠️ 缓冲检测: 目标=${targetPosition.inSeconds}s 不在缓冲范围内 (当前=${currentPos.inSeconds}s, 前向=${forwardCachedSeconds.toStringAsFixed(1)}s)');
     } catch (e) {
-      print('⚠️ 获取缓冲范围失败: $e');
+      debugPrint('⚠️ 获取缓冲范围失败: $e');
     }
 
     return false;
@@ -817,7 +862,7 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
     } catch (e) {
-      print('❌ 快进位置恢复失败: $e');
+      debugPrint('❌ 快进位置恢复失败: $e');
       errorMessage.value = '快进失败，请重试';
     }
   }
@@ -888,7 +933,7 @@ class VideoPlayerController extends ChangeNotifier {
       final displayName = getQualityDisplayName(quality);
       await prefs.setString(_preferredQualityKey, displayName);
     } catch (e) {
-      print('⚠️ 保存清晰度偏好失败: $e');
+      debugPrint('⚠️ 保存清晰度偏好失败: $e');
     }
   }
 
@@ -974,7 +1019,7 @@ class VideoPlayerController extends ChangeNotifier {
         }
       }
     } catch (e) {
-      print('解析清晰度名称失败: $e');
+      debugPrint('解析清晰度名称失败: $e');
     }
     return quality;
   }
@@ -984,11 +1029,15 @@ class VideoPlayerController extends ChangeNotifier {
       // 进入后台
       _wasPlayingBeforeBackground = player.state.playing;
       _positionBeforeBackground = player.state.position;
-      print('📱 进入后台: playing=$_wasPlayingBeforeBackground, position=${_positionBeforeBackground?.inSeconds}s, backgroundPlay=${backgroundPlayEnabled.value}');
+      debugPrint('📱 进入后台: playing=$_wasPlayingBeforeBackground, position=${_positionBeforeBackground?.inSeconds}s, backgroundPlay=${backgroundPlayEnabled.value}');
 
       if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
         // 后台播放模式：启用AudioService，保持播放
+        // 【关键】先启用 AudioService，再确保播放不被中断
         _enableBackgroundPlayback();
+
+        // 【新增】额外保护：设置 wakelock 防止系统休眠导致播放中断
+        WakelockManager.enable();
       } else {
         // 非后台播放模式：暂停播放
         if (_wasPlayingBeforeBackground) player.pause();
@@ -997,7 +1046,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 返回前台
       // 【关键修复】获取播放器的实际当前位置，而不是之前保存的位置
       final actualPosition = player.state.position;
-      print('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s, actualPosition=${actualPosition.inSeconds}s');
+      debugPrint('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s, actualPosition=${actualPosition.inSeconds}s');
 
       if (backgroundPlayEnabled.value) {
         // 后台播放模式：同步UI到实际播放进度
@@ -1011,7 +1060,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 【关键】延迟检查并修复可能卡住的加载状态
       Future.delayed(const Duration(milliseconds: 500), () {
         if (player.state.playing && !player.state.buffering && isBuffering.value) {
-          print('🔧 修复卡住的加载状态');
+          debugPrint('🔧 修复卡住的加载状态');
           isBuffering.value = false;
         }
       });
@@ -1021,7 +1070,7 @@ class VideoPlayerController extends ChangeNotifier {
   /// 后台播放返回后同步UI进度
   /// 不做seek，只是让UI显示与实际播放进度一致
   void _syncUIAfterBackground(Duration actualPosition) {
-    print('🔄 同步UI进度: ${actualPosition.inSeconds}s');
+    debugPrint('🔄 同步UI进度: ${actualPosition.inSeconds}s');
 
     // 【关键】强制重置buffering状态，防止后台期间卡住的加载动画
     // 检查播放器实际状态，如果正在播放则不应该显示加载动画
@@ -1046,7 +1095,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 检查播放器是否处于有效状态
       final duration = player.state.duration;
       if (duration.inSeconds <= 0) {
-        print('⚠️ 播放器状态无效，尝试重新加载');
+        debugPrint('⚠️ 播放器状态无效，尝试重新加载');
         await _reloadAndResumePlayback(savedPosition);
         return;
       }
@@ -1058,7 +1107,7 @@ class VideoPlayerController extends ChangeNotifier {
           : 0;
 
       if (savedPosition != null && positionDrift > 3000) {
-        print('⚠️ 位置偏移: 保存=${savedPosition.inSeconds}s, 当前=${currentPos.inSeconds}s');
+        debugPrint('⚠️ 位置偏移: 保存=${savedPosition.inSeconds}s, 当前=${currentPos.inSeconds}s');
         await player.seek(savedPosition);
         await Future.delayed(const Duration(milliseconds: 300));
       }
@@ -1068,11 +1117,11 @@ class VideoPlayerController extends ChangeNotifier {
       // 验证播放是否成功恢复
       await Future.delayed(const Duration(milliseconds: 500));
       if (!player.state.playing && errorMessage.value == null) {
-        print('⚠️ 播放恢复失败，重试...');
+        debugPrint('⚠️ 播放恢复失败，重试...');
         await _reloadAndResumePlayback(savedPosition);
       }
     } catch (e) {
-      print('❌ 恢复播放异常: $e');
+      debugPrint('❌ 恢复播放异常: $e');
       await _reloadAndResumePlayback(savedPosition);
     }
   }
@@ -1082,7 +1131,7 @@ class VideoPlayerController extends ChangeNotifier {
     if (_currentResourceId == null || currentQuality.value == null) return;
 
     try {
-      print('🔄 重新加载视频...');
+      debugPrint('🔄 重新加载视频...');
       final m3u8Content = await _hlsService.getHlsStreamContent(
         _currentResourceId!,
         currentQuality.value!,
@@ -1099,9 +1148,9 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       await player.play();
-      print('✅ 播放已恢复');
+      debugPrint('✅ 播放已恢复');
     } catch (e) {
-      print('❌ 重新加载失败: $e');
+      debugPrint('❌ 重新加载失败: $e');
       errorMessage.value = '播放恢复失败，请重试';
     }
   }
@@ -1160,19 +1209,24 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _enableBackgroundPlayback() async {
     try {
       // 只初始化一次 AudioService
-      _audioHandler ??= await AudioService.init(
-        builder: () => VideoAudioHandler(player),
-        config: AudioServiceConfig(
-          androidNotificationChannelId: 'com.alnitak.video_playback',
-          androidNotificationChannelName: '视频播放',
-          androidNotificationOngoing: false,
-          androidStopForegroundOnPause: true,
-          androidNotificationIcon: 'mipmap/ic_launcher',
-          androidShowNotificationBadge: true,
-          fastForwardInterval: const Duration(seconds: 10),
-          rewindInterval: const Duration(seconds: 10),
-        ),
-      );
+      if (_audioHandler == null) {
+        _audioHandler = await AudioService.init(
+          builder: () => VideoAudioHandler(player),
+          config: AudioServiceConfig(
+            androidNotificationChannelId: 'com.alnitak.video_playback',
+            androidNotificationChannelName: '视频播放',
+            // 【关键修复】设置为 true，让通知常驻
+            androidNotificationOngoing: true,
+            // 【关键修复】暂停时不停止前台服务，防止后台被杀
+            androidStopForegroundOnPause: false,
+            androidNotificationIcon: 'mipmap/ic_launcher',
+            androidShowNotificationBadge: true,
+            fastForwardInterval: const Duration(seconds: 10),
+            rewindInterval: const Duration(seconds: 10),
+          ),
+        );
+        debugPrint('🎵 [AudioService] 初始化完成');
+      }
 
       // 更新播放信息
       _audioHandler!.setMediaItem(
@@ -1182,18 +1236,44 @@ class VideoPlayerController extends ChangeNotifier {
         artUri: _videoCoverUri,
       );
 
-      // 强制恢复播放（防止系统暂停）
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (backgroundPlayEnabled.value && !player.state.playing) {
-          player.play();
-          debugPrint('🎵 [AudioService] 强制恢复播放');
-        }
-      });
+      // 【关键修复】更新播放状态为 playing，确保通知栏显示正确状态
+      _audioHandler!.updatePlaybackState(
+        playing: true,
+        position: player.state.position,
+      );
+
+      // 【关键修复】多次尝试恢复播放，增强稳定性
+      _ensureBackgroundPlaying();
 
       debugPrint('🎵 [AudioService] 后台播放已启用: ${_videoTitle ?? "视频播放"}');
     } catch (e) {
       debugPrint('❌ [AudioService] 启用失败: $e');
     }
+  }
+
+  /// 确保后台持续播放（多次检测恢复）
+  void _ensureBackgroundPlaying() {
+    // 立即检查
+    if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground && !player.state.playing) {
+      player.play();
+      debugPrint('🎵 [AudioService] 立即恢复播放');
+    }
+
+    // 500ms 后再次检查
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground && !player.state.playing) {
+        player.play();
+        debugPrint('🎵 [AudioService] 500ms 后恢复播放');
+      }
+    });
+
+    // 1500ms 后最后一次检查（防止系统延迟暂停）
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground && !player.state.playing) {
+        player.play();
+        debugPrint('🎵 [AudioService] 1500ms 后恢复播放');
+      }
+    });
   }
 
   /// 完全停止后台播放服务（退出播放页时调用）
