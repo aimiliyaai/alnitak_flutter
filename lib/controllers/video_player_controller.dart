@@ -180,10 +180,12 @@ class VideoPlayerController extends ChangeNotifier {
     // 4. 缓冲状态监听 + 超时检测（替代 error 监听）
     // 【优化】智能检测：如果是在已缓存范围内快进，不显示加载动画
     player.stream.buffering.listen((buffering) {
-      // 如果正在已缓存范围内快进，忽略短暂的缓冲状态
-      if (_isSeekingWithinCache && buffering) {
-        print('✅ 在已缓存范围内快进，跳过加载动画');
-        return;
+      // 如果正在已缓存范围内快进，完全忽略缓冲状态变化
+      if (_isSeekingWithinCache) {
+        if (buffering) {
+          print('✅ 在缓冲范围内seek，忽略缓冲状态');
+        }
+        return; // 不更新 isBuffering.value，不启动超时计时器
       }
 
       isBuffering.value = buffering;
@@ -202,9 +204,6 @@ class VideoPlayerController extends ChangeNotifier {
         // 缓冲结束，取消超时
         _stalledTimer?.cancel();
         _stalledCount = 0; // 重置卡顿计数
-
-        // 清除快进标记
-        _isSeekingWithinCache = false;
       }
     });
   }
@@ -659,26 +658,34 @@ class VideoPlayerController extends ChangeNotifier {
     final wasPlaying = player.state.playing;
     final currentPosition = player.state.position;
 
+    // 【关键】先设置保护标记，防止seek过程中的buffering事件触发加载动画
+    // 这必须在任何异步操作之前完成
+    _isSeekingWithinCache = true;
+    _seekDebounceTimer?.cancel();
+
     try {
-      // 【智能缓存检测】判断是否在预缓冲范围内（120秒）
-      // 如果快进目标在当前位置的120秒内，认为很可能已缓存
-      final seekDistance = (targetPosition.inSeconds - currentPosition.inSeconds).abs();
-      final isLikelyInCache = seekDistance <= 120;
+      // 【智能缓存检测】检查目标位置是否在MPV的缓冲范围内
+      final isInBufferedRange = await _isPositionInBufferedRange(targetPosition);
 
-      if (isLikelyInCache) {
-        _isSeekingWithinCache = true;
-        print('📍 检测到在缓存范围内快进（$seekDistance秒），优化加载体验');
+      if (isInBufferedRange) {
+        print('📍 目标位置在缓冲范围内，跳过加载动画');
 
-        // 设置3秒超时：如果3秒后还在缓冲，说明没缓存，恢复正常加载显示
-        _seekDebounceTimer?.cancel();
-        _seekDebounceTimer = Timer(const Duration(seconds: 3), () {
-          if (player.state.buffering) {
-            print('⚠️ 超过3秒仍在缓冲，显示加载动画');
-            _isSeekingWithinCache = false;
-            isBuffering.value = true;
-          }
+        // 设置较短的超时保护（缓冲范围内应该很快完成）
+        _seekDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+          _isSeekingWithinCache = false;
         });
+
+        // 直接seek，不做额外检查
+        await player.seek(targetPosition);
+        return;
       }
+
+      // 不在缓冲范围内
+      final seekDistance = (targetPosition.inSeconds - currentPosition.inSeconds).abs();
+      print('📍 快进到缓冲范围外（距离${seekDistance}秒）');
+
+      // 取消保护，允许显示加载动画
+      _isSeekingWithinCache = false;
 
       // 1. 执行 seek 操作
       await player.seek(targetPosition);
@@ -693,18 +700,81 @@ class VideoPlayerController extends ChangeNotifier {
       // 如果位置偏差超过 3 秒,可能是分片加载失败
       if (positionDiff > 3) {
         print('⚠️ 快进位置偏差 ${positionDiff}s，重新加载');
-        _isSeekingWithinCache = false; // 清除缓存标记
-        _seekDebounceTimer?.cancel();
         await _recoverSeekPosition(targetPosition, wasPlaying);
       }
 
     } catch (e) {
       print('❌ 快进失败: $e');
-      // 快进失败时清除缓存标记并尝试恢复
       _isSeekingWithinCache = false;
-      _seekDebounceTimer?.cancel();
       await _recoverSeekPosition(targetPosition, wasPlaying);
     }
+  }
+
+  /// 检查目标位置是否在MPV的已缓冲范围内
+  Future<bool> _isPositionInBufferedRange(Duration targetPosition) async {
+    if (kIsWeb) return false;
+
+    try {
+      final nativePlayer = player.platform as NativePlayer?;
+      if (nativePlayer == null) return false;
+
+      final currentPos = player.state.position;
+
+      // 方法1: 获取demuxer缓冲的前向时长
+      final cacheTime = await nativePlayer.getProperty('demuxer-cache-time');
+
+      // 方法2: 获取缓冲的字节范围（更准确）
+      final cacheState = await nativePlayer.getProperty('demuxer-cache-state');
+
+      double forwardCachedSeconds = 0;
+      double backwardCachedSeconds = 0;
+
+      // 解析前向缓冲时长
+      if (cacheTime != null && cacheTime.isNotEmpty) {
+        forwardCachedSeconds = double.tryParse(cacheTime) ?? 0;
+      }
+
+      // 尝试从cache-state获取更详细的信息
+      if (cacheState != null && cacheState.isNotEmpty) {
+        // cache-state 格式类似: "seekable-start=0.000000 seekable-end=120.000000 ..."
+        // 我们主要关注 seekable-end
+        final seekableEndMatch = RegExp(r'seekable-end=(\d+\.?\d*)').firstMatch(cacheState);
+        if (seekableEndMatch != null) {
+          final seekableEnd = double.tryParse(seekableEndMatch.group(1) ?? '0') ?? 0;
+          if (seekableEnd > 0) {
+            // seekable-end 是绝对时间点
+            final targetSeconds = targetPosition.inMilliseconds / 1000.0;
+            if (targetSeconds <= seekableEnd) {
+              print('✅ 缓冲检测(seekable): 目标=${targetPosition.inSeconds}s, seekable-end=${seekableEnd.toStringAsFixed(1)}s');
+              return true;
+            }
+          }
+        }
+      }
+
+      // 使用前向缓冲时长计算
+      if (forwardCachedSeconds > 0) {
+        final bufferedEnd = currentPos + Duration(seconds: forwardCachedSeconds.toInt());
+
+        // 前向：目标在 [当前位置, 缓冲结束] 范围内
+        final isForwardInCache = targetPosition <= bufferedEnd && targetPosition >= Duration.zero;
+
+        // 后向：允许往回拖动（MPV有后向缓冲，默认约50MB）
+        final isBackwardInCache = targetPosition < currentPos &&
+            targetPosition >= Duration.zero;
+
+        if (isForwardInCache || isBackwardInCache) {
+          print('✅ 缓冲检测: 目标=${targetPosition.inSeconds}s, 当前=${currentPos.inSeconds}s, 前向缓冲=${forwardCachedSeconds.toStringAsFixed(1)}s');
+          return true;
+        }
+      }
+
+      print('⚠️ 缓冲检测: 目标=${targetPosition.inSeconds}s 不在缓冲范围内 (当前=${currentPos.inSeconds}s, 前向=${forwardCachedSeconds.toStringAsFixed(1)}s)');
+    } catch (e) {
+      print('⚠️ 获取缓冲范围失败: $e');
+    }
+
+    return false;
   }
 
   /// 快进位置恢复机制

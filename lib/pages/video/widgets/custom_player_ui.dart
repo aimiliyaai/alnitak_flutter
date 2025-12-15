@@ -253,7 +253,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
 
   void _onDragEnd() {
     if (_gestureType == 3) {
-      widget.controller.player.seek(_seekPos);
+      // 使用封装的seek方法，支持缓冲检测
+      widget.logic.seek(_seekPos);
     } else if (_gestureType == 1) {
       // 音量调节结束，保存设置
       final currentVolume = widget.controller.player.state.volume;
@@ -294,7 +295,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     if (pos.dx < leftZone) {
       final currentPos = widget.controller.player.state.position;
       final newPos = currentPos - const Duration(seconds: 10);
-      widget.controller.player.seek(newPos < Duration.zero ? Duration.zero : newPos);
+      // 使用封装的seek方法，支持缓冲检测
+      widget.logic.seek(newPos < Duration.zero ? Duration.zero : newPos);
       _showFeedbackUI(Icons.fast_rewind, '-10秒', null);
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) setState(() => _showFeedback = false);
@@ -303,7 +305,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
       final currentPos = widget.controller.player.state.position;
       final maxPos = widget.controller.player.state.duration;
       final newPos = currentPos + const Duration(seconds: 10);
-      widget.controller.player.seek(newPos > maxPos ? maxPos : newPos);
+      // 使用封装的seek方法，支持缓冲检测
+      widget.logic.seek(newPos > maxPos ? maxPos : newPos);
       _showFeedbackUI(Icons.fast_forward, '+10秒', null);
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) setState(() => _showFeedback = false);
@@ -814,7 +817,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                   max: dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0,
                   secondaryTrackValue: bufferDur.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
                   onChanged: (v) {
-                    widget.controller.player.seek(Duration(seconds: v.toInt()));
+                    // 使用封装的seek方法，支持缓冲检测
+                    widget.logic.seek(Duration(seconds: v.toInt()));
                     _startHideTimer();
                   },
                 ),

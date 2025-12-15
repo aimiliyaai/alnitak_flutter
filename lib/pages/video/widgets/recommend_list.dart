@@ -36,6 +36,7 @@ class _RecommendListState extends State<RecommendList> {
   /// 加载设置
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _autoNext = prefs.getBool('video_recommend_auto_next') ?? false;
     });
@@ -49,12 +50,14 @@ class _RecommendListState extends State<RecommendList> {
 
   /// 获取推荐视频
   Future<void> _fetchRecommendVideos() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
 
     final videos = await _videoService.getRecommendedVideos(widget.vid);
 
+    if (!mounted) return;
     setState(() {
       _recommendVideos = videos;
       _isLoading = false;

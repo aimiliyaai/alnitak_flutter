@@ -445,11 +445,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   /// 构建主内容区
   Widget _buildMainContent(VideoResource currentResource) {
-    // 计算播放器高度（16:9 比例）
-    final screenWidth = MediaQuery.of(context).size.width;
-    final playerHeight = screenWidth * 9 / 16;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 使用实际可用宽度计算播放器高度（16:9 比例）
+        final playerHeight = constraints.maxWidth * 9 / 16;
 
-    return Column(
+        return Column(
       children: [
         // 固定播放器区域（不参与滚动）
         SizedBox(
@@ -531,6 +532,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           ),
         ),
       ],
+    );
+      },
     );
   }
 
