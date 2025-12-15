@@ -682,7 +682,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 不在缓冲范围内
       final seekDistance = (targetPosition.inSeconds - currentPosition.inSeconds).abs();
-      print('📍 快进到缓冲范围外（距离${seekDistance}秒）');
+      print('📍 快进到缓冲范围外（距离$seekDistance秒）');
 
       // 取消保护，允许显示加载动画
       _isSeekingWithinCache = false;
@@ -727,15 +727,14 @@ class VideoPlayerController extends ChangeNotifier {
       final cacheState = await nativePlayer.getProperty('demuxer-cache-state');
 
       double forwardCachedSeconds = 0;
-      double backwardCachedSeconds = 0;
 
       // 解析前向缓冲时长
-      if (cacheTime != null && cacheTime.isNotEmpty) {
+      if (cacheTime.isNotEmpty) {
         forwardCachedSeconds = double.tryParse(cacheTime) ?? 0;
       }
 
       // 尝试从cache-state获取更详细的信息
-      if (cacheState != null && cacheState.isNotEmpty) {
+      if (cacheState.isNotEmpty) {
         // cache-state 格式类似: "seekable-start=0.000000 seekable-end=120.000000 ..."
         // 我们主要关注 seekable-end
         final seekableEndMatch = RegExp(r'seekable-end=(\d+\.?\d*)').firstMatch(cacheState);
@@ -1016,6 +1015,14 @@ class VideoPlayerController extends ChangeNotifier {
         _resumePlaybackAfterBackground();
         _wasPlayingBeforeBackground = false;
       }
+
+      // 【关键】延迟检查并修复可能卡住的加载状态
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (player.state.playing && !player.state.buffering && isBuffering.value) {
+          print('🔧 修复卡住的加载状态');
+          isBuffering.value = false;
+        }
+      });
     }
   }
 
@@ -1023,6 +1030,12 @@ class VideoPlayerController extends ChangeNotifier {
   /// 不做seek，只是让UI显示与实际播放进度一致
   void _syncUIAfterBackground(Duration actualPosition) {
     print('🔄 同步UI进度: ${actualPosition.inSeconds}s');
+
+    // 【关键】强制重置buffering状态，防止后台期间卡住的加载动画
+    // 检查播放器实际状态，如果正在播放则不应该显示加载动画
+    if (player.state.playing && !player.state.buffering) {
+      isBuffering.value = false;
+    }
 
     // 强制发送一次当前位置到进度流，让UI更新
     _positionStreamController.add(actualPosition);
