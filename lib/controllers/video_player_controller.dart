@@ -105,6 +105,9 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
 
+      // 【关键】切换视频时，销毁旧的 AudioService（解决通知栏状态不同步）
+      await _resetAudioService();
+
       await _loadLoopMode();
       await _loadBackgroundPlaySetting();
       await _configurePlayerProperties();
@@ -917,17 +920,32 @@ class VideoPlayerController extends ChangeNotifier {
       }
     } else {
       // 返回前台
-      print('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s');
+      // 【关键修复】获取播放器的实际当前位置，而不是之前保存的位置
+      final actualPosition = player.state.position;
+      print('📱 返回前台: wasPlaying=$_wasPlayingBeforeBackground, savedPosition=${_positionBeforeBackground?.inSeconds}s, actualPosition=${actualPosition.inSeconds}s');
 
-      if (backgroundPlayEnabled.value && _audioHandler != null) {
-        // 从后台播放返回，检查并恢复播放状态
-        _resumePlaybackAfterBackground();
+      if (backgroundPlayEnabled.value) {
+        // 后台播放模式：同步UI到实际播放进度
+        _syncUIAfterBackground(actualPosition);
       } else if (_wasPlayingBeforeBackground) {
-        // 从普通后台返回，恢复播放
+        // 非后台播放模式：恢复到之前保存的位置
         _resumePlaybackAfterBackground();
         _wasPlayingBeforeBackground = false;
       }
     }
+  }
+
+  /// 后台播放返回后同步UI进度
+  /// 不做seek，只是让UI显示与实际播放进度一致
+  void _syncUIAfterBackground(Duration actualPosition) {
+    print('🔄 同步UI进度: ${actualPosition.inSeconds}s');
+
+    // 强制发送一次当前位置到进度流，让UI更新
+    _positionStreamController.add(actualPosition);
+
+    // 清除保存的位置（不需要了）
+    _positionBeforeBackground = null;
+    _wasPlayingBeforeBackground = false;
   }
 
   /// 后台返回前台后恢复播放
@@ -1025,6 +1043,17 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 重置 AudioService（切换视频时调用）
+  /// 确保旧的通知被清除，新视频的信息能正确显示
+  Future<void> _resetAudioService() async {
+    if (_audioHandler != null) {
+      debugPrint('🎵 [AudioService] 重置：销毁旧的 AudioHandler');
+      await _audioHandler!.stop();
+      _audioHandler!.dispose();
+      _audioHandler = null;
+    }
+  }
+
   /// 切换后台播放开关
   Future<void> toggleBackgroundPlay() async {
     backgroundPlayEnabled.value = !backgroundPlayEnabled.value;
@@ -1076,12 +1105,6 @@ class VideoPlayerController extends ChangeNotifier {
     } catch (e) {
       debugPrint('❌ [AudioService] 启用失败: $e');
     }
-  }
-
-  /// 禁用后台播放（返回前台时）
-  Future<void> _disableBackgroundPlayback() async {
-    debugPrint('🎵 [AudioService] 返回前台，保持播放状态');
-    // 返回前台后不需要停止AudioService，让它继续同步状态
   }
 
   /// 完全停止后台播放服务（退出播放页时调用）

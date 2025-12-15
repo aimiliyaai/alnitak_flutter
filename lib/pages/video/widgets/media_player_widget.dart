@@ -90,6 +90,16 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
     if (oldWidget.resourceId != widget.resourceId) {
       print('📹 resourceId 改变，重新初始化');
+
+      // 【关键】先更新视频元数据（确保通知栏显示新视频信息）
+      if (widget.title != null) {
+        _controller.setVideoMetadata(
+          title: widget.title!,
+          author: widget.author,
+          coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+        );
+      }
+
       _controller.initialize(
         resourceId: widget.resourceId,
         initialPosition: widget.initialPosition,
@@ -147,14 +157,21 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       child: Center(
         child: AspectRatio(
           aspectRatio: 16 / 9,
-          child: Video(
-            controller: _controller.videoController,
-            controls: (state) {
-              return CustomPlayerUI(
-                controller: state.widget.controller,
-                logic: _controller,
-                title: widget.title ?? '',
-                onBack: () => Navigator.of(context).maybePop(),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _controller.backgroundPlayEnabled,
+            builder: (context, bgEnabled, _) {
+              return Video(
+                controller: _controller.videoController,
+                // 关键：后台播放开启时，不在进入后台时暂停
+                pauseUponEnteringBackgroundMode: !bgEnabled,
+                controls: (state) {
+                  return CustomPlayerUI(
+                    controller: state.widget.controller,
+                    logic: _controller,
+                    title: widget.title ?? '',
+                    onBack: () => Navigator.of(context).maybePop(),
+                  );
+                },
               );
             },
           ),
