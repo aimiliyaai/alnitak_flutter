@@ -125,10 +125,15 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> stop() async {
     debugPrint('🎵 [AudioService] Stop command');
     await player.pause();
-    // 停止时发送完成状态
+
+    // 停止时发送idle状态，这会让通知栏消失
     playbackState.add(playbackState.value.copyWith(
-      processingState: AudioProcessingState.completed,
+      processingState: AudioProcessingState.idle,
+      playing: false,
     ));
+
+    // 【关键】调用父类stop，停止前台服务和通知
+    await super.stop();
   }
 
   @override

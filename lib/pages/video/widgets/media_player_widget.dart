@@ -117,6 +117,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   void dispose() {
     print('📹 [MediaPlayerWidget] 销毁');
     WidgetsBinding.instance.removeObserver(this);
+
+    // 【关键】先停止后台播放服务，再dispose控制器
+    _controller.stopBackgroundPlayback();
     _controller.dispose();
 
     // 退出时恢复系统UI
