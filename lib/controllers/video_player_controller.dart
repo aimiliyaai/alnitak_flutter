@@ -367,45 +367,59 @@ class VideoPlayerController extends ChangeNotifier {
       // HTTP 连接保持
       await nativePlayer.setProperty('http-header-fields', 'Connection: keep-alive');
 
-      // TS 分片超时和重试配置
-      // timeout=10000000 (10秒超时)
-      // reconnect=1 (启用重连)
-      // reconnect_at_eof=1 (EOF时重连)
-      // reconnect_streamed=1 (流媒体重连)
-      // reconnect_delay_max=5 (最大重连延迟5秒)
+      // TS 分片超时和重试配置 + 多连接加速
+      // multiple_requests=1 启用HTTP流水线（多个请求复用连接）
+      // reconnect=1 启用重连
+      // reconnect_streamed=1 流媒体重连
+      // reconnect_delay_max=2 最大重连延迟2秒（更快重连）
       await nativePlayer.setProperty('stream-lavf-o',
-        'timeout=10000000,reconnect=1,reconnect_at_eof=1,reconnect_streamed=1,reconnect_delay_max=5'
+        'timeout=10000000,reconnect=1,reconnect_streamed=1,reconnect_delay_max=2,multiple_requests=1'
       );
 
-      // ========== 2. 缓冲策略（优化：预载未来120秒）==========
+      // ========== 2. 缓冲策略（激进预载模式）==========
 
       // 启用缓存
       await nativePlayer.setProperty('cache', 'yes');
 
-      // 预缓冲时长：120秒（预载当前进度的未来120秒）
+      // 【关键】预缓冲时长：120秒
       await nativePlayer.setProperty('cache-secs', '120');
 
-      // 最大缓冲大小：300MB（扩大以支持120秒缓冲）
-      await nativePlayer.setProperty('demuxer-max-bytes', '300M');
+      // 【关键】demuxer前向读取：120秒（强制demuxer预读120秒数据）
+      // 这是让MPV积极预载的核心参数
+      await nativePlayer.setProperty('demuxer-readahead-secs', '120');
 
-      // 【秒开优化】不设置cache-secs-min，允许边播边缓冲
-      // 这样播放器加载第一个分片后就能立即开始播放，后台继续缓冲
+      // 最大缓冲大小：500MB（扩大以支持高码率120秒缓冲）
+      // 1080p60 约 8Mbps = 1MB/s，120秒 = 120MB，留余量
+      await nativePlayer.setProperty('demuxer-max-bytes', '500M');
 
-      // 允许缓存 seek
+      // 【关键】后向缓冲：50MB（允许快退时不重新加载）
+      await nativePlayer.setProperty('demuxer-max-back-bytes', '50M');
+
+      // 允许缓存 seek（在已缓冲范围内快进不重新请求）
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
-      
-      // 【秒开优化】启用快速启动模式（不等待完整缓冲）
-      await nativePlayer.setProperty('cache-pause', 'no'); // 不暂停等待缓冲
-      
-      // 【秒开优化】设置最小缓冲阈值（降低到5秒，允许快速启动）
-      await nativePlayer.setProperty('cache-secs-min', '5'); // 只缓冲5秒就开始播放
 
-      // ========== 3. 精确跳转 ==========
+      // ========== 3. 秒开优化（边播边缓冲）==========
+
+      // 不暂停等待缓冲（边播边加载）
+      await nativePlayer.setProperty('cache-pause', 'no');
+
+      // 最小缓冲阈值：3秒就开始播放（更快秒开）
+      await nativePlayer.setProperty('cache-pause-initial', 'no');
+
+      // 缓冲恢复阈值：当缓冲低于此值时暂停等待
+      await nativePlayer.setProperty('cache-pause-wait', '2');
+
+      // ========== 4. 网络优化 ==========
+
+      // 增加网络缓冲区大小（加快下载速度）
+      await nativePlayer.setProperty('network-timeout', '10');
+
+      // ========== 5. 精确跳转 ==========
 
       // 强制开启绝对精确跳转
       await nativePlayer.setProperty('hr-seek', 'absolute');
 
-      // ========== 4. 画面雪花/花屏修复 ==========
+      // ========== 6. 画面雪花/花屏修复 ==========
 
       // 使用 auto-copy 模式（保留硬件加速同时避免花屏）
       await nativePlayer.setProperty('hwdec', 'auto-copy');
@@ -413,7 +427,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 关闭直接渲染
       await nativePlayer.setProperty('vd-lavc-dr', 'no');
 
-      print('✅ MPV 底层配置完成：HLS优化 + 缓冲策略');
+      print('✅ MPV 底层配置完成：激进预载模式 (120秒前向读取)');
     } catch (e) {
       print('⚠️ 配置失败: $e');
     }
