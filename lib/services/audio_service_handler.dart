@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 /// - iOS: MPNowPlayingInfoCenter + MPRemoteCommandCenter
 /// - macOS/Web: 自动支持
 class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
-  final Player player;
+  Player player;
   StreamSubscription<bool>? _playingSubscription;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
@@ -63,15 +63,24 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     });
   }
 
+  /// 切换播放器实例
+  void setPlayer(Player newPlayer) {
+    debugPrint('🎵 [AudioService] Swapping player instance in handler.');
+    disposeListeners();
+    player = newPlayer;
+    _setupPlayerListeners();
+  }
+
   /// 更新播放信息（显示在通知栏/锁屏）
   void setMediaItem({
+    required String id,
     required String title,
     String? artist,
     Duration? duration,
     Uri? artUri,
   }) {
     mediaItem.add(MediaItem(
-      id: 'video_${DateTime.now().millisecondsSinceEpoch}',
+      id: id,
       title: title,
       artist: artist ?? '',
       duration: duration ?? player.state.duration,
@@ -169,10 +178,11 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     // 由外部实现（如果有多P视频）
   }
 
-  /// 清理资源
-  void dispose() {
+  /// 清理监听器
+  void disposeListeners() {
     _playingSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
+    debugPrint('🎵 [AudioService] Handler listeners disposed.');
   }
 }

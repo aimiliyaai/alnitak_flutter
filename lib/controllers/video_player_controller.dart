@@ -23,8 +23,10 @@ class VideoPlayerController extends ChangeNotifier {
   late final Player player;
   late final VideoController videoController;
 
-  // AudioService Handler (后台播放)
-  VideoAudioHandler? _audioHandler;
+  // AudioService Handler (后台播放) - 【修复】改为静态实例，防止重复初始化
+  static VideoAudioHandler? _audioHandler;
+  // 【关键】标记 AudioService 是否已初始化（AudioService.init 只能调用一次）
+  static bool _audioServiceInitialized = false;
 
   // ============ 状态 Notifiers ============
   final ValueNotifier<List<String>> availableQualities = ValueNotifier([]);
@@ -115,11 +117,17 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
 
-      // 【关键】切换视频时，销毁旧的 AudioService（解决通知栏状态不同步）
-      await _resetAudioService();
-
       await _loadLoopMode();
       await _loadBackgroundPlaySetting();
+
+      // 【关键修复】切换视频时，更新 AudioService 的 player 实例（不重新初始化）
+      if (backgroundPlayEnabled.value) {
+        try {
+          await _ensureAudioServiceReady();
+        } catch (e) {
+          debugPrint('❌ [AudioService] 准备失败: $e');
+        }
+      }
       await _configurePlayerProperties();
 
       // 【关键】重新初始化时清理 MPV 底层缓存
@@ -474,7 +482,7 @@ class VideoPlayerController extends ChangeNotifier {
       await nativePlayer.setProperty('framedrop', 'vo');
 
       // 视频输出队列大小（增加缓冲帧数）
-      await nativePlayer.setProperty('vo-queue-max-frames', '4');
+      await nativePlayer.setProperty('vo-queue-max-frames', '5');
 
       // 减少视频输出延迟
       await nativePlayer.setProperty('video-latency-hacks', 'yes');
@@ -884,6 +892,16 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _loadBackgroundPlaySetting() async {
     final prefs = await SharedPreferences.getInstance();
     backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
+
+    // 【关键】如果后台播放已开启，预初始化 AudioService
+    if (backgroundPlayEnabled.value && !_audioServiceInitialized) {
+      // 延迟初始化，避免阻塞视频加载
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!_audioServiceInitialized && backgroundPlayEnabled.value) {
+          _ensureAudioServiceReady();
+        }
+      });
+    }
   }
 
   Future<String> _getPreferredQuality(List<String> availableQualitiesList) async {
@@ -1033,11 +1051,8 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
         // 后台播放模式：启用AudioService，保持播放
-        // 【关键】先启用 AudioService，再确保播放不被中断
-        _enableBackgroundPlayback();
-
-        // 【新增】额外保护：设置 wakelock 防止系统休眠导致播放中断
-        WakelockManager.enable();
+        // 【关键修复】使用同步方式确保 AudioService 在进入后台前就初始化
+        _activateBackgroundPlayback();
       } else {
         // 非后台播放模式：暂停播放
         if (_wasPlayingBeforeBackground) player.pause();
@@ -1170,33 +1185,93 @@ class VideoPlayerController extends ChangeNotifier {
     _videoAuthor = author;
     _videoCoverUri = coverUri;
 
-    // 如果已经在后台播放，更新媒体信息
-    if (_audioHandler != null) {
-      _audioHandler!.setMediaItem(
-        title: title,
-        artist: author,
-        duration: player.state.duration,
-        artUri: coverUri,
-      );
+    // 【关键】立即更新通知栏信息
+    _updateNotificationMediaItem();
+  }
+
+  /// 更新通知栏的媒体信息
+  /// 如果 duration 为 0，会延迟重试直到获取到有效时长
+  void _updateNotificationMediaItem() {
+    if (_audioHandler == null || _currentResourceId == null) return;
+    if (_videoTitle == null) return;
+
+    final duration = player.state.duration;
+
+    // 立即更新（即使 duration 为 0，先显示标题等信息）
+    _audioHandler!.setMediaItem(
+      id: 'video_$_currentResourceId',
+      title: _videoTitle!,
+      artist: _videoAuthor,
+      duration: duration,
+      artUri: _videoCoverUri,
+    );
+
+    // 如果 duration 还是 0，延迟重试（等待视频加载完成）
+    if (duration.inSeconds <= 0) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final newDuration = player.state.duration;
+        if (newDuration.inSeconds > 0 && _audioHandler != null && _currentResourceId != null) {
+          _audioHandler!.setMediaItem(
+            id: 'video_$_currentResourceId',
+            title: _videoTitle ?? '视频播放',
+            artist: _videoAuthor,
+            duration: newDuration,
+            artUri: _videoCoverUri,
+          );
+          debugPrint('🎵 [AudioService] 延迟更新媒体信息: duration=${newDuration.inSeconds}s');
+        }
+      });
     }
   }
 
-  /// 重置 AudioService（切换视频时调用）
-  /// 确保旧的通知被清除，新视频的信息能正确显示
-  Future<void> _resetAudioService() async {
-    if (_audioHandler != null) {
-      debugPrint('🎵 [AudioService] 重置：销毁旧的 AudioHandler');
-      await _audioHandler!.stop();
-      _audioHandler!.dispose();
-      _audioHandler = null;
-    }
-  }
+
 
   /// 切换后台播放开关
   Future<void> toggleBackgroundPlay() async {
     backgroundPlayEnabled.value = !backgroundPlayEnabled.value;
     await _saveBackgroundPlaySetting(backgroundPlayEnabled.value);
     debugPrint('🎵 后台播放: ${backgroundPlayEnabled.value ? "开启" : "关闭"}');
+
+    // 【关键】开启后台播放时，预先初始化 AudioService
+    // 这样进入后台时通知栏可以立即显示
+    if (backgroundPlayEnabled.value) {
+      _ensureAudioServiceReady();
+    }
+  }
+
+  /// 确保 AudioService 已准备好
+  /// 如果已初始化，只更新 player 实例；否则首次初始化
+  Future<void> _ensureAudioServiceReady() async {
+    try {
+      // 【关键】AudioService.init 只能调用一次
+      if (_audioServiceInitialized && _audioHandler != null) {
+        debugPrint('🎵 [AudioService] 已初始化，更新 player 实例');
+        _audioHandler!.setPlayer(player);
+        return;
+      }
+
+      // 首次初始化
+      if (!_audioServiceInitialized) {
+        debugPrint('🎵 [AudioService] 首次初始化...');
+        _audioHandler = await AudioService.init(
+          builder: () => VideoAudioHandler(player),
+          config: const AudioServiceConfig(
+            androidNotificationChannelId: 'com.alnitak.video_playback',
+            androidNotificationChannelName: '视频播放',
+            androidNotificationOngoing: false,
+            androidStopForegroundOnPause: false,
+            androidNotificationIcon: 'mipmap/ic_launcher',
+            androidShowNotificationBadge: true,
+            fastForwardInterval: Duration(seconds: 10),
+            rewindInterval: Duration(seconds: 10),
+          ),
+        );
+        _audioServiceInitialized = true;
+        debugPrint('🎵 [AudioService] 初始化完成');
+      }
+    } catch (e) {
+      debugPrint('❌ [AudioService] 初始化失败: $e');
+    }
   }
 
   /// 保存后台播放设置
@@ -1205,50 +1280,55 @@ class VideoPlayerController extends ChangeNotifier {
     await prefs.setBool(_backgroundPlayKey, enabled);
   }
 
-  /// 启用后台播放
-  Future<void> _enableBackgroundPlayback() async {
-    try {
-      // 只初始化一次 AudioService
-      if (_audioHandler == null) {
-        _audioHandler = await AudioService.init(
-          builder: () => VideoAudioHandler(player),
-          config: AudioServiceConfig(
-            androidNotificationChannelId: 'com.alnitak.video_playback',
-            androidNotificationChannelName: '视频播放',
-            // 【关键修复】设置为 true，让通知常驻
-            androidNotificationOngoing: true,
-            // 【关键修复】暂停时不停止前台服务，防止后台被杀
-            androidStopForegroundOnPause: false,
-            androidNotificationIcon: 'mipmap/ic_launcher',
-            androidShowNotificationBadge: true,
-            fastForwardInterval: const Duration(seconds: 10),
-            rewindInterval: const Duration(seconds: 10),
-          ),
-        );
-        debugPrint('🎵 [AudioService] 初始化完成');
-      }
+  /// 激活后台播放（进入后台时调用）
+  /// 这个方法会立即启动后台播放流程，不阻塞主线程
+  void _activateBackgroundPlayback() {
+    debugPrint('🎵 [AudioService] 激活后台播放...');
 
-      // 更新播放信息
-      _audioHandler!.setMediaItem(
-        title: _videoTitle ?? '视频播放',
-        artist: _videoAuthor,
-        duration: player.state.duration,
-        artUri: _videoCoverUri,
-      );
+    // 【关键】先设置 wakelock 防止系统休眠
+    WakelockManager.enable();
+    _lastWakelockState = true;
 
-      // 【关键修复】更新播放状态为 playing，确保通知栏显示正确状态
-      _audioHandler!.updatePlaybackState(
-        playing: true,
-        position: player.state.position,
-      );
-
-      // 【关键修复】多次尝试恢复播放，增强稳定性
+    // 如果 AudioHandler 已经初始化，直接更新状态
+    if (_audioHandler != null) {
+      _updateAudioServiceState();
       _ensureBackgroundPlaying();
-
-      debugPrint('🎵 [AudioService] 后台播放已启用: ${_videoTitle ?? "视频播放"}');
-    } catch (e) {
-      debugPrint('❌ [AudioService] 启用失败: $e');
+      return;
     }
+
+    // 否则初始化 AudioService（异步但立即触发）
+    _initAudioServiceAndActivate();
+  }
+
+  /// 初始化 AudioService 并激活后台播放
+  /// 只负责渲染通知栏组件，播放器自带后台播放功能
+  Future<void> _initAudioServiceAndActivate() async {
+    try {
+      // 复用统一的初始化方法
+      await _ensureAudioServiceReady();
+
+      // 初始化或更新完成后更新状态
+      _updateAudioServiceState();
+      _ensureBackgroundPlaying();
+    } catch (e) {
+      debugPrint('❌ [AudioService] 激活失败: $e');
+    }
+  }
+
+  /// 更新 AudioService 状态（媒体信息和播放状态）
+  void _updateAudioServiceState() {
+    if (_audioHandler == null || _currentResourceId == null) return;
+
+    // 更新媒体信息（复用统一方法）
+    _updateNotificationMediaItem();
+
+    // 更新播放状态为 playing
+    _audioHandler!.updatePlaybackState(
+      playing: true,
+      position: player.state.position,
+    );
+
+    debugPrint('🎵 [AudioService] 状态已更新: ${_videoTitle ?? "视频播放"}');
   }
 
   /// 确保后台持续播放（多次检测恢复）
@@ -1276,13 +1356,12 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-  /// 完全停止后台播放服务（退出播放页时调用）
+  /// 停止后台播放通知（退出播放页时调用）
+  /// 注意：不销毁 AudioService，因为它是单例，下次会复用
   Future<void> stopBackgroundPlayback() async {
     if (_audioHandler != null) {
       await _audioHandler!.stop();
-      _audioHandler!.dispose();
-      _audioHandler = null;
-      debugPrint('🎵 [AudioService] 后台播放服务已销毁');
+      debugPrint('🎵 [AudioService] 后台播放已停止（保留 Handler 供复用）');
     }
   }
 
@@ -1302,11 +1381,9 @@ class VideoPlayerController extends ChangeNotifier {
     // 清理时禁用 wakelock
     WakelockManager.disable();
 
-    // 清理后台播放服务（先stop再dispose）
+    // 停止后台播放通知（保留 AudioService 单例供复用）
     if (_audioHandler != null) {
       _audioHandler!.stop();
-      _audioHandler!.dispose();
-      _audioHandler = null;
     }
 
     // 【新增】清理播放器缓存文件（HLS临时文件 + MPV缓存）
