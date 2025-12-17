@@ -13,7 +13,7 @@ class MediaPlayerWidget extends StatefulWidget {
   final int resourceId;
   final double? initialPosition;
   final VoidCallback? onVideoEnd;
-  final Function(Duration position)? onProgressUpdate;
+  final Function(Duration position, Duration totalDuration)? onProgressUpdate;
   final Function(String quality)? onQualityChanged;
   final String? title;
   final String? author;

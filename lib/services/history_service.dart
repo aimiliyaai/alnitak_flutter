@@ -15,11 +15,13 @@ class HistoryService {
   /// 添加历史记录
   /// [vid] 视频ID
   /// [part] 分P（默认为1）
-  /// [time] 播放进度（秒）
+  /// [time] 播放进度（秒，-1 表示已看完）
+  /// [duration] 视频总时长（秒）
   Future<bool> addHistory({
     required int vid,
     int part = 1,
     required double time,
+    required int duration,
   }) async {
     try {
       final response = await _dio.post(
@@ -28,38 +30,50 @@ class HistoryService {
           vid: vid,
           part: part,
           time: time,
+          duration: duration, // ✅ 使用真实总时长
         ).toJson(),
       );
 
-      if (response.data['code'] == 200) {
-        print('✅ 历史记录已保存: vid=$vid, part=$part, time=${time.toStringAsFixed(1)}s');
+      final code = response.data['code'];
+
+      if (code == 200) {
+        print(
+          '✅ 历史记录已保存: '
+          'vid=$vid, part=$part, time=${time.toStringAsFixed(1)}s, duration=${duration}s',
+        );
         return true;
-      } else if (response.data['code'] == 3000) {
-        // TOKEN无效，尝试刷新token后重试
-        print('🔄 Token失效，尝试刷新token...');
+      }
+
+      if (code == 3000) {
+        // TOKEN 无效，尝试刷新后重试一次
+        print('🔄 Token失效，尝试刷新 token...');
         final newToken = await _authService.updateToken();
+
         if (newToken != null) {
           print('✅ Token刷新成功，重试保存历史记录...');
-          // 重试一次
-          return await addHistory(vid: vid, part: part, time: time);
+          return await addHistory(
+            vid: vid,
+            part: part,
+            time: time,
+            duration: duration, // ✅ 重试时也必须传
+          );
         } else {
           print('❌ Token刷新失败，请重新登录');
           return false;
         }
-      } else {
-        print('⚠️ 保存历史记录失败: code=${response.data['code']}, msg=${response.data['msg']}');
-        return false;
       }
+
+      print('⚠️ 保存历史记录失败: code=$code, msg=${response.data['msg']}');
+      return false;
     } catch (e) {
-      print('❌ 保存历史记录失败: $e');
+      print('❌ 保存历史记录异常: $e');
       return false;
     }
   }
 
   /// 获取播放进度
   /// [vid] 视频ID
-  /// [part] 分P（可选，如果不传则返回用户最后观看的分P和进度）
-  /// 返回播放进度数据（包含分P和进度），如果没有历史记录返回null
+  /// [part] 分P（可选）
   Future<PlayProgressData?> getProgress({
     required int vid,
     int? part,
@@ -75,20 +89,26 @@ class HistoryService {
         queryParameters: queryParams,
       );
 
-      if (response.data['code'] == 200) {
+      final code = response.data['code'];
+
+      if (code == 200) {
         final data = PlayProgressData.fromJson(response.data['data']);
-        print('📍 获取播放进度: vid=$vid, part=${data.part}, progress=${data.progress.toStringAsFixed(1)}s');
+        print(
+          '📍 获取播放进度: '
+          'vid=$vid, part=${data.part}, progress=${data.progress.toStringAsFixed(1)}s',
+        );
         return data;
-      } else if (response.data['code'] == 404) {
-        // 没有历史记录
+      }
+
+      if (code == 404) {
         print('ℹ️ 无历史记录: vid=$vid${part != null ? ", part=$part" : ""}');
         return null;
-      } else {
-        print('⚠️ 获取播放进度失败: code=${response.data['code']}, msg=${response.data['msg']}');
-        return null;
       }
+
+      print('⚠️ 获取播放进度失败: code=$code, msg=${response.data['msg']}');
+      return null;
     } catch (e) {
-      print('❌ 获取播放进度失败: $e');
+      print('❌ 获取播放进度异常: $e');
       return null;
     }
   }
@@ -101,22 +121,28 @@ class HistoryService {
     int pageSize = 20,
   }) async {
     try {
+      print('📜 [History] 请求历史记录: page=$page, pageSize=$pageSize');
+
       final response = await _dio.get(
         '/api/v1/history/video/getHistory',
         queryParameters: {
           'page': page,
-          'page_size': pageSize,
+          'pageSize': pageSize,
         },
       );
 
-      if (response.data['code'] == 200) {
-        return HistoryListResponse.fromJson(response.data['data']);
-      } else {
-        print('⚠️ 获取历史记录列表失败: code=${response.data['code']}, msg=${response.data['msg']}');
-        return null;
+      final code = response.data['code'];
+
+      if (code == 200) {
+        final result = HistoryListResponse.fromJson(response.data['data']);
+        print('📜 [History] 解析成功: ${result.videos.length} 条记录');
+        return result;
       }
+
+      print('⚠️ 获取历史记录失败: code=$code, msg=${response.data['msg']}');
+      return null;
     } catch (e) {
-      print('❌ 获取历史记录列表失败: $e');
+      print('❌ 获取历史记录异常: $e');
       return null;
     }
   }

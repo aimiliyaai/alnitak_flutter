@@ -23,9 +23,10 @@ class VideoPlayerController extends ChangeNotifier {
   late final Player player;
   late final VideoController videoController;
 
-  // AudioService Handler (后台播放) - 【修复】改为静态实例，防止重复初始化
+// AudioService Handler (后台播放) - 【关键修复】改为静态实例，全局共享
   static VideoAudioHandler? _audioHandler;
-  // 【关键】标记 AudioService 是否已初始化（AudioService.init 只能调用一次）
+
+  // 【关键修复】标记 AudioService 是否已初始化（AudioService.init 只能调用一次）
   static bool _audioServiceInitialized = false;
 
   // ============ 状态 Notifiers ============
@@ -81,7 +82,9 @@ class VideoPlayerController extends ChangeNotifier {
 
   // 回调
   VoidCallback? onVideoEnd;
-  Function(Duration position)? onProgressUpdate;
+  // 【修改后】增加 totalDuration 参数
+  Function(Duration position, Duration totalDuration)? onProgressUpdate;
+
   Function(String quality)? onQualityChanged;
 
   VideoPlayerController() {
@@ -117,10 +120,11 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
 
+      // --- 【以下是关键改动区域】 ---
       await _loadLoopMode();
       await _loadBackgroundPlaySetting();
 
-      // 【关键修复】切换视频时，更新 AudioService 的 player 实例（不重新初始化）
+      // 【关键修复】切换视频时，不销毁 Service，而是更新它的 player 实例
       if (backgroundPlayEnabled.value) {
         try {
           await _ensureAudioServiceReady();
@@ -128,6 +132,7 @@ class VideoPlayerController extends ChangeNotifier {
           debugPrint('❌ [AudioService] 准备失败: $e');
         }
       }
+      // --- 【以上是关键改动区域】 ---
       await _configurePlayerProperties();
 
       // 【关键】重新初始化时清理 MPV 底层缓存
@@ -178,7 +183,7 @@ class VideoPlayerController extends ChangeNotifier {
         final diff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
         if (diff >= 500) {
           _lastReportedPosition = position;
-          onProgressUpdate!(position);
+          onProgressUpdate!(position, player.state.duration);
         }
       }
     });
@@ -516,13 +521,13 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
   // ============ 核心：防抖切换清晰度 ============
-  
+
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality) return;
 
     // 1. 取消上一次未执行的切换任务
     _debounceTimer?.cancel();
-    
+
     // 2. 版本号递增 (标记这是最新的操作)
     _switchEpoch++;
     final int myEpoch = _switchEpoch;
@@ -633,15 +638,15 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
         _hasTriggeredCompletion = false;
-        
+
         // 【秒开优化】获取m3u8内容
         final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
-        
+
         // 【秒开优化】立即预加载前3个TS分片（不等待完成，后台进行）
         if (isInitialLoad) {
           _hlsService.preloadTsSegments(m3u8Content, segmentCount: 3);
         }
-        
+
         final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
         final media = await Media.memory(m3u8Bytes);
 
@@ -1240,10 +1245,10 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   /// 确保 AudioService 已准备好
-  /// 如果已初始化，只更新 player 实例；否则首次初始化
+  /// 逻辑：如果已初始化，只更新 player 实例；否则首次初始化
   Future<void> _ensureAudioServiceReady() async {
     try {
-      // 【关键】AudioService.init 只能调用一次
+      // 【关键】AudioService.init 只能调用一次，后续复用静态实例
       if (_audioServiceInitialized && _audioHandler != null) {
         debugPrint('🎵 [AudioService] 已初始化，更新 player 实例');
         _audioHandler!.setPlayer(player);
@@ -1258,8 +1263,8 @@ class VideoPlayerController extends ChangeNotifier {
           config: const AudioServiceConfig(
             androidNotificationChannelId: 'com.alnitak.video_playback',
             androidNotificationChannelName: '视频播放',
-            androidNotificationOngoing: false,
-            androidStopForegroundOnPause: false,
+            androidNotificationOngoing: false, // 暂停时允许清除
+            androidStopForegroundOnPause: false, // 暂停时保持通知显示
             androidNotificationIcon: 'mipmap/ic_launcher',
             androidShowNotificationBadge: true,
             fastForwardInterval: Duration(seconds: 10),
@@ -1282,38 +1287,26 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// 激活后台播放（进入后台时调用）
   /// 这个方法会立即启动后台播放流程，不阻塞主线程
+  /// 激活后台播放（进入后台时调用）
   void _activateBackgroundPlayback() {
     debugPrint('🎵 [AudioService] 激活后台播放...');
-
-    // 【关键】先设置 wakelock 防止系统休眠
     WakelockManager.enable();
     _lastWakelockState = true;
 
-    // 如果 AudioHandler 已经初始化，直接更新状态
     if (_audioHandler != null) {
       _updateAudioServiceState();
       _ensureBackgroundPlaying();
       return;
     }
 
-    // 否则初始化 AudioService（异步但立即触发）
-    _initAudioServiceAndActivate();
-  }
-
-  /// 初始化 AudioService 并激活后台播放
-  /// 只负责渲染通知栏组件，播放器自带后台播放功能
-  Future<void> _initAudioServiceAndActivate() async {
-    try {
-      // 复用统一的初始化方法
-      await _ensureAudioServiceReady();
-
-      // 初始化或更新完成后更新状态
+    // 如果还没初始化，尝试初始化并激活
+    _ensureAudioServiceReady().then((_) {
       _updateAudioServiceState();
       _ensureBackgroundPlaying();
-    } catch (e) {
-      debugPrint('❌ [AudioService] 激活失败: $e');
-    }
+    });
   }
+  /// 初始化 AudioService 并激活后台播放
+  /// 只负责渲染通知栏组件，播放器自带后台播放功能
 
   /// 更新 AudioService 状态（媒体信息和播放状态）
   void _updateAudioServiceState() {
@@ -1381,12 +1374,11 @@ class VideoPlayerController extends ChangeNotifier {
     // 清理时禁用 wakelock
     WakelockManager.disable();
 
-    // 停止后台播放通知（保留 AudioService 单例供复用）
+    // 【关键修复】只停止前台通知，不销毁静态 Handler 实例，以便下次复用
     if (_audioHandler != null) {
       _audioHandler!.stop();
     }
 
-    // 【新增】清理播放器缓存文件（HLS临时文件 + MPV缓存）
     _hlsService.cleanupAllTempCache();
 
     player.dispose();

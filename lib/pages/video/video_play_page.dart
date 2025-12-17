@@ -49,6 +49,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   Duration? _lastReportedPosition; // 最后上报的播放位置（用于切换分P前上报）
   bool _hasReportedCompleted = false; // 是否已上报播放完成(-1)
   int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
+  double _currentDuration = 0;
 
   // 评论相关
   int _totalComments = 0;
@@ -118,6 +119,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           vid: widget.vid,
           part: _currentPart,
           time: -1,
+          duration: _currentDuration.toInt(),
         );
       } else {
         print('📊 页面关闭前上报进度: ${_lastReportedPosition!.inSeconds}秒');
@@ -125,6 +127,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           vid: widget.vid,
           part: _currentPart,
           time: _lastReportedPosition!.inSeconds.toDouble(),
+          duration: _currentDuration.toInt(),
         );
       }
     }
@@ -145,7 +148,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     try {
       // 先获取视频详情，然后获取历史记录（不传part参数，获取最后观看的分P）
       final videoDetail = await _videoService.getVideoDetail(widget.vid);
-      
+
       if (videoDetail == null) {
         setState(() {
           _errorMessage = '视频不存在或已被删除';
@@ -157,7 +160,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       // 如果指定了初始分P，使用指定的；否则从历史记录获取最后观看的分P
       int targetPart = widget.initialPart ?? 1;
       double? progress;
-      
+
       if (widget.initialPart == null) {
         // 没有指定初始分P，从历史记录获取最后观看的分P和进度
         final progressData = await _historyService.getProgress(vid: widget.vid);
@@ -168,7 +171,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         }
       } else {
         // 指定了初始分P，获取该分P的进度
-        final progressData = await _historyService.getProgress(vid: widget.vid, part: widget.initialPart);
+        final progressData = await _historyService.getProgress(
+          vid: widget.vid,
+          part: widget.initialPart,
+        );
         if (progressData != null) {
           progress = progressData.progress;
         }
@@ -253,11 +259,15 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         vid: widget.vid,
         part: _currentPart,
         time: _lastReportedPosition!.inSeconds.toDouble(),
+        duration: _currentDuration.toInt(),
       );
     }
 
     // 获取新分P的播放进度
-    final progressData = await _historyService.getProgress(vid: widget.vid, part: part);
+    final progressData = await _historyService.getProgress(
+      vid: widget.vid,
+      part: part,
+    );
     var progress = progressData?.progress;
 
     // 如果进度为-1，表示已看完，应该从头开始播放
@@ -296,7 +306,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 播放进度更新回调（每秒触发一次）
-  void _onProgressUpdate(Duration position) {
+  void _onProgressUpdate(Duration position, Duration totalDuration) {
+    _currentDuration = totalDuration.inSeconds.toDouble();
     // 记录最后播放位置（用于切换分P前上报）
     _lastReportedPosition = position;
 
@@ -308,12 +319,17 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     // 首次上报 或 距离上次上报已经过了5秒
-    if (_lastSavedSeconds == null || (currentSeconds - _lastSavedSeconds!) >= 5) {
-      print('📊 上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})');
+    if (_lastSavedSeconds == null ||
+        (currentSeconds - _lastSavedSeconds!) >= 5) {
+      print(
+        '📊 上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})',
+      );
       _historyService.addHistory(
         vid: widget.vid,
         part: _currentPart,
         time: currentSeconds.toDouble(),
+        // 【修改点】传入真实总时长
+        duration: _currentDuration.toInt(),
       );
       _lastSavedSeconds = currentSeconds;
     }
@@ -331,7 +347,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       if (response != null) {
         setState(() {
           _totalComments = response.total;
-          _latestComment = response.comments.isNotEmpty ? response.comments.first : null;
+          _latestComment =
+          response.comments.isNotEmpty ? response.comments.first : null;
         });
       }
     } catch (e) {
@@ -355,6 +372,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       vid: widget.vid,
       part: _currentPart,
       time: -1,
+      duration: _currentDuration.toInt(),
     );
     _hasReportedCompleted = true; // 标记为已上报
 

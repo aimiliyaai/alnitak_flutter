@@ -8,6 +8,7 @@ import '../utils/auth_state_manager.dart';
 import 'login_page.dart';
 import 'edit_profile_page.dart';
 import 'creator/creator_center_page.dart';
+import 'history_page.dart';
 
 /// 个人中心页面 - 简洁列表式设计
 class ProfilePage extends StatefulWidget {
@@ -392,7 +393,10 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.history_outlined,
             title: '观看历史',
             onTap: () {
-              // TODO: 打开观看历史
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryPage()),
+              );
             },
           ),
           _buildDivider(),
