@@ -334,14 +334,16 @@ class _HistoryPageState extends State<HistoryPage> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
+                          color: Colors.black.withValues(alpha: 0.45),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           _formatProgress(item.time, item.duration.toDouble()),
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 9,          // 更小
+                            height: 1.1,          // 紧凑
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                       ),
