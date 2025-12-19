@@ -42,7 +42,7 @@ class PlayProgressData {
     return PlayProgressData(
       part: json['part'] as int,
       progress: (json['progress'] as num).toDouble(),
-      duration: json['duration'] ?? 0, // ✅ 兼容老接口
+      duration: (json['duration'] as num?)?.toInt() ?? 0,// ✅ 核心字段
     );
   }
 }
@@ -77,7 +77,8 @@ class HistoryItem {
       cover: json['cover'] as String,
       desc: json['desc'] as String,
       time: (json['time'] as num).toDouble(),
-      duration: json['duration'] ?? 0, // ✅ 核心字段
+        // ✅ 核心修复点：num → int
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
       updatedAt: json['updatedAt'] as String,
     );
   }
