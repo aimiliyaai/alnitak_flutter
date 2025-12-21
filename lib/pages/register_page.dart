@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/captcha_service.dart';
 import '../widgets/slider_captcha_widget.dart';
+import '../utils/error_handler.dart';
 
 /// 注册页面
 class RegisterPage extends StatefulWidget {
@@ -99,7 +100,7 @@ class _RegisterPageState extends State<RegisterPage> {
         _showMessage('验证码发送失败，请重试');
       }
     } catch (e) {
-      _showMessage('发送失败：${e.toString()}');
+      _showMessage(ErrorHandler.getErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isSendingCode = false);
@@ -165,7 +166,7 @@ class _RegisterPageState extends State<RegisterPage> {
         _showMessage('注册失败，请检查验证码是否正确');
       }
     } catch (e) {
-      _showMessage('注册失败：${e.toString()}');
+      _showMessage(ErrorHandler.getErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

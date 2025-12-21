@@ -5,12 +5,16 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:call_state_handler/call_state_handler.dart';
+import 'package:call_state_handler/models/call_state.dart';
 import '../services/hls_service.dart';
 import '../services/logger_service.dart';
 import '../services/audio_service_handler.dart';
 import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
+import '../utils/error_handler.dart';
 
 /// 视频播放器控制器 (V_Final_Fixed_PauseLogic)
 ///
@@ -57,9 +61,22 @@ class VideoPlayerController extends ChangeNotifier {
   Duration? _positionBeforeBackground; // 保存进入后台前的播放位置
   StreamSubscription<bool>? _playingSubscription;
 
+  // 【关键】进度恢复锁：在初始进度恢复成功之前，不触发进度上报
+  bool _isSeekingInitialPosition = false;
+  // 目标恢复位置，用于网络不好时的重试
+  Duration? _targetInitialPosition;
+
   // 网络状态监听
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _wasConnected = true;
+
+  // 【通话监听】音频会话打断监听
+  StreamSubscription<AudioInterruptionEvent>? _audioInterruptionSubscription;
+  bool _wasPlayingBeforeInterruption = false; // 通话前是否正在播放
+
+  // 【电话检测】使用 call_state_handler 更可靠地检测电话
+  CallStateHandler? _callStateHandler;
+  StreamSubscription<CallState>? _callStateSubscription;
 
   // 播放卡顿监听
   Timer? _stalledTimer;
@@ -109,6 +126,8 @@ class VideoPlayerController extends ChangeNotifier {
     );
     _setupPlayerListeners();
     _setupConnectivityListener();
+    _setupAudioInterruptionListener();
+    _setupCallStateListener();
   }
 
   Future<void> initialize({
@@ -159,8 +178,31 @@ class VideoPlayerController extends ChangeNotifier {
         context: {'resourceId': resourceId},
       );
       isLoading.value = false;
-      errorMessage.value = '视频加载失败: $e';
+      errorMessage.value = _getErrorMessage(e);
     }
+  }
+
+  /// 根据错误类型返回友好的错误提示
+  String _getErrorMessage(dynamic error) {
+    final errorStr = error.toString().toLowerCase();
+
+    // 视频特定错误
+    if (errorStr.contains('没有可用的清晰度')) {
+      return '暂无可播放的视频源';
+    }
+
+    // 使用统一的错误处理
+    final message = ErrorHandler.getErrorMessage(error);
+
+    // 视频相关错误特殊处理
+    if (message.contains('资源不存在')) {
+      return '视频资源不存在';
+    }
+    if (message.contains('访问权限')) {
+      return '暂无播放权限';
+    }
+
+    return message;
   }
 
  // 【性能优化】上一次更新的进度（用于节流）
@@ -179,7 +221,8 @@ class VideoPlayerController extends ChangeNotifier {
       _positionStreamController.add(position);
 
       // 【性能优化】onProgressUpdate 回调节流（每500ms调用一次）
-      if (!isSwitchingQuality.value && onProgressUpdate != null) {
+      // 【关键修复】在初始进度恢复期间不触发上报，避免网络不好时上报错误进度
+      if (!isSwitchingQuality.value && !_isSeekingInitialPosition && onProgressUpdate != null) {
         final diff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
         if (diff >= 500) {
           _lastReportedPosition = position;
@@ -292,6 +335,121 @@ class VideoPlayerController extends ChangeNotifier {
     if (errorMessage.value != null || isBuffering.value) {
       errorMessage.value = null;
       _handleStalledPlayback();
+    }
+  }
+
+  /// 设置音频打断监听（电话、其他应用播放音频等）
+  void _setupAudioInterruptionListener() {
+    AudioSession.instance.then((session) async {
+      // 【关键修复】配置音频会话 - 不使用 mixWithOthers，这样才能正确响应电话打断
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        // 【关键】不设置 mixWithOthers，让系统能正确发送打断事件
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.none,
+        avAudioSessionMode: AVAudioSessionMode.moviePlayback,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.movie,
+          usage: AndroidAudioUsage.media,
+        ),
+        // 【关键】使用 gainTransientMayDuck，这样来电时会收到打断事件
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+      ));
+
+      // 【关键修复】激活音频会话，这样才能接收打断事件
+      await session.setActive(true);
+      debugPrint('📞 [AudioSession] 音频会话已激活');
+
+      // 监听音频打断事件（电话、其他应用等）
+      _audioInterruptionSubscription = session.interruptionEventStream.listen((event) {
+        debugPrint('📞 [AudioInterruption] begin=${event.begin}, type=${event.type}');
+
+        if (event.begin) {
+          // 打断开始（如来电）
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              // 其他应用需要降低音量（如导航提示音），可以选择降低音量而不是暂停
+              debugPrint('📞 [AudioInterruption] 需要降低音量');
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              // 需要暂停播放（如来电）
+              _wasPlayingBeforeInterruption = player.state.playing;
+              if (_wasPlayingBeforeInterruption) {
+                debugPrint('📞 [AudioInterruption] 来电/其他应用打断，暂停播放');
+                player.pause();
+              }
+              break;
+          }
+        } else {
+          // 打断结束（如挂断电话）
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              // 恢复音量
+              debugPrint('📞 [AudioInterruption] 恢复音量');
+              break;
+            case AudioInterruptionType.pause:
+              // 打断结束，恢复播放
+              if (_wasPlayingBeforeInterruption) {
+                debugPrint('📞 [AudioInterruption] 通话结束，恢复播放');
+                player.play();
+                _wasPlayingBeforeInterruption = false;
+              }
+              break;
+            case AudioInterruptionType.unknown:
+              // 未知类型的打断结束，不自动恢复
+              debugPrint('📞 [AudioInterruption] 未知打断结束，不自动恢复');
+              _wasPlayingBeforeInterruption = false;
+              break;
+          }
+        }
+      });
+
+      // 【新增】监听音频焦点变化（Android 特有，更可靠地检测电话）
+      session.becomingNoisyEventStream.listen((_) {
+        // 耳机拔出时暂停
+        if (player.state.playing) {
+          debugPrint('📞 [AudioSession] 耳机拔出，暂停播放');
+          player.pause();
+        }
+      });
+
+      debugPrint('📞 [AudioInterruption] 监听已启动');
+    }).catchError((e) {
+      debugPrint('❌ [AudioInterruption] 初始化失败: $e');
+    });
+  }
+
+  /// 【关键】设置电话状态监听（更可靠的方案）
+  void _setupCallStateListener() {
+    try {
+      _callStateHandler = CallStateHandler();
+      _callStateHandler!.initialize().then((_) {
+        debugPrint('📞 [CallStateHandler] 初始化成功');
+
+        _callStateSubscription = _callStateHandler!.onCallStateChanged.listen((callState) {
+          debugPrint('📞 [CallStateHandler] 通话状态变化: isCallActive=${callState.isCallActive}, callType=${callState.callType}');
+
+          if (callState.isCallActive) {
+            // 来电或正在通话中
+            if (!_wasPlayingBeforeInterruption && player.state.playing) {
+              _wasPlayingBeforeInterruption = true;
+              debugPrint('📞 [CallStateHandler] 检测到来电，暂停播放');
+              player.pause();
+            }
+          } else {
+            // 通话结束
+            if (_wasPlayingBeforeInterruption) {
+              debugPrint('📞 [CallStateHandler] 通话结束，恢复播放');
+              player.play();
+              _wasPlayingBeforeInterruption = false;
+            }
+          }
+        });
+      }).catchError((e) {
+        debugPrint('⚠️ [CallStateHandler] 初始化失败: $e');
+      });
+    } catch (e) {
+      debugPrint('❌ [CallStateHandler] 创建失败: $e');
     }
   }
 
@@ -560,6 +718,10 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _performSwitch(String quality, Duration seekPos) async {
     final bool wasPlaying = player.state.playing;
 
+    // 【关键修复】保存目标位置的副本，避免后续被修改
+    final targetPosition = seekPos;
+    debugPrint('🔄 [SwitchQuality] 开始切换: $quality, 目标位置=${targetPosition.inSeconds}s, wasPlaying=$wasPlaying');
+
     try {
       // 1. 暂停播放器
       await player.pause();
@@ -595,19 +757,31 @@ class VideoPlayerController extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 100));
         waitCount++;
       }
+      debugPrint('🔄 [SwitchQuality] 播放器就绪: duration=${player.state.duration.inSeconds}s');
 
-      // 6. 精确跳转
-      await player.seek(seekPos);
+      // 6. 【关键修复】精确跳转，使用保存的目标位置
+      debugPrint('🔄 [SwitchQuality] 开始 seek 到 ${targetPosition.inSeconds}s');
+      await player.seek(targetPosition);
 
-      // 7. 【关键修复】等待 seek 完成并加载首个分片
-      // 检查是否成功跳转，最多等待 1 秒
-      for (int i = 0; i < 10; i++) {
+      // 7. 【关键修复】等待 seek 完成并验证位置
+      int seekRetry = 0;
+      bool seekSuccess = false;
+      while (seekRetry < 20) {
         await Future.delayed(const Duration(milliseconds: 100));
         final currentPos = player.state.position;
-        // 如果位置接近目标位置（误差 < 2 秒），说明 seek 成功
-         if ((currentPos.inSeconds - seekPos.inSeconds).abs() < 2) {
+        final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+        if (diff < 3) {
+          debugPrint('🔄 [SwitchQuality] seek 成功: 当前位置=${currentPos.inSeconds}s');
+          seekSuccess = true;
           break;
         }
+        seekRetry++;
+      }
+
+      if (!seekSuccess) {
+        debugPrint('⚠️ [SwitchQuality] seek 未完成，重试一次...');
+        await player.seek(targetPosition);
+        await Future.delayed(const Duration(milliseconds: 300));
       }
 
       // 8. 更新状态（提前更新，避免阻塞播放）
@@ -621,14 +795,16 @@ class VideoPlayerController extends ChangeNotifier {
       // 9. 恢复播放（立即恢复，不再等待）
       if (wasPlaying) {
         await player.play();
+        debugPrint('🔄 [SwitchQuality] 恢复播放');
       }
 
       // 10. 【关键】触发新的预加载
       _startPreloadAdjacentQualities();
 
       onQualityChanged?.call(quality);
+      debugPrint('✅ [SwitchQuality] 切换完成');
     } catch (e) {
-      debugPrint('❌ 切换清晰度失败: $e');
+      debugPrint('❌ [SwitchQuality] 切换失败: $e');
       rethrow;
     }
   }
@@ -638,6 +814,20 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
     try {
         _hasTriggeredCompletion = false;
+
+        // 【关键修复】保存初始位置，避免后续被覆盖
+        final targetPosition = (isInitialLoad && initialPosition != null && initialPosition > 0.0)
+            ? Duration(seconds: initialPosition.toInt())
+            : Duration.zero;
+
+        // 【关键】如果需要恢复进度，设置锁定标志，阻止进度上报
+        if (targetPosition != Duration.zero) {
+          _isSeekingInitialPosition = true;
+          _targetInitialPosition = targetPosition;
+          debugPrint('🔒 [LoadVideo] 进度上报已锁定，等待恢复到 ${targetPosition.inSeconds}s');
+        }
+
+        debugPrint('📍 [LoadVideo] 开始加载: quality=$quality, initialPosition=$initialPosition, targetPosition=${targetPosition.inSeconds}s');
 
         // 【秒开优化】获取m3u8内容
         final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
@@ -657,21 +847,27 @@ class VideoPlayerController extends ChangeNotifier {
         // 【秒开优化】减少等待时间，只要duration>0就继续
         await _waitForPlayerReadyFast();
 
-        Duration seekPosition = Duration.zero;
-        bool shouldPlay = true; // 默认应该播放
+        debugPrint('📍 [LoadVideo] 播放器就绪: duration=${player.state.duration.inSeconds}s');
 
-        if (isInitialLoad && initialPosition != null && initialPosition > 0.0) {
-            seekPosition = Duration(seconds: initialPosition.toInt());
-        }
-
-        // 如果需要跳转到非 0 位置
-        if (seekPosition != Duration.zero) {
-            await player.seek(seekPosition);
+        // 【关键修复】如果需要跳转到非 0 位置，确保 seek 成功（带网络重试）
+        if (targetPosition != Duration.zero) {
+            final seekSuccess = await _seekWithRetry(targetPosition, maxRetries: 5);
+            if (seekSuccess) {
+              // 进度恢复成功，解除锁定，允许进度上报
+              _isSeekingInitialPosition = false;
+              _targetInitialPosition = null;
+              debugPrint('🔓 [LoadVideo] 进度上报已解锁');
+            } else {
+              // 进度恢复失败，启动后台重试机制
+              debugPrint('⚠️ [LoadVideo] 首次进度恢复失败，启动后台重试机制');
+              _startSeekRetryLoop(targetPosition);
+            }
         }
 
         // 关键改动 2: 在 seek 完成后，显式恢复播放状态
-        if (shouldPlay && !isSwitchingQuality.value) {
+        if (!isSwitchingQuality.value) {
             await player.play();
+            debugPrint('📍 [LoadVideo] 开始播放');
         }
 
         // 【新增】视频加载完成后，启动预加载
@@ -679,8 +875,95 @@ class VideoPlayerController extends ChangeNotifier {
           _startPreloadAdjacentQualities();
         }
     } catch (e) {
+        debugPrint('❌ [LoadVideo] 加载失败: $e');
+        // 加载失败时也要解除锁定
+        _isSeekingInitialPosition = false;
+        _targetInitialPosition = null;
         rethrow;
     }
+  }
+
+  /// 带重试的 seek 操作，确保网络不好时也能恢复进度
+  /// 返回 true 表示 seek 成功，false 表示失败
+  Future<bool> _seekWithRetry(Duration targetPosition, {int maxRetries = 5}) async {
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      if (attempt > 0) {
+        // 重试前等待，逐渐增加等待时间
+        final delay = Duration(milliseconds: 500 * attempt);
+        debugPrint('📍 [Seek] 第 ${attempt + 1} 次重试，等待 ${delay.inMilliseconds}ms...');
+        await Future.delayed(delay);
+      }
+
+      try {
+        debugPrint('📍 [Seek] 尝试 seek 到 ${targetPosition.inSeconds}s (attempt ${attempt + 1}/$maxRetries)');
+        await player.seek(targetPosition);
+
+        // 等待 seek 完成，最多等待 3 秒
+        for (int i = 0; i < 30; i++) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          final currentPos = player.state.position;
+          final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+          if (diff < 3) {
+            debugPrint('✅ [Seek] seek 成功: 当前位置=${currentPos.inSeconds}s');
+            return true;
+          }
+        }
+        debugPrint('⚠️ [Seek] seek 超时，当前位置=${player.state.position.inSeconds}s');
+      } catch (e) {
+        debugPrint('❌ [Seek] seek 异常: $e');
+      }
+    }
+
+    debugPrint('❌ [Seek] 所有重试均失败');
+    return false;
+  }
+
+  /// 后台重试 seek 循环，用于网络恢复后自动恢复进度
+  Timer? _seekRetryTimer;
+
+  void _startSeekRetryLoop(Duration targetPosition) {
+    _seekRetryTimer?.cancel();
+
+    int retryCount = 0;
+    const maxBackgroundRetries = 30; // 最多重试 30 次（约 1 分钟）
+
+    _seekRetryTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      retryCount++;
+
+      // 检查是否应该停止重试
+      if (!_isSeekingInitialPosition || _targetInitialPosition == null) {
+        debugPrint('🔓 [SeekRetry] 进度已恢复或被取消，停止重试');
+        timer.cancel();
+        return;
+      }
+
+      if (retryCount > maxBackgroundRetries) {
+        debugPrint('⚠️ [SeekRetry] 达到最大重试次数，放弃进度恢复');
+        _isSeekingInitialPosition = false;
+        _targetInitialPosition = null;
+        timer.cancel();
+        return;
+      }
+
+      debugPrint('🔄 [SeekRetry] 后台重试 $retryCount/$maxBackgroundRetries...');
+
+      try {
+        await player.seek(targetPosition);
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        final currentPos = player.state.position;
+        final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+
+        if (diff < 3) {
+          debugPrint('✅ [SeekRetry] 进度恢复成功: ${currentPos.inSeconds}s');
+          _isSeekingInitialPosition = false;
+          _targetInitialPosition = null;
+          timer.cancel();
+        }
+      } catch (e) {
+        debugPrint('⚠️ [SeekRetry] 重试失败: $e');
+      }
+    });
 }
 
   Future<void> _waitForPlayerReady() async {
@@ -1364,8 +1647,12 @@ class VideoPlayerController extends ChangeNotifier {
     _stalledTimer?.cancel();
     _preloadTimer?.cancel();
     _seekDebounceTimer?.cancel();
+    _seekRetryTimer?.cancel();
     _playingSubscription?.cancel();
     _connectivitySubscription?.cancel();
+    _audioInterruptionSubscription?.cancel();
+    _callStateSubscription?.cancel();
+    _callStateHandler?.dispose();
     _positionStreamController.close();
 
     // 清理预加载缓存

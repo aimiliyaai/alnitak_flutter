@@ -54,6 +54,10 @@ dependencies:
   wakelock_plus: ^1.1.6
   # 后台播放
   audio_service: ^0.18.12
+  # 音频会话管理（监听电话打断等）
+  audio_session: ^0.1.21
+  # 电话状态检测（更可靠的来电检测）
+  call_state_handler: ^1.0.2
   # 系统控制
   screen_brightness: ^2.1.7
   volume_controller: ^3.4.0

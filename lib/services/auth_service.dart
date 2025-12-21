@@ -215,16 +215,19 @@ class AuthService {
 
   // ========== Token 管理 ==========
 
-  /// 保存 Tokens
+  /// 保存 Tokens（同时更新内存缓存）
   Future<void> _saveTokens(LoginResponse loginResponse) async {
-    await saveToken(loginResponse.token);
-    await saveRefreshToken(loginResponse.refreshToken);
+    // 【关键修复】同时更新 HttpClient 的内存缓存
+    await HttpClient.updateCachedTokens(
+      token: loginResponse.token,
+      refreshToken: loginResponse.refreshToken,
+    );
   }
 
   /// 保存 Token
   Future<void> saveToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
+    // 【关键修复】同时更新内存缓存
+    await HttpClient.updateCachedToken(token);
   }
 
   /// 保存 Refresh Token
@@ -233,27 +236,43 @@ class AuthService {
     await prefs.setString(_refreshTokenKey, refreshToken);
   }
 
-  /// 获取 Token
+  /// 获取 Token（优先从内存缓存获取）
   Future<String?> getToken() async {
+    // 【关键修复】优先从内存缓存获取
+    final cachedToken = HttpClient.cachedToken;
+    if (cachedToken != null && cachedToken.isNotEmpty) {
+      return cachedToken;
+    }
+    // 回退到 SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_tokenKey);
   }
 
   /// 获取 Refresh Token
   Future<String?> getRefreshToken() async {
+    // 【关键修复】优先从内存缓存获取
+    final cachedToken = HttpClient.cachedRefreshToken;
+    if (cachedToken != null && cachedToken.isNotEmpty) {
+      return cachedToken;
+    }
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_refreshTokenKey);
   }
 
-  /// 清除 Tokens
+  /// 清除 Tokens（同时清除内存缓存）
   Future<void> clearTokens() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_refreshTokenKey);
+    // 【关键修复】同时清除内存缓存
+    await HttpClient.clearCachedTokens();
   }
 
-  /// 检查是否已登录
+  /// 检查是否已登录（使用内存缓存，速度更快）
   Future<bool> isLoggedIn() async {
+    // 【关键修复】优先检查内存缓存
+    final cachedToken = HttpClient.cachedToken;
+    if (cachedToken != null && cachedToken.isNotEmpty) {
+      return true;
+    }
+    // 回退检查 SharedPreferences（兼容冷启动）
     final token = await getToken();
     return token != null && token.isNotEmpty;
   }

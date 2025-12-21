@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'error_handler.dart';
 
 /// HTTP 客户端单例
 class HttpClient {
@@ -7,6 +9,12 @@ class HttpClient {
   factory HttpClient() => _instance;
 
   late final Dio dio;
+
+  // 【关键修复】Token 内存缓存，避免频繁读取 SharedPreferences
+  static String? _cachedToken;
+  static String? _cachedRefreshToken;
+  static bool _isRefreshingToken = false;
+  static Completer<String?>? _refreshCompleter;
 
   HttpClient._internal() {
     dio = Dio(
@@ -24,7 +32,7 @@ class HttpClient {
 
     // 添加认证拦截器（第一个添加，确保优先执行）
     dio.interceptors.add(
-      AuthInterceptor(),
+      AuthInterceptor(this),
     );
 
     // 添加重试拦截器(在请求拦截器之前)
@@ -60,40 +68,181 @@ class HttpClient {
           return handler.next(response);
         },
         onError: (error, handler) {
-          print('❌ 错误: ${error.message}');
+          final friendlyMessage = ErrorHandler.getErrorMessage(error);
+          print('❌ 请求失败: $friendlyMessage (${error.requestOptions.uri})');
           return handler.next(error);
         },
       ),
     );
+
+    // 【关键修复】初始化时预加载 Token 到内存
+    _preloadTokens();
+  }
+
+  /// 预加载 Token 到内存缓存
+  Future<void> _preloadTokens() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _cachedToken = prefs.getString('auth_token');
+      _cachedRefreshToken = prefs.getString('refresh_token');
+      print('🔐 Token 已预加载到内存: ${_cachedToken != null ? "有效" : "无"}');
+    } catch (e) {
+      print('⚠️ 预加载 Token 失败: $e');
+    }
+  }
+
+  /// 获取缓存的 Token（同步方法，避免异步竞争）
+  static String? get cachedToken => _cachedToken;
+
+  /// 获取缓存的 RefreshToken
+  static String? get cachedRefreshToken => _cachedRefreshToken;
+
+  /// 更新 Token 缓存（登录成功后调用）
+  static Future<void> updateCachedTokens({
+    required String token,
+    required String refreshToken,
+  }) async {
+    _cachedToken = token;
+    _cachedRefreshToken = refreshToken;
+    print('🔐 Token 缓存已更新');
+
+    // 同时保存到 SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+    await prefs.setString('refresh_token', refreshToken);
+  }
+
+  /// 更新单个 Token（刷新后调用）
+  static Future<void> updateCachedToken(String token) async {
+    _cachedToken = token;
+    print('🔐 Token 已刷新');
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+  }
+
+  /// 清除 Token 缓存（登出时调用）
+  static Future<void> clearCachedTokens() async {
+    _cachedToken = null;
+    _cachedRefreshToken = null;
+    print('🔐 Token 缓存已清除');
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    await prefs.remove('refresh_token');
+  }
+
+  /// 刷新 Token（带锁机制，防止并发刷新）
+  Future<String?> refreshToken() async {
+    // 如果已经在刷新中，等待结果
+    if (_isRefreshingToken && _refreshCompleter != null) {
+      print('🔄 Token 正在刷新中，等待...');
+      return _refreshCompleter!.future;
+    }
+
+    // 开始刷新
+    _isRefreshingToken = true;
+    _refreshCompleter = Completer<String?>();
+
+    try {
+      final refreshToken = _cachedRefreshToken;
+      if (refreshToken == null || refreshToken.isEmpty) {
+        print('❌ RefreshToken 不存在，需要重新登录');
+        _refreshCompleter!.complete(null);
+        return null;
+      }
+
+      print('🔄 开始刷新 Token...');
+
+      // 使用新的 Dio 实例避免拦截器循环
+      final refreshDio = Dio(BaseOptions(
+        baseUrl: 'http://anime.ayypd.cn:3000',
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+      ));
+
+      final response = await refreshDio.post(
+        '/api/v1/auth/updateToken',
+        data: {'refreshToken': refreshToken},
+      );
+
+      if (response.data['code'] == 200) {
+        final newToken = response.data['data']['token'] as String;
+        await updateCachedToken(newToken);
+        print('✅ Token 刷新成功');
+        _refreshCompleter!.complete(newToken);
+        return newToken;
+      } else if (response.data['code'] == 2000) {
+        // RefreshToken 也失效了
+        print('❌ RefreshToken 已失效，需要重新登录');
+        await clearCachedTokens();
+        _refreshCompleter!.complete(null);
+        return null;
+      } else {
+        print('⚠️ Token 刷新失败: ${response.data['msg']}');
+        _refreshCompleter!.complete(null);
+        return null;
+      }
+    } catch (e) {
+      print('❌ Token 刷新异常: $e');
+      _refreshCompleter!.complete(null);
+      return null;
+    } finally {
+      _isRefreshingToken = false;
+      _refreshCompleter = null;
+    }
   }
 }
 
-/// 认证拦截器 - 自动添加 Authorization header
+/// 认证拦截器 - 自动添加 Authorization header + 自动刷新 Token
 class AuthInterceptor extends Interceptor {
-  static const String _tokenKey = 'auth_token';
+  final HttpClient _httpClient;
+
+  AuthInterceptor(this._httpClient);
 
   @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     // 如果请求已经包含 Authorization header，不覆盖
     if (options.headers.containsKey('Authorization')) {
       return handler.next(options);
     }
 
-    // 从 SharedPreferences 获取 token
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString(_tokenKey);
+    // 【关键修复】直接从内存缓存获取 Token（同步，无竞争）
+    final token = HttpClient.cachedToken;
 
-      if (token != null && token.isNotEmpty) {
-        // 添加 Authorization header
-        options.headers['Authorization'] = token;
-        print('🔑 添加 Authorization: $token');
-      }
-    } catch (e) {
-      print('⚠️ 获取 token 失败: $e');
+    if (token != null && token.isNotEmpty) {
+      options.headers['Authorization'] = token;
+      print('🔑 添加 Authorization: $token');
     }
 
     return handler.next(options);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) async {
+    // 【关键修复】检测 Token 失效响应，自动刷新
+    if (response.data is Map && response.data['code'] == 3000) {
+      print('🔄 检测到 Token 失效 (code=3000)，尝试自动刷新...');
+
+      final newToken = await _httpClient.refreshToken();
+      if (newToken != null) {
+        // Token 刷新成功，重试原请求
+        print('🔄 Token 刷新成功，重试原请求...');
+        try {
+          final options = response.requestOptions;
+          options.headers['Authorization'] = newToken;
+          final retryResponse = await _httpClient.dio.fetch(options);
+          return handler.next(retryResponse);
+        } catch (e) {
+          print('❌ 重试请求失败: $e');
+          return handler.next(response);
+        }
+      } else {
+        print('❌ Token 刷新失败，返回原响应');
+      }
+    }
+
+    return handler.next(response);
   }
 }
 
@@ -129,8 +278,9 @@ class RetryInterceptor extends Interceptor {
           ? retryDelays[retryCount] 
           : retryDelays.last;
       
+      final friendlyMessage = ErrorHandler.getErrorMessage(err);
       logPrint?.call(
-        '⏳ 请求失败,${delay.inSeconds}秒后进行第 ${retryCount + 1} 次重试: ${err.requestOptions.uri}'
+        '⏳ $friendlyMessage，${delay.inSeconds}秒后进行第 ${retryCount + 1} 次重试'
       );
 
       // 延迟后重试

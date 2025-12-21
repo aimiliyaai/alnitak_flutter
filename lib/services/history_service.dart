@@ -1,16 +1,17 @@
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../models/history_models.dart';
-import 'auth_service.dart';
 
 /// 历史记录服务
+///
+/// 【关键修复】Token 刷新逻辑已移至 HttpClient 统一处理
+/// 当收到 code=3000 时，AuthInterceptor 会自动刷新 Token 并重试请求
 class HistoryService {
   static final HistoryService _instance = HistoryService._internal();
   factory HistoryService() => _instance;
   HistoryService._internal();
 
   final Dio _dio = HttpClient().dio;
-  final AuthService _authService = AuthService();
 
   /// 添加历史记录
   /// [vid] 视频ID
@@ -30,7 +31,7 @@ class HistoryService {
           vid: vid,
           part: part,
           time: time,
-          duration: duration, // ✅ 使用真实总时长
+          duration: duration,
         ).toJson(),
       );
 
@@ -44,25 +45,8 @@ class HistoryService {
         return true;
       }
 
-      if (code == 3000) {
-        // TOKEN 无效，尝试刷新后重试一次
-        print('🔄 Token失效，尝试刷新 token...');
-        final newToken = await _authService.updateToken();
-
-        if (newToken != null) {
-          print('✅ Token刷新成功，重试保存历史记录...');
-          return await addHistory(
-            vid: vid,
-            part: part,
-            time: time,
-            duration: duration, // ✅ 重试时也必须传
-          );
-        } else {
-          print('❌ Token刷新失败，请重新登录');
-          return false;
-        }
-      }
-
+      // 【注意】code=3000 的情况已由 AuthInterceptor 自动处理
+      // 如果走到这里说明自动刷新也失败了
       print('⚠️ 保存历史记录失败: code=$code, msg=${response.data['msg']}');
       return false;
     } catch (e) {

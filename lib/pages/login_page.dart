@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/slider_captcha_widget.dart';
 import '../utils/auth_state_manager.dart';
+import '../utils/error_handler.dart';
 import 'register_page.dart';
 
 /// 登录页面
@@ -92,7 +93,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
       }
       return;
     } catch (e) {
-      _showMessage('登录失败：${e.toString()}');
+      _showMessage(ErrorHandler.getErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -154,7 +155,7 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
         _showMessage('登录失败，请检查邮箱和验证码');
       }
     } catch (e) {
-      _showMessage('登录失败：${e.toString()}');
+      _showMessage(ErrorHandler.getErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
