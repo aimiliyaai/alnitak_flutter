@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'reset_password_page.dart';
+import '../services/auth_service.dart';
 
 /// 设置页面
 class SettingsPage extends StatefulWidget {
@@ -12,7 +14,10 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final AuthService _authService = AuthService();
+
   bool _backgroundPlayEnabled = false;
+  bool _isLoggedIn = false;
   PackageInfo? _packageInfo;
 
   @override
@@ -20,6 +25,17 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _loadSettings();
     _loadPackageInfo();
+    _checkLoginStatus();
+  }
+
+  /// 检查登录状态
+  Future<void> _checkLoginStatus() async {
+    final isLoggedIn = await _authService.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = isLoggedIn;
+      });
+    }
   }
 
   /// 加载设置
@@ -88,6 +104,25 @@ class _SettingsPageState extends State<SettingsPage> {
           ]),
 
           const SizedBox(height: 12),
+
+          // 账号安全（仅登录后显示）
+          if (_isLoggedIn) ...[
+            _buildSectionHeader('账号安全'),
+            _buildSettingsGroup([
+              _buildTappableTile(
+                icon: Icons.lock_outline,
+                title: '修改密码',
+                value: '',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
+                  );
+                },
+              ),
+            ]),
+            const SizedBox(height: 12),
+          ],
 
           // 关于
           _buildSectionHeader('关于'),

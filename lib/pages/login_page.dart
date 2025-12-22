@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/captcha_service.dart';
 import '../widgets/slider_captcha_widget.dart';
 import '../utils/auth_state_manager.dart';
 import '../utils/error_handler.dart';
 import 'register_page.dart';
+import 'reset_password_page.dart';
 
 /// 登录页面
 class LoginPage extends StatefulWidget {
@@ -15,6 +17,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
+  final CaptchaService _captchaService = CaptchaService();
 
   // Tab 控制器
   late TabController _tabController;
@@ -32,6 +35,8 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isSendingCode = false;
+  int _countdown = 0;
 
   @override
   void initState() {
@@ -163,6 +168,95 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     }
   }
 
+  // 验证码登录用的 captchaId
+  String? _emailCodeCaptchaId;
+
+  /// 发送邮箱验证码（验证码登录用）
+  Future<void> _sendEmailCode() async {
+    final email = _emailCodeController.text.trim();
+
+    if (email.isEmpty) {
+      _showMessage('请先输入邮箱');
+      return;
+    }
+
+    if (!_isValidEmail(email)) {
+      _showMessage('请输入有效的邮箱地址');
+      return;
+    }
+
+    if (_countdown > 0) return;
+
+    setState(() => _isSendingCode = true);
+
+    try {
+      // 发送验证码（首次不带 captchaId，服务端决定是否需要验证）
+      final success = await _captchaService.sendEmailCode(
+        email: email,
+        captchaId: _emailCodeCaptchaId,
+      );
+
+      if (success) {
+        _showMessage('验证码已发送，请查收邮箱');
+        setState(() => _countdown = 60);
+        _startCountdown();
+        // 成功后清除 captchaId
+        _emailCodeCaptchaId = null;
+      } else {
+        _showMessage('验证码发送失败，请重试');
+      }
+    } on SendCodeCaptchaRequiredException catch (e) {
+      // 需要人机验证，使用服务端返回的 captchaId
+      if (mounted) {
+        setState(() => _isSendingCode = false);
+        await _showCaptchaDialogForCode(e.captchaId);
+        // 验证成功后重试发送
+        if (_emailCodeCaptchaId != null) {
+          _sendEmailCode();
+        }
+      }
+      return;
+    } catch (e) {
+      _showMessage(ErrorHandler.getErrorMessage(e));
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingCode = false);
+      }
+    }
+  }
+
+  /// 显示人机验证对话框（发送验证码用）
+  /// [serverCaptchaId] 服务端返回的验证码ID
+  Future<void> _showCaptchaDialogForCode(String serverCaptchaId) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SliderCaptchaWidget(
+        captchaId: serverCaptchaId,
+        onSuccess: () {
+          // 验证成功，保存 captchaId
+          _emailCodeCaptchaId = serverCaptchaId;
+        },
+        onCancel: () {
+          // 取消验证
+          _emailCodeCaptchaId = null;
+        },
+      ),
+    );
+  }
+
+  /// 开始倒计时
+  void _startCountdown() {
+    Future.delayed(const Duration(seconds: 1), () {
+      if (!mounted) return;
+
+      if (_countdown > 0) {
+        setState(() => _countdown--);
+        _startCountdown();
+      }
+    });
+  }
+
   /// 验证邮箱格式
   bool _isValidEmail(String email) {
     return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
@@ -265,7 +359,25 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
               ),
             ),
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 8),
+
+          // 忘记密码链接
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
+                );
+              },
+              child: Text(
+                '忘记密码？',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // 登录按钮
           ElevatedButton(
@@ -340,11 +452,19 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
               hintText: '请输入验证码',
               prefixIcon: const Icon(Icons.verified_user_outlined),
               suffixIcon: TextButton(
-                onPressed: () {
-                  // TODO: 发送验证码
-                  _showMessage('验证码发送功能待实现');
-                },
-                child: const Text('获取验证码'),
+                onPressed: (_isSendingCode || _countdown > 0) ? null : _sendEmailCode,
+                child: _isSendingCode
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        _countdown > 0 ? '${_countdown}s' : '获取验证码',
+                        style: TextStyle(
+                          color: (_isSendingCode || _countdown > 0) ? Colors.grey : null,
+                        ),
+                      ),
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),

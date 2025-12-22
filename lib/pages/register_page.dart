@@ -27,6 +27,9 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _obscureConfirmPassword = true;
   int _countdown = 0;
 
+  // 验证码ID（服务端返回）
+  String? _captchaId;
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -36,23 +39,21 @@ class _RegisterPageState extends State<RegisterPage> {
     super.dispose();
   }
 
-  /// 显示人机验证对话框
-  Future<String?> _showCaptchaDialog() async {
-    final captchaId = _captchaService.generateCaptchaId();
-    String? result;
-
+  /// 显示人机验证对话框（使用服务端返回的 captchaId）
+  Future<void> _showCaptchaDialog(String serverCaptchaId) async {
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => SliderCaptchaWidget(
-        captchaId: captchaId,
+        captchaId: serverCaptchaId,
         onSuccess: () {
-          result = captchaId;
+          _captchaId = serverCaptchaId;
+        },
+        onCancel: () {
+          _captchaId = null;
         },
       ),
     );
-
-    return result;
   }
 
   /// 发送邮箱验证码
@@ -77,18 +78,10 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _isSendingCode = true);
 
     try {
-      // 显示人机验证
-      final captchaId = await _showCaptchaDialog();
-
-      if (captchaId == null) {
-        setState(() => _isSendingCode = false);
-        return;
-      }
-
-      // 发送验证码
+      // 发送验证码（首次不带 captchaId）
       final success = await _captchaService.sendEmailCode(
         email: email,
-        captchaId: captchaId,
+        captchaId: _captchaId,
       );
 
       if (success) {
@@ -96,9 +89,20 @@ class _RegisterPageState extends State<RegisterPage> {
         // 开始倒计时
         setState(() => _countdown = 60);
         _startCountdown();
+        _captchaId = null; // 成功后清除
       } else {
         _showMessage('验证码发送失败，请重试');
       }
+    } on SendCodeCaptchaRequiredException catch (e) {
+      // 需要人机验证
+      if (mounted) {
+        setState(() => _isSendingCode = false);
+        await _showCaptchaDialog(e.captchaId);
+        if (_captchaId != null) {
+          _sendEmailCode(); // 验证成功后重试
+        }
+      }
+      return;
     } catch (e) {
       _showMessage(ErrorHandler.getErrorMessage(e));
     } finally {

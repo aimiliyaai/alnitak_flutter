@@ -2,6 +2,16 @@ import 'package:uuid/uuid.dart';
 import '../utils/http_client.dart';
 import '../models/captcha_models.dart';
 
+/// 发送验证码时需要人机验证异常
+class SendCodeCaptchaRequiredException implements Exception {
+  final String captchaId;
+
+  SendCodeCaptchaRequiredException(this.captchaId);
+
+  @override
+  String toString() => '需要人机验证';
+}
+
 /// 人机验证服务
 class CaptchaService {
   static final CaptchaService _instance = CaptchaService._internal();
@@ -85,21 +95,38 @@ class CaptchaService {
   }
 
   /// 发送邮箱验证码
+  /// [captchaId] 可选，首次调用可不传，如果服务端要求验证会抛出异常
+  /// 抛出 [SendCodeCaptchaRequiredException] 表示需要人机验证
   Future<bool> sendEmailCode({
     required String email,
-    required String captchaId,
+    String? captchaId,
   }) async {
     try {
+      final data = <String, dynamic>{'email': email};
+      if (captchaId != null && captchaId.isNotEmpty) {
+        data['captchaId'] = captchaId;
+      }
+
       final response = await _httpClient.dio.post(
         '/api/v1/verify/getEmailCode',
-        data: EmailCodeRequest(
-          email: email,
-          captchaId: captchaId,
-        ).toJson(),
+        data: data,
       );
 
-      return response.data['code'] == 200;
+      if (response.data['code'] == 200) {
+        return true;
+      } else if (response.data['code'] == -1) {
+        // 需要人机验证，服务端返回 captchaId
+        final serverCaptchaId = response.data['data']?['captchaId'] as String? ?? '';
+        if (serverCaptchaId.isNotEmpty) {
+          throw SendCodeCaptchaRequiredException(serverCaptchaId);
+        }
+      }
+      print('❌ 发送邮箱验证码失败: ${response.data['msg']}');
+      return false;
     } catch (e) {
+      if (e is SendCodeCaptchaRequiredException) {
+        rethrow;
+      }
       print('❌ 发送邮箱验证码失败: $e');
       return false;
     }

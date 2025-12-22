@@ -3,11 +3,21 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../models/auth_models.dart';
 
-/// 需要人机验证异常
+/// 需要人机验证异常（登录用）
 class CaptchaRequiredException implements Exception {
   final String captchaId;
 
   CaptchaRequiredException(this.captchaId);
+
+  @override
+  String toString() => '需要人机验证';
+}
+
+/// 重置密码验证需要人机验证异常
+class ResetPasswordCaptchaRequiredException implements Exception {
+  final String captchaId;
+
+  ResetPasswordCaptchaRequiredException(this.captchaId);
 
   @override
   String toString() => '需要人机验证';
@@ -166,13 +176,14 @@ class AuthService {
   }
 
   /// 修改密码验证
+  /// 抛出 [ResetPasswordCaptchaRequiredException] 表示需要人机验证
   Future<bool> resetPasswordCheck({
     required String email,
     String? captchaId,
   }) async {
     try {
-      final data = {'email': email};
-      if (captchaId != null) {
+      final data = <String, dynamic>{'email': email};
+      if (captchaId != null && captchaId.isNotEmpty) {
         data['captchaId'] = captchaId;
       }
 
@@ -181,8 +192,21 @@ class AuthService {
         data: data,
       );
 
-      return response.data['code'] == 200;
+      if (response.data['code'] == 200) {
+        return true;
+      } else if (response.data['code'] == -1) {
+        // 需要人机验证
+        final serverCaptchaId = response.data['data']?['captchaId'] as String? ?? '';
+        if (serverCaptchaId.isNotEmpty) {
+          throw ResetPasswordCaptchaRequiredException(serverCaptchaId);
+        }
+      }
+      print('❌ 修改密码验证失败: ${response.data['msg']}');
+      return false;
     } catch (e) {
+      if (e is ResetPasswordCaptchaRequiredException) {
+        rethrow;
+      }
       print('❌ 修改密码验证失败: $e');
       return false;
     }
