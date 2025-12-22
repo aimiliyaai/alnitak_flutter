@@ -59,7 +59,12 @@ class VideoPlayerController extends ChangeNotifier {
   bool _isRecovering = false;
   bool _wasPlayingBeforeBackground = false;
   Duration? _positionBeforeBackground; // 保存进入后台前的播放位置
+
+  // 【关键修复】保存所有 player.stream 的订阅，以便 dispose 时正确取消
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<bool>? _completedSubscription;
   StreamSubscription<bool>? _playingSubscription;
+  StreamSubscription<bool>? _bufferingSubscription;
 
   // 【关键】进度恢复锁：在初始进度恢复成功之前，不触发进度上报
   bool _isSeekingInitialPosition = false;
@@ -109,7 +114,9 @@ class VideoPlayerController extends ChangeNotifier {
       configuration: const PlayerConfiguration(
         title: '',
         bufferSize: 32 * 1024 * 1024,
-        logLevel: MPVLogLevel.warn,
+        // 【关键修复】使用最低可用日志级别，减少日志回调
+        // 这可以降低 dispose 时 "Callback invoked after deleted" 崩溃的概率
+        logLevel: MPVLogLevel.error,
       ),
     );
 
@@ -211,8 +218,11 @@ class VideoPlayerController extends ChangeNotifier {
   bool _lastWakelockState = false;
 
   void _setupPlayerListeners() {
+    // 【关键修复】保存所有订阅引用，以便 dispose 时正确取消
+    // 这可以防止 "Callback invoked after it has been deleted" 崩溃
+
     // 1. 进度监听（节流优化：每500ms最多更新一次回调，UI流仍然实时）
-    player.stream.position.listen((position) {
+    _positionSubscription = player.stream.position.listen((position) {
       if (_isFreezingPosition && _anchorPosition != null) {
         _positionStreamController.add(_anchorPosition!);
         return;
@@ -232,7 +242,7 @@ class VideoPlayerController extends ChangeNotifier {
     });
 
     // 2. 完播监听
-    player.stream.completed.listen((completed) {
+    _completedSubscription = player.stream.completed.listen((completed) {
       if (completed && !_hasTriggeredCompletion && !_isFreezingPosition) {
         _hasTriggeredCompletion = true;
         _handlePlaybackEnd();
@@ -266,7 +276,7 @@ class VideoPlayerController extends ChangeNotifier {
     });
 
     // 4. 缓冲状态监听 + 超时检测
-    player.stream.buffering.listen((buffering) {
+    _bufferingSubscription = player.stream.buffering.listen((buffering) {
       // 【修复】智能检测逻辑优化
       if (_isSeekingWithinCache && buffering) {
         return;
@@ -1641,18 +1651,92 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  @override
-  void dispose() {
+  // 标记是否已开始清理，防止重复调用
+  bool _isDisposing = false;
+
+  /// 【关键修复】同步准备清理 - 必须在 dispose 之前调用
+  /// 这个方法会立即禁用日志和取消订阅，防止回调崩溃
+  void prepareDispose() {
+    if (_isDisposing) return;
+    _isDisposing = true;
+
+    debugPrint('🗑️ [VideoPlayerController] 开始同步清理...');
+
+    // 【关键修复】首先取消所有定时器
     _debounceTimer?.cancel();
     _stalledTimer?.cancel();
     _preloadTimer?.cancel();
     _seekDebounceTimer?.cancel();
     _seekRetryTimer?.cancel();
+
+    // 【最关键】立即取消所有 player.stream 的订阅
+    // 这必须在任何其他操作之前完成，防止回调被调用
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _completedSubscription?.cancel();
+    _completedSubscription = null;
     _playingSubscription?.cancel();
+    _playingSubscription = null;
+    _bufferingSubscription?.cancel();
+    _bufferingSubscription = null;
+
+    // 取消其他订阅
     _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
     _audioInterruptionSubscription?.cancel();
+    _audioInterruptionSubscription = null;
     _callStateSubscription?.cancel();
+    _callStateSubscription = null;
+
+    debugPrint('🗑️ [VideoPlayerController] 订阅已取消');
+  }
+
+  /// 【关键修复】异步清理方法，替代 dispose()
+  /// 这个方法会：
+  /// 1. 调用 prepareDispose() 同步取消订阅
+  /// 2. 禁用 libmpv 日志（防止日志回调导致崩溃）
+  /// 3. 停止播放器（让 native 层的线程完成工作）
+  /// 4. 等待一段时间让 native 线程完成
+  /// 5. 调用 player.dispose() 和其他清理
+  ///
+  /// 这可以防止 "Callback invoked after it has been deleted" 崩溃
+  Future<void> disposeAsync() async {
+    // 先执行同步清理
+    prepareDispose();
+
+    // 【关键修复】在停止播放器之前，先禁用 libmpv 的日志
+    // 这可以防止日志线程在 dispose 后仍然尝试调用 Dart 回调
+    try {
+      if (!kIsWeb) {
+        final nativePlayer = player.platform as NativePlayer?;
+        if (nativePlayer != null) {
+          // 设置 msg-level=all=no 禁用所有日志输出
+          await nativePlayer.setProperty('msg-level', 'all=no');
+          // 同时设置 terminal=no 禁用终端输出
+          await nativePlayer.setProperty('terminal', 'no');
+          debugPrint('🗑️ [VideoPlayerController] 日志已禁用');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [VideoPlayerController] 禁用日志失败: $e');
+    }
+
+    // 【关键修复】停止播放器
+    try {
+      await player.stop();
+      debugPrint('🗑️ [VideoPlayerController] 播放器已停止');
+    } catch (e) {
+      debugPrint('⚠️ [VideoPlayerController] 停止播放器失败: $e');
+    }
+
+    // 【关键】等待 libmpv 的 native 线程完成
+    // 增加等待时间到 500ms，确保日志线程完全停止
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 清理 CallStateHandler
     _callStateHandler?.dispose();
+
+    // 关闭自定义流控制器
     _positionStreamController.close();
 
     // 清理预加载缓存
@@ -1661,13 +1745,79 @@ class VideoPlayerController extends ChangeNotifier {
     // 清理时禁用 wakelock
     WakelockManager.disable();
 
-    // 【关键修复】只停止前台通知，不销毁静态 Handler 实例，以便下次复用
+    // 停止后台播放通知
+    if (_audioHandler != null) {
+      await _audioHandler!.stop();
+    }
+
+    _hlsService.cleanupAllTempCache();
+
+    // 【关键】再等待一下，确保所有 native 回调都已停止
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // 【关键】现在安全地 dispose player
+    try {
+      player.dispose();
+      debugPrint('🗑️ [VideoPlayerController] player 已 dispose');
+    } catch (e) {
+      debugPrint('⚠️ [VideoPlayerController] player dispose 失败: $e');
+    }
+
+    // dispose ValueNotifiers
+    availableQualities.dispose();
+    currentQuality.dispose();
+    isLoading.dispose();
+    errorMessage.dispose();
+    isPlayerInitialized.dispose();
+    isSwitchingQuality.dispose();
+    loopMode.dispose();
+    backgroundPlayEnabled.dispose();
+    isBuffering.dispose();
+
+    debugPrint('🗑️ [VideoPlayerController] 异步清理完成');
+  }
+
+  @override
+  void dispose() {
+    // 如果已经通过 disposeAsync() 清理过，跳过
+    if (_isDisposing) {
+      debugPrint('🗑️ [VideoPlayerController] dispose() 跳过（已通过 disposeAsync 清理）');
+      super.dispose();
+      return;
+    }
+
+    // 如果直接调用 dispose()（不推荐），做同步清理
+    // 注意：这可能仍然会导致崩溃，应该总是先调用 disposeAsync()
+    debugPrint('⚠️ [VideoPlayerController] 警告: dispose() 被直接调用，可能导致崩溃');
+
+    _debounceTimer?.cancel();
+    _stalledTimer?.cancel();
+    _preloadTimer?.cancel();
+    _seekDebounceTimer?.cancel();
+    _seekRetryTimer?.cancel();
+
+    _positionSubscription?.cancel();
+    _completedSubscription?.cancel();
+    _playingSubscription?.cancel();
+    _bufferingSubscription?.cancel();
+
+    _connectivitySubscription?.cancel();
+    _audioInterruptionSubscription?.cancel();
+    _callStateSubscription?.cancel();
+    _callStateHandler?.dispose();
+
+    _positionStreamController.close();
+    _qualityCache.clear();
+
+    WakelockManager.disable();
+
     if (_audioHandler != null) {
       _audioHandler!.stop();
     }
 
     _hlsService.cleanupAllTempCache();
 
+    // 【关键】player.dispose() 必须在所有订阅取消之后调用
     player.dispose();
     availableQualities.dispose();
     currentQuality.dispose();

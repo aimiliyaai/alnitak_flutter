@@ -118,9 +118,13 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     debugPrint('📹 [MediaPlayerWidget] 销毁');
     WidgetsBinding.instance.removeObserver(this);
 
-    // 【关键】先停止后台播放服务，再dispose控制器
-    _controller.stopBackgroundPlayback();
-    _controller.dispose();
+    // 【关键修复】防止 "Callback invoked after deleted" 崩溃
+    // 步骤1: 同步取消所有订阅（这是最关键的一步，必须在 super.dispose() 之前完成）
+    _controller.prepareDispose();
+
+    // 步骤2: 启动异步清理（停止播放器、禁用日志、dispose player 等）
+    // 这会在后台完成，即使 Widget 已销毁也没关系
+    _controller.disposeAsync();
 
     // 退出时恢复系统UI
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

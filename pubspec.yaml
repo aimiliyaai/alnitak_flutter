@@ -40,9 +40,11 @@ dependencies:
   path_provider: ^2.1.1
   dio: ^5.4.0
   # 视频播放器 - media_kit (基于 AndroidX Media3)
-  media_kit: ^1.1.10
-  media_kit_video: ^1.2.4
-  media_kit_libs_video: ^1.0.4
+  # 【关键修复】升级到 1.2.6 修复 "Callback invoked after deleted" 崩溃
+  # 参考: https://github.com/media-kit/media-kit/issues/1314
+  media_kit: ^1.2.6
+  media_kit_video: ^1.3.1
+  media_kit_libs_video: ^1.0.7
   shared_preferences: ^2.2.0
   share_plus: ^7.2.0
   intl: ^0.20.2
