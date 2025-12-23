@@ -1483,7 +1483,15 @@ class VideoPlayerController extends ChangeNotifier {
     _videoAuthor = author;
     _videoCoverUri = coverUri;
 
-    // 【关键】立即更新通知栏信息
+    // 【关键修复】如果后台播放已启用，确保 AudioHandler 已初始化后再更新
+    if (backgroundPlayEnabled.value) {
+      _ensureAudioServiceReadyAndUpdate();
+    }
+  }
+
+  /// 确保 AudioService 已准备好并更新通知栏信息
+  Future<void> _ensureAudioServiceReadyAndUpdate() async {
+    await _ensureAudioServiceReady();
     _updateNotificationMediaItem();
   }
 
@@ -1504,6 +1512,14 @@ class VideoPlayerController extends ChangeNotifier {
       artUri: _videoCoverUri,
     );
 
+    // 【关键】同时更新播放状态，强制通知栏刷新
+    _audioHandler!.updatePlaybackState(
+      playing: player.state.playing,
+      position: player.state.position,
+    );
+
+    debugPrint('🎵 [AudioService] 更新媒体信息: $_videoTitle');
+
     // 如果 duration 还是 0，延迟重试（等待视频加载完成）
     if (duration.inSeconds <= 0) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -1515,6 +1531,11 @@ class VideoPlayerController extends ChangeNotifier {
             artist: _videoAuthor,
             duration: newDuration,
             artUri: _videoCoverUri,
+          );
+          // 再次更新播放状态
+          _audioHandler!.updatePlaybackState(
+            playing: player.state.playing,
+            position: player.state.position,
           );
           debugPrint('🎵 [AudioService] 延迟更新媒体信息: duration=${newDuration.inSeconds}s');
         }

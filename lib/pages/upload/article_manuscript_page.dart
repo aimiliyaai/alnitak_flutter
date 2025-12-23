@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/upload_article.dart';
 import '../../services/article_submit_api_service.dart';
+import '../../widgets/cached_image_widget.dart';
 import 'article_upload_page.dart';
 
 class ArticleManuscriptPage extends StatefulWidget {
@@ -285,24 +285,13 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 封面
-              ClipRRect(
+              CachedImage(
+                imageUrl: article.cover,
+                width: 120,
+                height: 68,
+                fit: BoxFit.cover,
                 borderRadius: BorderRadius.circular(4),
-                child: CachedNetworkImage(
-                  imageUrl: article.cover,
-                  width: 120,
-                  height: 68,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey[300],
-                    child: const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.error),
-                  ),
-                ),
+                cacheKey: 'article_cover_${article.aid}', // 使用文章ID作为缓存key
               ),
               const SizedBox(width: 12),
 

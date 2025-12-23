@@ -133,8 +133,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     _scrollController.dispose();
-    // 清理所有播放器缓存（HLS临时文件 + MPV缓存）
-    _hlsService.cleanupAllTempCache();
+    // 【修复】退出播放页时立即清理HLS流缓存（使用 clearAllCache 确保完整清理）
+    _hlsService.clearAllCache();
     super.dispose();
   }
 

@@ -1,9 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'reset_password_page.dart';
 import '../services/auth_service.dart';
+import '../services/hls_service.dart';
+import '../widgets/cached_image_widget.dart';
 
 /// 设置页面
 class SettingsPage extends StatefulWidget {
@@ -15,10 +20,17 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final AuthService _authService = AuthService();
+  final HlsService _hlsService = HlsService();
 
   bool _backgroundPlayEnabled = false;
   bool _isLoggedIn = false;
   PackageInfo? _packageInfo;
+
+  // 缓存相关
+  String _cacheSize = '计算中...';
+  bool _isCleaningCache = false;
+  int _maxCacheSizeMB = 500; // 默认最大缓存 500MB
+  static const String _maxCacheSizeKey = 'max_cache_size_mb';
 
   @override
   void initState() {
@@ -26,6 +38,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
     _loadPackageInfo();
     _checkLoginStatus();
+    _calculateCacheSize();
+    _loadMaxCacheSetting();
   }
 
   /// 检查登录状态
@@ -61,6 +75,249 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _backgroundPlayEnabled = value;
     });
+  }
+
+  /// 加载最大缓存设置
+  Future<void> _loadMaxCacheSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _maxCacheSizeMB = prefs.getInt(_maxCacheSizeKey) ?? 500;
+      });
+    }
+  }
+
+  /// 保存最大缓存设置
+  Future<void> _saveMaxCacheSetting(int sizeMB) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxCacheSizeKey, sizeMB);
+    setState(() {
+      _maxCacheSizeMB = sizeMB;
+    });
+    // 检查是否需要自动清理
+    await _checkAndAutoCleanCache();
+  }
+
+  /// 计算缓存大小
+  Future<void> _calculateCacheSize() async {
+    try {
+      int totalSize = 0;
+
+      // 1. 计算临时目录大小
+      final tempDir = await getTemporaryDirectory();
+      totalSize += await _getDirectorySize(tempDir);
+
+      // 2. 计算应用缓存目录大小
+      try {
+        final cacheDir = await getApplicationCacheDirectory();
+        totalSize += await _getDirectorySize(cacheDir);
+      } catch (e) {
+        // 某些平台可能不支持
+      }
+
+      if (mounted) {
+        setState(() {
+          if (totalSize < 1024) {
+            _cacheSize = '$totalSize B';
+          } else if (totalSize < 1024 * 1024) {
+            _cacheSize = '${(totalSize / 1024).toStringAsFixed(1)} KB';
+          } else if (totalSize < 1024 * 1024 * 1024) {
+            _cacheSize = '${(totalSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+          } else {
+            _cacheSize = '${(totalSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _cacheSize = '计算失败';
+        });
+      }
+    }
+  }
+
+  /// 获取目录大小
+  Future<int> _getDirectorySize(Directory dir) async {
+    int size = 0;
+    try {
+      if (await dir.exists()) {
+        await for (final entity in dir.list(recursive: true, followLinks: false)) {
+          if (entity is File) {
+            try {
+              size += await entity.length();
+            } catch (e) {
+              // 文件可能正在使用或已删除
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // 目录访问失败
+    }
+    return size;
+  }
+
+  /// 清理所有缓存
+  Future<void> _clearAllCache() async {
+    if (_isCleaningCache) return;
+
+    setState(() {
+      _isCleaningCache = true;
+    });
+
+    try {
+      // 1. 清理 Flutter 内存中的图片缓存
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+
+      // 2. 清理图片磁盘缓存（cached_network_image 使用的缓存）
+      await DefaultCacheManager().emptyCache();
+      // 【新增】清理自定义智能缓存管理器
+      await SmartCacheManager().emptyCache();
+
+      // 3. 清理 HLS 和 MPV 缓存
+      await _hlsService.clearAllCache();
+
+      // 4. 清理临时目录中的其他缓存文件
+      final tempDir = await getTemporaryDirectory();
+      await _cleanDirectory(tempDir);
+
+      // 5. 清理应用缓存目录
+      try {
+        final cacheDir = await getApplicationCacheDirectory();
+        await _cleanDirectory(cacheDir);
+      } catch (e) {
+        // 某些平台可能不支持
+      }
+
+      // 6. 【新增】清理日志文件（减少用户数据占用）
+      try {
+        final docDir = await getApplicationDocumentsDirectory();
+        // 清理日志文件
+        final logFile = File('${docDir.path}/error_log.txt');
+        if (await logFile.exists()) {
+          await logFile.delete();
+          debugPrint('🗑️ 已删除日志文件');
+        }
+        // 清理归档日志目录
+        final logsDir = Directory('${docDir.path}/logs');
+        if (await logsDir.exists()) {
+          await logsDir.delete(recursive: true);
+          debugPrint('🗑️ 已删除归档日志目录');
+        }
+      } catch (e) {
+        debugPrint('⚠️ 清理日志文件失败: $e');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('缓存清理完成'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // 重新计算缓存大小
+      await _calculateCacheSize();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('清理缓存失败: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCleaningCache = false;
+        });
+      }
+    }
+  }
+
+  /// 清理目录中的文件
+  Future<void> _cleanDirectory(Directory dir) async {
+    try {
+      if (await dir.exists()) {
+        await for (final entity in dir.list(followLinks: false)) {
+          try {
+            if (entity is File) {
+              await entity.delete();
+            } else if (entity is Directory) {
+              await entity.delete(recursive: true);
+            }
+          } catch (e) {
+            // 文件可能正在使用，跳过
+          }
+        }
+      }
+    } catch (e) {
+      // 目录访问失败
+    }
+  }
+
+  /// 检查并自动清理缓存（达到设定值时）
+  Future<void> _checkAndAutoCleanCache() async {
+    try {
+      int totalSize = 0;
+
+      final tempDir = await getTemporaryDirectory();
+      totalSize += await _getDirectorySize(tempDir);
+
+      try {
+        final cacheDir = await getApplicationCacheDirectory();
+        totalSize += await _getDirectorySize(cacheDir);
+      } catch (e) {
+        // 某些平台可能不支持
+      }
+
+      final maxSizeBytes = _maxCacheSizeMB * 1024 * 1024;
+
+      if (totalSize > maxSizeBytes) {
+        debugPrint('缓存超过限制 (${(totalSize / (1024 * 1024)).toStringAsFixed(1)}MB > ${_maxCacheSizeMB}MB)，自动清理...');
+        await _clearAllCache();
+      }
+    } catch (e) {
+      debugPrint('自动清理缓存失败: $e');
+    }
+  }
+
+  /// 显示最大缓存设置对话框
+  void _showMaxCacheDialog() {
+    final options = [100, 200, 500, 1000, 2000];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('最大缓存大小'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: options.map((size) {
+            final isSelected = size == _maxCacheSizeMB;
+            return ListTile(
+              title: Text(size >= 1000 ? '${size ~/ 1000} GB' : '$size MB'),
+              trailing: isSelected
+                  ? const Icon(Icons.check, color: Colors.blue)
+                  : null,
+              onTap: () {
+                Navigator.pop(context);
+                _saveMaxCacheSetting(size);
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 打开 URL
@@ -100,6 +357,28 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: '退到后台时继续播放视频',
               value: _backgroundPlayEnabled,
               onChanged: _saveBackgroundPlaySetting,
+            ),
+          ]),
+
+          const SizedBox(height: 12),
+
+          // 存储管理
+          _buildSectionHeader('存储管理'),
+          _buildSettingsGroup([
+            _buildTappableTile(
+              icon: Icons.cleaning_services_outlined,
+              title: '清理缓存',
+              value: _isCleaningCache ? '清理中...' : _cacheSize,
+              onTap: _isCleaningCache ? () {} : _clearAllCache,
+            ),
+            _buildDivider(),
+            _buildTappableTile(
+              icon: Icons.storage_outlined,
+              title: '最大缓存',
+              value: _maxCacheSizeMB >= 1000
+                  ? '${_maxCacheSizeMB ~/ 1000} GB'
+                  : '$_maxCacheSizeMB MB',
+              onTap: _showMaxCacheDialog,
             ),
           ]),
 

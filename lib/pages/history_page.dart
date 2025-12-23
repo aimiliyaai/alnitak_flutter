@@ -321,6 +321,7 @@ class _HistoryPageState extends State<HistoryPage> {
                         child: CachedImage(
                           imageUrl: ImageUtils.getFullImageUrl(item.cover),
                           fit: BoxFit.cover,
+                          cacheKey: 'video_cover_${item.vid}', // 使用视频ID作为缓存key
                         ),
                       ),
                     ),

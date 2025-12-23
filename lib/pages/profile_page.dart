@@ -300,6 +300,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ? CachedCircleAvatar(
                   imageUrl: ImageUtils.getFullImageUrl(_userInfo!.avatar),
                   radius: 50,
+                  cacheKey: 'user_avatar_${_userInfo!.uid}', // 使用用户ID作为缓存key
                 )
               : CircleAvatar(
                   radius: 50,

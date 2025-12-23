@@ -216,15 +216,18 @@ class HlsService {
   /// 清理 MPV 播放器缓存
   ///
   /// MPV 会在临时目录中缓存 TS 分片，需要定期清理以节省存储空间
+  /// 【修复】增加更多可能的缓存位置，确保彻底清理
   Future<void> cleanupMpvCache() async {
     try {
       final tempDir = await getTemporaryDirectory();
 
-      // MPV 缓存目录可能的位置
+      // MPV 缓存目录可能的位置（扩展列表）
       final mpvCacheDirs = [
         Directory('${tempDir.path}/mpv_cache'),
         Directory('${tempDir.path}/.mpv_cache'),
         Directory('${tempDir.path}/media_kit_cache'),
+        Directory('${tempDir.path}/libmpv'),
+        Directory('${tempDir.path}/mpv'),
       ];
 
       int totalDeleted = 0;
@@ -256,6 +259,33 @@ class HlsService {
             // 目录可能不为空或正在使用
           }
         }
+      }
+
+      // 【修复】清理临时目录中的 .ts 分片文件（MPV 可能直接存储在 temp 根目录）
+      try {
+        final tempFiles = tempDir.listSync();
+        for (final entity in tempFiles) {
+          if (entity is File) {
+            final fileName = entity.path.split('/').last;
+            // 清理可能的 TS 分片和临时视频文件
+            if (fileName.endsWith('.ts') ||
+                fileName.endsWith('.m3u8') ||
+                fileName.startsWith('mpv') ||
+                fileName.startsWith('libmpv')) {
+              try {
+                final stat = await entity.stat();
+                totalSize += stat.size;
+                await entity.delete();
+                totalDeleted++;
+                print('🗑️  删除临时文件: $fileName');
+              } catch (e) {
+                // 文件可能正在使用
+              }
+            }
+          }
+        }
+      } catch (e) {
+        print('⚠️ 清理临时目录 ts 文件失败: $e');
       }
 
       if (totalDeleted > 0) {

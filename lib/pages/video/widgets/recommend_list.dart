@@ -221,6 +221,7 @@ class _RecommendListState extends State<RecommendList> {
                           width: 160,
                           height: 90,
                           fit: BoxFit.cover,
+                          cacheKey: 'video_cover_$vid', // 使用视频ID作为缓存key
                         )
                       : Container(
                           color: Colors.grey[300],

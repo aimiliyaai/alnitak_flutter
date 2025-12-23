@@ -30,6 +30,7 @@ class VideoCard extends StatelessWidget {
                   imageUrl: video.coverUrl,
                   fit: BoxFit.cover,
                   borderRadius: BorderRadius.circular(8),
+                  cacheKey: 'video_cover_${video.id}', // 使用视频ID作为缓存key
                 ),
               ),
               // 时长标签
@@ -77,6 +78,7 @@ class VideoCard extends StatelessWidget {
                 CachedCircleAvatar(
                   imageUrl: video.authorAvatar!,
                   radius: 8,
+                  cacheKey: video.authorUid != null ? 'author_avatar_${video.authorUid}' : null,
                 ),
               if (video.authorAvatar != null) const SizedBox(width: 4),
               Expanded(

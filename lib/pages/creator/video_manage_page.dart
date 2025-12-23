@@ -276,6 +276,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
                         width: 120,
                         height: 80,
                         fit: BoxFit.cover,
+                        cacheKey: 'video_cover_${video['vid']}', // 使用视频ID作为缓存key
                       )
                     : Icon(
                         Icons.video_library_outlined,

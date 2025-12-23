@@ -184,6 +184,7 @@ class _AuthorCardState extends State<AuthorCard> {
                   ? CachedCircleAvatar(
                       imageUrl: widget.author.avatar,
                       radius: 28,
+                      cacheKey: 'author_avatar_${widget.author.uid}', // 使用作者ID作为缓存key
                     )
                   : CircleAvatar(
                       radius: 28,

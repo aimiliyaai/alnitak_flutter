@@ -29,7 +29,7 @@ class CustomPlayerUI extends StatefulWidget {
   State<CustomPlayerUI> createState() => _CustomPlayerUIState();
 }
 
-class _CustomPlayerUIState extends State<CustomPlayerUI> {
+class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProviderStateMixin {
   // ============ SharedPreferences Keys ============
   static const String _volumeKey = 'player_volume';
   static const String _brightnessKey = 'player_brightness';
@@ -38,6 +38,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   bool _showControls = true;
   bool _isLocked = false;
   Timer? _hideTimer;
+
+  // ============ 标题滚动动画 ============
+  bool _hasPlayedTitleAnimation = false;
+  late AnimationController _titleScrollController;
+  late Animation<double> _titleScrollAnimation;
+  bool _wasFullscreen = false;
 
   // ============ 手势反馈 ============
   bool _showFeedback = false;
@@ -70,6 +76,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     _startHideTimer();
     // 加载保存的音量和亮度设置
     _loadSettings();
+
+    // 初始化标题滚动动画控制器
+    _titleScrollController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3000),
+    );
+    _titleScrollAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _titleScrollController, curve: Curves.easeInOut),
+    );
   }
 
   /// 加载保存的音量和亮度设置
@@ -77,8 +92,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 恢复音量（默认 50%）
-      final savedVolume = prefs.getDouble(_volumeKey) ?? 50.0;
+      // 恢复音量（默认 100%）
+      final savedVolume = prefs.getDouble(_volumeKey) ?? 100.0;
       widget.controller.player.setVolume(savedVolume);
       debugPrint('✅ 恢复音量设置: ${savedVolume.toInt()}%');
 
@@ -116,6 +131,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _titleScrollController.dispose();
     super.dispose();
   }
 
@@ -565,25 +581,42 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
                 icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
                 onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
               ),
-              // 【修改】仅在全屏模式下显示标题，并优化长标题显示
+              // 【修改】仅在全屏模式下显示标题，限制宽度不超过屏幕中间
               Expanded(
                 child: Builder(
                   builder: (context) {
                     final fullscreen = isFullscreen(context);
+
+                    // 检测全屏状态变化
+                    if (fullscreen && !_wasFullscreen) {
+                      // 刚进入全屏，重置动画状态并延迟启动
+                      _wasFullscreen = true;
+                      _hasPlayedTitleAnimation = false;
+                      _titleScrollController.reset();
+                      // 延迟启动动画
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && widget.title.isNotEmpty) {
+                          _checkAndStartTitleAnimation();
+                        }
+                      });
+                    } else if (!fullscreen && _wasFullscreen) {
+                      // 退出全屏，重置状态
+                      _wasFullscreen = false;
+                      _hasPlayedTitleAnimation = false;
+                      _titleScrollController.reset();
+                    }
+
                     // 只在全屏时显示标题
                     if (!fullscreen || widget.title.isEmpty) {
                       return const SizedBox.shrink();
                     }
 
-                    return Text(
-                      widget.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
+                    // 限制标题最大宽度为可用宽度的 50%（不超过中间位置）
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final maxTitleWidth = constraints.maxWidth * 0.5;
+                        return _buildScrollableTitle(maxTitleWidth);
+                      },
                     );
                   },
                 ),
@@ -592,6 +625,99 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// 检查标题是否需要滚动动画，并启动
+  void _checkAndStartTitleAnimation() {
+    if (_hasPlayedTitleAnimation || !mounted) return;
+
+    // 计算文本实际宽度
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: widget.title,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    // 获取屏幕宽度的 50% 作为最大标题宽度
+    final screenWidth = MediaQuery.of(context).size.width;
+    final maxTitleWidth = screenWidth * 0.5 - 60; // 减去按钮和边距
+
+    if (textPainter.width > maxTitleWidth) {
+      _hasPlayedTitleAnimation = true;
+
+      // 延迟 500ms 后开始滚动动画
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _wasFullscreen) {
+          _titleScrollController.forward();
+        }
+      });
+    }
+  }
+
+  /// 构建可滚动的标题组件
+  Widget _buildScrollableTitle(double maxWidth) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: AnimatedBuilder(
+        animation: _titleScrollAnimation,
+        builder: (context, child) {
+          // 计算文本实际宽度
+          final textPainter = TextPainter(
+            text: TextSpan(
+              text: widget.title,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            maxLines: 1,
+            textDirection: TextDirection.ltr,
+          )..layout();
+
+          final isOverflow = textPainter.width > maxWidth;
+
+          // 如果不溢出或动画已完成，显示带省略号的静态文本
+          if (!isOverflow || _titleScrollController.isCompleted) {
+            return Text(
+              widget.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            );
+          }
+
+          // 溢出且动画进行中，显示滚动文本
+          final scrollDistance = textPainter.width - maxWidth + 30;
+          final offset = _titleScrollAnimation.value * scrollDistance;
+
+          return ClipRect(
+            child: Transform.translate(
+              offset: Offset(-offset, 0),
+              child: Text(
+                widget.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                softWrap: false,
+              ),
+            ),
+          );
+        },
       ),
     );
   }

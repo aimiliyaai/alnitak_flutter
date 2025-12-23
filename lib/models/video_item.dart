@@ -6,6 +6,7 @@ class VideoItem {
   final String title;
   final String coverUrl;
   final String authorName;
+  final int? authorUid; // 作者ID（用于缓存key）
   final int playCount;
   final String duration; // 格式如 "10:25"
   final int danmakuCount;
@@ -16,6 +17,7 @@ class VideoItem {
     required this.title,
     required this.coverUrl,
     required this.authorName,
+    this.authorUid,
     required this.playCount,
     required this.duration,
     required this.danmakuCount,
@@ -40,6 +42,7 @@ class VideoItem {
       title: apiModel.title,
       coverUrl: getFullImageUrl(apiModel.cover),
       authorName: apiModel.author.name,
+      authorUid: apiModel.author.uid, // 保存作者ID用于缓存key
       playCount: apiModel.clicks,
       duration: apiModel.formattedDuration,
       danmakuCount: 0, // API中没有弹幕数量字段，设为0
