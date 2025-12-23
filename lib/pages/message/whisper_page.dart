@@ -40,6 +40,7 @@ class _WhisperPageState extends State<WhisperPage> {
   }
 
   void _navigateToDetail(WhisperListItem whisper) async {
+    print('跳转私信详情页, userId: ${whisper.user.uid}, userName: ${whisper.user.name}');
     await Navigator.push(
       context,
       MaterialPageRoute(

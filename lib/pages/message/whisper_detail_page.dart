@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/message_models.dart';
 import '../../services/message_api_service.dart';
+import '../../services/user_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
@@ -24,6 +25,7 @@ class WhisperDetailPage extends StatefulWidget {
 
 class _WhisperDetailPageState extends State<WhisperDetailPage> {
   final MessageApiService _apiService = MessageApiService();
+  final UserService _userService = UserService();
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
@@ -31,11 +33,22 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   List<WhisperDetail> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
+  String _myAvatar = '';
 
   @override
   void initState() {
     super.initState();
+    _loadMyInfo();
     _loadMessages();
+  }
+
+  Future<void> _loadMyInfo() async {
+    final userInfo = await _userService.getUserInfo();
+    if (mounted && userInfo != null) {
+      setState(() {
+        _myAvatar = userInfo.userInfo.avatar;
+      });
+    }
   }
 
   @override
@@ -46,17 +59,32 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
     super.dispose();
   }
 
-  Future<void> _loadMessages() async {
+  Future<void> _loadMessages({int retryCount = 0}) async {
     setState(() => _isLoading = true);
+
+    print('正在加载私信详情, userId(fid): ${widget.userId}');
 
     final data = await _apiService.getWhisperDetails(
       fid: widget.userId,
-      pageSize: 50,
+      pageSize: 20,
     );
+
+    print('私信详情加载完成, 消息数量: ${data.length}');
+
+    // 如果返回空且是首次请求，可能是速率限制，稍后重试
+    if (data.isEmpty && retryCount < 2) {
+      print('私信详情为空，${retryCount + 1}秒后重试...');
+      await Future.delayed(Duration(seconds: retryCount + 1));
+      if (mounted) {
+        _loadMessages(retryCount: retryCount + 1);
+      }
+      return;
+    }
 
     if (mounted) {
       setState(() {
-        _messages = data.reversed.toList(); // 倒序显示，最新的在下面
+        // API返回的是按时间升序（旧的在前），直接使用即可，最新的在下面
+        _messages = data;
         _isLoading = false;
       });
 
@@ -259,11 +287,17 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
           ),
           if (isMe) ...[
             const SizedBox(width: 10),
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.blue[100],
-              child: Icon(Icons.person, size: 20, color: Colors.blue[600]),
-            ),
+            _myAvatar.isNotEmpty
+                ? CachedCircleAvatar(
+                    imageUrl: ImageUtils.getFullImageUrl(_myAvatar),
+                    radius: 18,
+                    cacheKey: 'my_avatar',
+                  )
+                : CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.blue[100],
+                    child: Icon(Icons.person, size: 20, color: Colors.blue[600]),
+                  ),
           ],
         ],
       ),

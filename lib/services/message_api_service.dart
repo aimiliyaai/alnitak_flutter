@@ -112,8 +112,11 @@ class MessageApiService {
         '/api/v1/message/getWhisperList',
       );
 
+      print('私信列表响应: ${response.data}');
+
       if (response.data['code'] == 200) {
-        final list = response.data['data']['whispers'] as List<dynamic>? ?? [];
+        final list = response.data['data']['messages'] as List<dynamic>? ?? [];
+        print('私信列表长度: ${list.length}');
         return list.map((e) => WhisperListItem.fromJson(e)).toList();
       }
       return [];
@@ -139,8 +142,13 @@ class MessageApiService {
         },
       );
 
+      print('私信详情响应: ${response.data}');
+
       if (response.data['code'] == 200) {
-        final list = response.data['data']['messages'] as List<dynamic>? ?? [];
+        final data = response.data['data'];
+        print('私信详情data: $data');
+        final list = data['messages'] as List<dynamic>? ?? [];
+        print('私信详情列表长度: ${list.length}');
         return list.map((e) => WhisperDetail.fromJson(e)).toList();
       }
       return [];
