@@ -1,9 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../../models/upload_video.dart';
 import '../../../services/resource_api_service.dart';
 import '../../../services/upload_api_service.dart';
 import 'dart:io';
+
+/// 上传任务状态
+class UploadTask {
+  final String fileName;
+  final File file;
+  double progress;
+  bool isUploading;
+  bool isCompleted;
+  bool isFailed;
+  String? errorMessage;
+
+  UploadTask({
+    required this.fileName,
+    required this.file,
+    this.progress = 0.0,
+    this.isUploading = false,
+    this.isCompleted = false,
+    this.isFailed = false,
+    this.errorMessage,
+  });
+}
 
 /// 视频资源列表组件（多分P管理）
 /// 参考PC端: UploadVideoFile.vue
@@ -27,8 +48,10 @@ class _VideoResourceListState extends State<VideoResourceList> {
   late List<VideoResource> _resources;
   int _editingIndex = -1;
   final TextEditingController _titleEditController = TextEditingController();
-  bool _isUploading = false;
-  double _uploadProgress = 0.0;
+
+  // 上传队列
+  final List<UploadTask> _uploadQueue = [];
+  bool _isProcessingQueue = false;
 
   @override
   void initState() {
@@ -54,65 +77,151 @@ class _VideoResourceListState extends State<VideoResourceList> {
     }
   }
 
-  /// 添加视频（多分P）
-  Future<void> _addVideo() async {
+  /// 添加视频（支持多选，队列上传）
+  Future<void> _addVideos() async {
     if (widget.vid == null) {
       _showError('请先上传第一个视频');
       return;
     }
 
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickVideo(source: ImageSource.gallery);
+    // 使用 FilePicker 支持多选
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: true, // 允许多选
+    );
 
-    if (pickedFile == null) return;
+    if (result == null || result.files.isEmpty) return;
 
-    setState(() {
-      _isUploading = true;
-      _uploadProgress = 0.0;
-    });
+    // 将选中的文件添加到上传队列
+    for (final platformFile in result.files) {
+      if (platformFile.path != null) {
+        final task = UploadTask(
+          fileName: platformFile.name,
+          file: File(platformFile.path!),
+        );
+        setState(() {
+          _uploadQueue.add(task);
+        });
+      }
+    }
 
-    try {
-      final videoFile = File(pickedFile.path);
+    print('📁 添加 ${result.files.length} 个文件到上传队列');
 
-      // 上传视频到指定的vid（参考PC端：传递vid参数以关联到对应视频）
-      final videoInfo = await UploadApiService.uploadVideo(
-        file: videoFile,
-        title: pickedFile.name,
-        vid: widget.vid, // 关键修复：传递vid以使用正确的endpoint
-        onProgress: (progress) {
-          setState(() {
-            _uploadProgress = progress;
-          });
-        },
+    // 开始处理队列
+    _processUploadQueue();
+  }
+
+  /// 处理上传队列（串行上传，避免服务端压力）
+  Future<void> _processUploadQueue() async {
+    if (_isProcessingQueue) return;
+
+    _isProcessingQueue = true;
+
+    while (_uploadQueue.any((task) => !task.isCompleted && !task.isFailed && !task.isUploading)) {
+      // 找到下一个待上传的任务
+      final taskIndex = _uploadQueue.indexWhere(
+        (task) => !task.isCompleted && !task.isFailed && !task.isUploading,
       );
 
-      // 添加到资源列表
-      final newResource = VideoResource(
-        id: videoInfo['id'] as int,
-        title: videoInfo['title'] as String? ?? pickedFile.name,
-        vid: widget.vid,
-        duration: (videoInfo['duration'] as num?)?.toDouble(),
-        status: videoInfo['status'] as int? ?? 0,
-      );
+      if (taskIndex == -1) break;
+
+      final task = _uploadQueue[taskIndex];
 
       setState(() {
-        _resources.add(newResource);
-        _isUploading = false;
+        task.isUploading = true;
       });
 
-      widget.onResourcesChanged?.call(_resources);
+      try {
+        print('🚀 开始上传: ${task.fileName}');
 
-      if (mounted) {
+        final videoInfo = await UploadApiService.uploadVideo(
+          file: task.file,
+          filename: task.fileName,
+          title: _getFileNameWithoutExtension(task.fileName),
+          vid: widget.vid,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() {
+                task.progress = progress;
+              });
+            }
+          },
+        );
+
+        // 上传成功，添加到资源列表
+        final newResource = VideoResource(
+          id: videoInfo['id'] as int,
+          title: videoInfo['title'] as String? ?? task.fileName,
+          vid: widget.vid,
+          duration: (videoInfo['duration'] as num?)?.toDouble(),
+          status: videoInfo['status'] as int? ?? 0,
+        );
+
+        if (mounted) {
+          setState(() {
+            task.isUploading = false;
+            task.isCompleted = true;
+            _resources.add(newResource);
+          });
+
+          widget.onResourcesChanged?.call(_resources);
+          print('✅ 上传成功: ${task.fileName}');
+        }
+      } catch (e) {
+        print('❌ 上传失败: ${task.fileName}, 错误: $e');
+        if (mounted) {
+          setState(() {
+            task.isUploading = false;
+            task.isFailed = true;
+            task.errorMessage = e.toString();
+          });
+        }
+      }
+    }
+
+    _isProcessingQueue = false;
+
+    // 清理已完成的任务
+    if (mounted) {
+      setState(() {
+        _uploadQueue.removeWhere((task) => task.isCompleted);
+      });
+
+      // 如果还有失败的任务，提示用户
+      final failedCount = _uploadQueue.where((task) => task.isFailed).length;
+      if (failedCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('视频添加成功')),
+          SnackBar(content: Text('$failedCount 个视频上传失败，请重试')),
         );
       }
-    } catch (e) {
-      setState(() {
-        _isUploading = false;
-      });
-      _showError('视频上传失败: $e');
     }
+  }
+
+  /// 重试失败的任务
+  void _retryFailedTask(int index) {
+    if (index >= 0 && index < _uploadQueue.length) {
+      setState(() {
+        _uploadQueue[index].isFailed = false;
+        _uploadQueue[index].errorMessage = null;
+        _uploadQueue[index].progress = 0.0;
+      });
+      _processUploadQueue();
+    }
+  }
+
+  /// 移除失败的任务
+  void _removeFailedTask(int index) {
+    if (index >= 0 && index < _uploadQueue.length) {
+      setState(() {
+        _uploadQueue.removeAt(index);
+      });
+    }
+  }
+
+  /// 获取不带扩展名的文件名
+  String _getFileNameWithoutExtension(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    return dotIndex != -1 ? fileName.substring(0, dotIndex) : fileName;
   }
 
   /// 编辑标题
@@ -140,7 +249,6 @@ class _VideoResourceListState extends State<VideoResourceList> {
       );
 
       setState(() {
-        // 创建新的VideoResource对象（因为字段是final）
         _resources[index] = VideoResource(
           id: _resources[index].id,
           title: newTitle,
@@ -228,7 +336,7 @@ class _VideoResourceListState extends State<VideoResourceList> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               ElevatedButton.icon(
-                onPressed: _isUploading ? null : _addVideo,
+                onPressed: _isProcessingQueue ? null : _addVideos,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('添加视频'),
               ),
@@ -236,38 +344,76 @@ class _VideoResourceListState extends State<VideoResourceList> {
           ),
         ),
 
-        // 上传进度（如果正在上传）
-        if (_isUploading)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        // 上传队列（显示正在上传和失败的任务）
+        if (_uploadQueue.isNotEmpty)
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: _uploadQueue.length,
+            itemBuilder: (context, index) {
+              final task = _uploadQueue[index];
+              return Container(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
                   children: [
-                    const Icon(Icons.video_file, size: 38),
+                    Icon(
+                      task.isFailed ? Icons.error : Icons.video_file,
+                      size: 38,
+                      color: task.isFailed ? Colors.red : Colors.blue,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('正在上传...'),
-                          const SizedBox(height: 8),
-                          LinearProgressIndicator(value: _uploadProgress),
-                          const SizedBox(height: 4),
                           Text(
-                            '上传中 ${(_uploadProgress * 100).toStringAsFixed(0)}%',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            task.fileName,
+                            style: const TextStyle(fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
+                          const SizedBox(height: 8),
+                          if (task.isUploading) ...[
+                            LinearProgressIndicator(value: task.progress),
+                            const SizedBox(height: 4),
+                            Text(
+                              '上传中 ${(task.progress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                          ] else if (task.isFailed) ...[
+                            Text(
+                              '上传失败',
+                              style: TextStyle(fontSize: 12, color: Colors.red[600]),
+                            ),
+                          ] else ...[
+                            Text(
+                              '等待上传...',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ],
                         ],
                       ),
                     ),
+                    if (task.isFailed) ...[
+                      IconButton(
+                        onPressed: () => _retryFailedTask(index),
+                        icon: const Icon(Icons.refresh, size: 20),
+                        tooltip: '重试',
+                      ),
+                      IconButton(
+                        onPressed: () => _removeFailedTask(index),
+                        icon: const Icon(Icons.close, size: 20),
+                        tooltip: '移除',
+                      ),
+                    ],
                   ],
                 ),
-                const Divider(height: 32),
-              ],
-            ),
+              );
+            },
           ),
+
+        if (_uploadQueue.isNotEmpty) const Divider(height: 32),
 
         // 视频资源列表
         ListView.separated(
