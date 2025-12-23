@@ -9,6 +9,8 @@ import 'login_page.dart';
 import 'edit_profile_page.dart';
 import 'creator/creator_center_page.dart';
 import 'history_page.dart';
+import 'message/message_center_page.dart';
+import 'collection/collection_list_page.dart';
 
 /// 个人中心页面 - 简洁列表式设计
 class ProfilePage extends StatefulWidget {
@@ -386,7 +388,10 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.notifications_outlined,
             title: '消息',
             onTap: () {
-              // TODO: 打开消息页面
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MessageCenterPage()),
+              );
             },
           ),
           _buildDivider(),
@@ -405,7 +410,10 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.bookmark_border,
             title: '收藏夹',
             onTap: () {
-              // TODO: 打开收藏夹
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CollectionListPage()),
+              );
             },
           ),
           _buildDivider(),
