@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../utils/login_guard.dart';
 import 'announce_page.dart';
 import 'like_message_page.dart';
 import 'reply_message_page.dart';
@@ -14,8 +15,79 @@ class MessageCenterPage extends StatefulWidget {
 }
 
 class _MessageCenterPageState extends State<MessageCenterPage> {
+  bool _isLoggedIn = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final loggedIn = await LoginGuard.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = loggedIn;
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          title: const Text('消息'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_isLoggedIn) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          title: const Text('消息'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.mail_outline, size: 64, color: Colors.grey[300]),
+              const SizedBox(height: 16),
+              Text(
+                '登录后查看消息',
+                style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () async {
+                  final result = await LoginGuard.navigateToLogin(context);
+                  if (result == true) {
+                    _checkLoginStatus();
+                  }
+                },
+                child: const Text('去登录'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return _buildContent();
+  }
+
+  Widget _buildContent() {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(

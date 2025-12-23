@@ -3,6 +3,7 @@ import '../../models/collection_models.dart';
 import '../../services/collection_api_service.dart';
 import '../../utils/image_utils.dart';
 import '../../utils/time_utils.dart';
+import '../../utils/login_guard.dart';
 import '../../widgets/cached_image_widget.dart';
 import 'collection_detail_page.dart';
 
@@ -19,11 +20,26 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
   List<CollectionItem> _collections = [];
   bool _isLoading = true;
+  bool _isLoggedIn = false;
+  bool _isCheckingLogin = true;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _checkLoginAndLoad();
+  }
+
+  Future<void> _checkLoginAndLoad() async {
+    final loggedIn = await LoginGuard.isLoggedIn();
+    if (mounted) {
+      setState(() {
+        _isLoggedIn = loggedIn;
+        _isCheckingLogin = false;
+      });
+      if (loggedIn) {
+        _loadData();
+      }
+    }
   }
 
   Future<void> _loadData() async {
@@ -236,6 +252,54 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isCheckingLogin) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          title: const Text('收藏夹'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_isLoggedIn) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5),
+        appBar: AppBar(
+          title: const Text('收藏夹'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.folder_outlined, size: 64, color: Colors.grey[300]),
+              const SizedBox(height: 16),
+              Text(
+                '登录后查看收藏',
+                style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () async {
+                  final result = await LoginGuard.navigateToLogin(context);
+                  if (result == true) {
+                    _checkLoginAndLoad();
+                  }
+                },
+                child: const Text('去登录'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
