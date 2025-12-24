@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../../../models/video_detail.dart';
 import '../../../models/collection.dart';
 import '../../../services/video_service.dart';
 import '../../../services/collection_service.dart';
 import '../../../utils/login_guard.dart';
+import '../../../utils/http_client.dart';
 
 /// 视频操作按钮（点赞、收藏、分享）
 class VideoActionButtons extends StatefulWidget {
@@ -203,10 +205,80 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
     }
   }
 
+  /// 获取分享URL
+  String _getShareUrl() {
+    // 使用实际的API域名构建分享链接
+    final baseUrl = HttpClient().dio.options.baseUrl;
+    // 将 API baseUrl (http://anime.ayypd.cn:3000) 转换为 Web 链接
+    // 移除 /api 路径部分，直接使用视频路径
+    final domain = baseUrl.replaceAll('/api', '').replaceAll(RegExp(r'/$'), '');
+    return '$domain/video/${widget.vid}';
+  }
+
+  /// 显示二维码对话框
+  void _showQrCodeDialog(String shareUrl) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('扫码分享'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: QrImageView(
+                data: shareUrl,
+                version: QrVersions.auto,
+                size: 200.0,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '扫描二维码观看视频',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              shareUrl,
+              style: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 12,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: shareUrl));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('链接已复制到剪贴板')),
+              );
+            },
+            child: const Text('复制链接'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 显示分享选项
   Future<void> _showShareOptions() async {
-    // 生成分享链接（这里需要根据实际的 URL scheme）
-    final shareUrl = 'https://your-domain.com/video/${widget.vid}';
+    // 生成分享链接
+    final shareUrl = _getShareUrl();
 
     showModalBottomSheet(
       context: context,
@@ -252,10 +324,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
               title: const Text('生成二维码'),
               onTap: () {
                 Navigator.pop(context);
-                // TODO: 实现二维码生成
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('二维码功能开发中')),
-                );
+                _showQrCodeDialog(shareUrl);
               },
             ),
             const SizedBox(height: 8),
