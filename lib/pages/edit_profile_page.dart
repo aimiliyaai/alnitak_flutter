@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../services/user_service.dart';
 import '../widgets/cached_image_widget.dart';
 import '../utils/image_utils.dart';
+import '../theme/theme_extensions.dart';
 
 /// 编辑个人资料页面
 class EditProfilePage extends StatefulWidget {
@@ -228,23 +229,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.background,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
+          icon: Icon(Icons.close, color: colors.iconPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          '编辑资料',
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        title: const Text('编辑资料'),
         centerTitle: true,
       ),
       body: Form(
@@ -352,15 +345,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   /// 构建头像选择区域
   Widget _buildAvatarSection() {
+    final colors = context.colors;
     return GestureDetector(
       onTap: _pickAvatar,
       child: Row(
         children: [
-          const Text(
+          Text(
             '头像',
             style: TextStyle(
               fontSize: 15,
-              color: Colors.black87,
+              color: colors.textPrimary,
             ),
           ),
           const Spacer(),
@@ -396,14 +390,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 bottom: 0,
                 child: Container(
                   padding: const EdgeInsets.all(4),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: colors.surface,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.camera_alt,
                     size: 12,
-                    color: Colors.grey[700],
+                    color: colors.iconPrimary,
                   ),
                 ),
               ),
@@ -421,6 +415,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     VoidCallback? onTap,
     Widget? trailing,
   }) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -429,9 +424,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
           children: [
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 15,
-                color: Colors.black87,
+                color: colors.textPrimary,
               ),
             ),
             const Spacer(),
@@ -446,8 +441,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     style: TextStyle(
                       fontSize: 15,
                       color: value.contains('Not set') || value.contains('添加')
-                          ? Colors.grey[400]
-                          : Colors.grey[700],
+                          ? colors.textTertiary
+                          : colors.textSecondary,
                     ),
                   ),
                   if (onTap != null) ...[
@@ -455,7 +450,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     Icon(
                       Icons.chevron_right,
                       size: 20,
-                      color: Colors.grey[400],
+                      color: colors.iconSecondary,
                     ),
                   ],
                 ],

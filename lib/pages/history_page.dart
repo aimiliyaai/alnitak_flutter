@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../models/history_models.dart';
 import '../widgets/cached_image_widget.dart';
 import '../utils/image_utils.dart';
+import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 import 'login_page.dart';
 
@@ -192,13 +193,11 @@ class _HistoryPageState extends State<HistoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('观看历史'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
@@ -209,6 +208,8 @@ class _HistoryPageState extends State<HistoryPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final colors = context.colors;
+
     // 未登录状态
     if (!_isLoggedIn) {
       return Center(
@@ -218,14 +219,14 @@ class _HistoryPageState extends State<HistoryPage> {
             Icon(
               Icons.history,
               size: 64,
-              color: Colors.grey[400],
+              color: colors.iconSecondary,
             ),
             const SizedBox(height: 16),
             Text(
               '登录后查看观看历史',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey[600],
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: 24),
@@ -253,14 +254,14 @@ class _HistoryPageState extends State<HistoryPage> {
             Icon(
               Icons.history,
               size: 64,
-              color: Colors.grey[400],
+              color: colors.iconSecondary,
             ),
             const SizedBox(height: 16),
             Text(
               '暂无观看记录',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey[600],
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: 8),
@@ -268,7 +269,7 @@ class _HistoryPageState extends State<HistoryPage> {
               '快去看看感兴趣的视频吧',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey[400],
+                color: colors.textTertiary,
               ),
             ),
           ],
@@ -294,10 +295,11 @@ class _HistoryPageState extends State<HistoryPage> {
 
   /// 构建历史记录项
   Widget _buildHistoryItem(HistoryItem item) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(8),
       ),
       child: InkWell(
@@ -395,10 +397,11 @@ class _HistoryPageState extends State<HistoryPage> {
                         item.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           height: 1.3,
+                          color: colors.textPrimary,
                         ),
                       ),
                       const Spacer(),
@@ -407,7 +410,7 @@ class _HistoryPageState extends State<HistoryPage> {
                         _formatTime(item.updatedAt),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[500],
+                          color: colors.textTertiary,
                         ),
                       ),
                     ],
@@ -423,6 +426,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   /// 构建加载更多
   Widget _buildLoadingMore() {
+    final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(16),
       alignment: Alignment.center,
@@ -436,7 +440,7 @@ class _HistoryPageState extends State<HistoryPage> {
               '上拉加载更多',
               style: TextStyle(
                 fontSize: 13,
-                color: Colors.grey[500],
+                color: colors.textTertiary,
               ),
             ),
     );

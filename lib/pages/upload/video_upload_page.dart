@@ -9,6 +9,7 @@ import '../../services/upload_api_service.dart';
 import '../../services/video_submit_api_service.dart';
 import '../../utils/image_utils.dart';
 import '../../utils/login_guard.dart';
+import '../../theme/theme_extensions.dart';
 import 'widgets/video_resource_list.dart';
 
 class VideoUploadPage extends StatefulWidget {
@@ -571,7 +572,7 @@ Future<void> _uploadVideo({String? title}) async {
                         // 分隔线
                         Container(
                           height: 24,
-                          color: Colors.grey[100],
+                          color: context.colors.surfaceVariant,
                         ),
                         const SizedBox(height: 24),
                         // 基本信息标题
@@ -815,6 +816,7 @@ Future<void> _uploadVideo({String? title}) async {
 
   /// 构建初次上传专用UI（参考PC端 VideoUploader.vue）
   Widget _buildUploadOnlyView() {
+    final colors = context.colors;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -829,9 +831,9 @@ Future<void> _uploadVideo({String? title}) async {
                 child: Container(
                   padding: const EdgeInsets.all(48),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300, width: 2),
+                    border: Border.all(color: colors.border, width: 2),
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.shade50,
+                    color: colors.surfaceVariant,
                   ),
                   child: _isUploading
                       ? Column(
@@ -848,9 +850,10 @@ Future<void> _uploadVideo({String? title}) async {
                             const SizedBox(height: 24),
                             Text(
                               '上传中 ${(_uploadProgress * 100).toStringAsFixed(0)}%',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
+                                color: colors.textPrimary,
                               ),
                             ),
                           ],
@@ -861,14 +864,15 @@ Future<void> _uploadVideo({String? title}) async {
                             Icon(
                               Icons.cloud_upload_outlined,
                               size: 64,
-                              color: Colors.grey.shade400,
+                              color: colors.iconSecondary,
                             ),
                             const SizedBox(height: 16),
-                            const Text(
+                            Text(
                               '点击或拖拽视频到此处上传视频',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w500,
+                                color: colors.textPrimary,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -876,7 +880,7 @@ Future<void> _uploadVideo({String? title}) async {
                               '仅支持.mp4格式文件',
                               style: TextStyle(
                                 fontSize: 14,
-                                color: Colors.grey.shade600,
+                                color: colors.textSecondary,
                               ),
                             ),
                             const SizedBox(height: 24),

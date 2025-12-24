@@ -3,6 +3,7 @@ import '../../services/video_service.dart';
 import '../../services/review_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../utils/image_utils.dart';
+import '../../theme/theme_extensions.dart';
 import '../upload/video_upload_page.dart';
 
 /// 稿件管理页面 - 参考PC端实现
@@ -189,15 +190,15 @@ class _VideoManagePageState extends State<VideoManagePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('视频管理'),
         centerTitle: true,
-        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: colors.iconPrimary),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -207,7 +208,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
               itemCount: _videos.length + (_hasMore && _isLoading ? 1 : 0),
-              separatorBuilder: (context, index) => const Divider(height: 24),
+              separatorBuilder: (context, index) => Divider(height: 24, color: colors.divider),
               itemBuilder: (context, index) {
                 if (index == _videos.length) {
                   return _buildLoadingIndicator();
@@ -220,6 +221,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
 
   /// 构建空状态
   Widget _buildEmptyState() {
+    final colors = context.colors;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -227,14 +229,14 @@ class _VideoManagePageState extends State<VideoManagePage> {
           Icon(
             Icons.video_library_outlined,
             size: 80,
-            color: Colors.grey[300],
+            color: colors.iconSecondary,
           ),
           const SizedBox(height: 16),
           Text(
             '暂无稿件',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.grey[600],
+              color: colors.textSecondary,
             ),
           ),
         ],
@@ -254,6 +256,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
 
   /// 构建视频项
   Widget _buildVideoItem(Map<String, dynamic> video, int index) {
+    final colors = context.colors;
     return InkWell(
       onTap: () {
         // TODO: 跳转到视频播放页
@@ -269,7 +272,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
               child: Container(
                 width: 120,
                 height: 80,
-                color: Colors.grey[200],
+                color: colors.surfaceVariant,
                 child: video['cover'] != null && video['cover'].toString().isNotEmpty
                     ? CachedImage(
                         imageUrl: ImageUtils.getFullImageUrl(video['cover']),
@@ -281,7 +284,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
                     : Icon(
                         Icons.video_library_outlined,
                         size: 40,
-                        color: Colors.grey[400],
+                        color: colors.iconSecondary,
                       ),
               ),
             ),
@@ -298,10 +301,10 @@ class _VideoManagePageState extends State<VideoManagePage> {
                     // 标题
                     Text(
                       video['title'] ?? '未命名',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: Colors.black87,
+                        color: colors.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -313,7 +316,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
                         video['desc'],
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[600],
+                          color: colors.textSecondary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -328,7 +331,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
                               '创建于：${_formatTime(video['createdAt'])}',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey[600],
+                                color: colors.textSecondary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -365,7 +368,7 @@ class _VideoManagePageState extends State<VideoManagePage> {
             SizedBox(
               height: 80,
               child: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, size: 20),
+                icon: Icon(Icons.more_vert, size: 20, color: colors.iconSecondary),
                 onSelected: (value) {
                   if (value == 'edit') {
                     _editVideo(video);

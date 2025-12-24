@@ -5,6 +5,7 @@ import '../upload/article_manuscript_page.dart';
 import '../upload/video_upload_page.dart';
 import '../upload/article_upload_page.dart';
 import '../../utils/login_guard.dart';
+import '../../theme/theme_extensions.dart';
 
 /// 创作中心页面
 class CreatorCenterPage extends StatefulWidget {
@@ -82,17 +83,12 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('创作中心'),
         centerTitle: true,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
       ),
       body: Column(
         children: [
@@ -139,10 +135,10 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: colors.card,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
+                  color: colors.shadow,
                   blurRadius: 10,
                   offset: const Offset(0, -2),
                 ),
@@ -185,6 +181,7 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
     required String title,
     required VoidCallback onTap,
   }) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -196,13 +193,13 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.grey[100],
+                color: colors.surfaceVariant,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 icon,
                 size: 24,
-                color: Colors.grey[700],
+                color: colors.iconPrimary,
               ),
             ),
             const SizedBox(width: 16),
@@ -211,10 +208,10 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w400,
-                  color: Colors.black87,
+                  color: colors.textPrimary,
                 ),
               ),
             ),
@@ -223,7 +220,7 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
             Icon(
               Icons.chevron_right,
               size: 24,
-              color: Colors.grey[400],
+              color: colors.iconSecondary,
             ),
           ],
         ),

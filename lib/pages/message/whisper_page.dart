@@ -4,6 +4,7 @@ import '../../services/message_api_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import 'whisper_detail_page.dart';
 
 /// 私信列表页面
@@ -57,19 +58,18 @@ class _WhisperPageState extends State<WhisperPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('私信'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -79,11 +79,11 @@ class _WhisperPageState extends State<WhisperPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.mail_outline, size: 64, color: Colors.grey[300]),
+            Icon(Icons.mail_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无私信',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
           ],
         ),
@@ -103,10 +103,11 @@ class _WhisperPageState extends State<WhisperPage> {
   }
 
   Widget _buildWhisperItem(WhisperListItem whisper) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -127,8 +128,8 @@ class _WhisperPageState extends State<WhisperPage> {
                         )
                       : CircleAvatar(
                           radius: 24,
-                          backgroundColor: Colors.grey[200],
-                          child: const Icon(Icons.person, size: 28, color: Colors.grey),
+                          backgroundColor: colors.surfaceVariant,
+                          child: Icon(Icons.person, size: 28, color: colors.iconSecondary),
                         ),
                   // 未读红点
                   if (!whisper.status)
@@ -141,7 +142,7 @@ class _WhisperPageState extends State<WhisperPage> {
                         decoration: BoxDecoration(
                           color: Colors.red,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                          border: Border.all(color: colors.card, width: 2),
                         ),
                       ),
                     ),
@@ -161,7 +162,7 @@ class _WhisperPageState extends State<WhisperPage> {
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: whisper.status ? FontWeight.normal : FontWeight.w600,
-                              color: Colors.black87,
+                              color: colors.textPrimary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -171,7 +172,7 @@ class _WhisperPageState extends State<WhisperPage> {
                           TimeUtils.formatTime(whisper.createdAt),
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[500],
+                            color: colors.textTertiary,
                           ),
                         ),
                       ],
@@ -181,7 +182,7 @@ class _WhisperPageState extends State<WhisperPage> {
                       whisper.status ? '点击查看消息' : '有新消息',
                       style: TextStyle(
                         fontSize: 13,
-                        color: whisper.status ? Colors.grey[500] : Colors.blue[600],
+                        color: whisper.status ? colors.textSecondary : Colors.blue[600],
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -192,7 +193,7 @@ class _WhisperPageState extends State<WhisperPage> {
               const SizedBox(width: 8),
               Icon(
                 Icons.chevron_right,
-                color: Colors.grey[400],
+                color: colors.iconSecondary,
                 size: 20,
               ),
             ],

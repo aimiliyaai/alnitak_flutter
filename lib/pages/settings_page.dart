@@ -8,6 +8,9 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'reset_password_page.dart';
 import '../services/auth_service.dart';
 import '../services/hls_service.dart';
+import '../services/theme_service.dart';
+import '../theme/app_theme.dart';
+import '../theme/app_colors.dart';
 import '../widgets/cached_image_widget.dart';
 
 /// 设置页面
@@ -21,6 +24,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final AuthService _authService = AuthService();
   final HlsService _hlsService = HlsService();
+  final ThemeService _themeService = ThemeService();
 
   bool _backgroundPlayEnabled = false;
   bool _isLoggedIn = false;
@@ -301,11 +305,48 @@ class _SettingsPageState extends State<SettingsPage> {
             return ListTile(
               title: Text(size >= 1000 ? '${size ~/ 1000} GB' : '$size MB'),
               trailing: isSelected
-                  ? const Icon(Icons.check, color: Colors.blue)
+                  ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
                   : null,
               onTap: () {
                 Navigator.pop(context);
                 _saveMaxCacheSetting(size);
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示主题选择对话框
+  void _showThemeDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('外观模式'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AppThemeMode.values.map((mode) {
+            final isSelected = mode == _themeService.themeMode;
+            return ListTile(
+              leading: Icon(
+                _themeService.getThemeModeIcon(mode),
+                color: isSelected ? Theme.of(context).colorScheme.primary : null,
+              ),
+              title: Text(_themeService.getThemeModeName(mode)),
+              trailing: isSelected
+                  ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                  : null,
+              onTap: () {
+                Navigator.pop(context);
+                _themeService.setThemeMode(mode);
+                setState(() {}); // 刷新UI显示当前选项
               },
             );
           }).toList(),
@@ -334,22 +375,41 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// 判断当前是否为深色模式
+  bool get _isDarkMode => _themeService.isDarkMode(context);
+
+  /// 获取当前主题的颜色
+  dynamic get _colors => _isDarkMode ? AppColors.dark : AppColors.light;
+
   @override
   Widget build(BuildContext context) {
+    final colors = _colors;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('设置'),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.black,
       ),
       body: ListView(
         children: [
           const SizedBox(height: 12),
 
+          // 外观设置
+          _buildSectionHeader('外观设置', colors),
+          _buildSettingsGroup([
+            _buildTappableTile(
+              icon: _themeService.getThemeModeIcon(_themeService.themeMode),
+              title: '外观模式',
+              value: _themeService.getThemeModeName(_themeService.themeMode),
+              onTap: _showThemeDialog,
+              colors: colors,
+            ),
+          ], colors),
+
+          const SizedBox(height: 12),
+
           // 偏好设置
-          _buildSectionHeader('偏好设置'),
+          _buildSectionHeader('偏好设置', colors),
           _buildSettingsGroup([
             _buildSwitchTile(
               icon: Icons.play_circle_outline,
@@ -357,21 +417,23 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: '退到后台时继续播放视频',
               value: _backgroundPlayEnabled,
               onChanged: _saveBackgroundPlaySetting,
+              colors: colors,
             ),
-          ]),
+          ], colors),
 
           const SizedBox(height: 12),
 
           // 存储管理
-          _buildSectionHeader('存储管理'),
+          _buildSectionHeader('存储管理', colors),
           _buildSettingsGroup([
             _buildTappableTile(
               icon: Icons.cleaning_services_outlined,
               title: '清理缓存',
               value: _isCleaningCache ? '清理中...' : _cacheSize,
               onTap: _isCleaningCache ? () {} : _clearAllCache,
+              colors: colors,
             ),
-            _buildDivider(),
+            _buildDivider(colors),
             _buildTappableTile(
               icon: Icons.storage_outlined,
               title: '最大缓存',
@@ -379,14 +441,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   ? '${_maxCacheSizeMB ~/ 1000} GB'
                   : '$_maxCacheSizeMB MB',
               onTap: _showMaxCacheDialog,
+              colors: colors,
             ),
-          ]),
+          ], colors),
 
           const SizedBox(height: 12),
 
           // 账号安全（仅登录后显示）
           if (_isLoggedIn) ...[
-            _buildSectionHeader('账号安全'),
+            _buildSectionHeader('账号安全', colors),
             _buildSettingsGroup([
               _buildTappableTile(
                 icon: Icons.lock_outline,
@@ -398,40 +461,45 @@ class _SettingsPageState extends State<SettingsPage> {
                     MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
                   );
                 },
+                colors: colors,
               ),
-            ]),
+            ], colors),
             const SizedBox(height: 12),
           ],
 
           // 关于
-          _buildSectionHeader('关于'),
+          _buildSectionHeader('关于', colors),
           _buildSettingsGroup([
             _buildInfoTile(
               icon: Icons.info_outline,
               title: 'App 版本',
               value: _packageInfo?.version ?? '加载中...',
+              colors: colors,
             ),
-            _buildDivider(),
+            _buildDivider(colors),
             _buildInfoTile(
               icon: Icons.calendar_today_outlined,
               title: '构建日期',
               value: _packageInfo?.buildNumber ?? '加载中...',
+              colors: colors,
             ),
-            _buildDivider(),
+            _buildDivider(colors),
             _buildTappableTile(
               icon: Icons.email_outlined,
               title: '开发者邮箱',
               value: 'ayypd@foxmail.com',
               onTap: () => _launchUrl('mailto:ayypd@foxmail.com'),
+              colors: colors,
             ),
-            _buildDivider(),
+            _buildDivider(colors),
             _buildTappableTile(
               icon: Icons.code_outlined,
               title: '开源地址',
               value: 'GitHub',
               onTap: () => _launchUrl('https://github.com/your-repo/alnitak_flutter'),
+              colors: colors,
             ),
-          ]),
+          ], colors),
 
           const SizedBox(height: 32),
         ],
@@ -440,14 +508,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 构建分组标题
-  Widget _buildSectionHeader(String title) {
+  Widget _buildSectionHeader(String title, dynamic colors) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Text(
         title,
         style: TextStyle(
           fontSize: 13,
-          color: Colors.grey[600],
+          color: colors.textSecondary,
           fontWeight: FontWeight.w500,
         ),
       ),
@@ -455,11 +523,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 构建设置组
-  Widget _buildSettingsGroup(List<Widget> children) {
+  Widget _buildSettingsGroup(List<Widget> children, dynamic colors) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(children: children),
@@ -473,12 +541,13 @@ class _SettingsPageState extends State<SettingsPage> {
     String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
+    required dynamic colors,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Icon(icon, size: 24, color: Colors.grey[700]),
+          Icon(icon, size: 24, color: colors.iconPrimary),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -486,9 +555,9 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
-                    color: Colors.black87,
+                    color: colors.textPrimary,
                   ),
                 ),
                 if (subtitle != null) ...[
@@ -497,7 +566,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[600],
+                      color: colors.textSecondary,
                     ),
                   ),
                 ],
@@ -518,19 +587,20 @@ class _SettingsPageState extends State<SettingsPage> {
     required IconData icon,
     required String title,
     required String value,
+    required dynamic colors,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Row(
         children: [
-          Icon(icon, size: 24, color: Colors.grey[700]),
+          Icon(icon, size: 24, color: colors.iconPrimary),
           const SizedBox(width: 16),
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 15,
-                color: Colors.black87,
+                color: colors.textPrimary,
               ),
             ),
           ),
@@ -538,7 +608,7 @@ class _SettingsPageState extends State<SettingsPage> {
             value,
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey[600],
+              color: colors.textSecondary,
             ),
           ),
         ],
@@ -552,6 +622,7 @@ class _SettingsPageState extends State<SettingsPage> {
     required String title,
     required String value,
     required VoidCallback onTap,
+    required dynamic colors,
   }) {
     return InkWell(
       onTap: onTap,
@@ -560,14 +631,14 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         child: Row(
           children: [
-            Icon(icon, size: 24, color: Colors.grey[700]),
+            Icon(icon, size: 24, color: colors.iconPrimary),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  color: Colors.black87,
+                  color: colors.textPrimary,
                 ),
               ),
             ),
@@ -575,14 +646,14 @@ class _SettingsPageState extends State<SettingsPage> {
               value,
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.blue[600],
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             const SizedBox(width: 8),
             Icon(
               Icons.chevron_right,
               size: 20,
-              color: Colors.grey[400],
+              color: colors.iconSecondary,
             ),
           ],
         ),
@@ -591,13 +662,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 构建分割线
-  Widget _buildDivider() {
+  Widget _buildDivider(dynamic colors) {
     return Padding(
       padding: const EdgeInsets.only(left: 56),
       child: Divider(
         height: 1,
-        thickness: 1,
-        color: Colors.grey[100],
+        thickness: 0.5,
+        color: colors.divider,
       ),
     );
   }

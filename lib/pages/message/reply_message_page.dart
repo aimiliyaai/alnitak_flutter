@@ -4,6 +4,7 @@ import '../../services/message_api_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import '../video/video_play_page.dart';
 
 /// 回复消息页面
@@ -99,19 +100,18 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('回复我的'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -121,11 +121,11 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
+            Icon(Icons.chat_bubble_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无回复消息',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
           ],
         ),
@@ -149,6 +149,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
   }
 
   Widget _buildMessageItem(ReplyMessage message) {
+    final colors = context.colors;
     final cover = message.type == 0
         ? message.video?.cover ?? ''
         : message.article?.cover ?? '';
@@ -162,7 +163,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -182,8 +183,8 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                     )
                   : CircleAvatar(
                       radius: 20,
-                      backgroundColor: Colors.grey[200],
-                      child: const Icon(Icons.person, size: 24, color: Colors.grey),
+                      backgroundColor: colors.surfaceVariant,
+                      child: Icon(Icons.person, size: 24, color: colors.iconSecondary),
                     ),
               const SizedBox(width: 12),
               // 消息内容
@@ -197,10 +198,10 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                         Expanded(
                           child: Text(
                             message.user.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: Colors.black87,
+                              color: colors.textPrimary,
                             ),
                           ),
                         ),
@@ -208,7 +209,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                           TimeUtils.formatTime(message.createdAt),
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[500],
+                            color: colors.textTertiary,
                           ),
                         ),
                       ],
@@ -217,9 +218,9 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                     // 回复内容
                     Text(
                       message.content,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        color: Colors.black87,
+                        color: colors.textPrimary,
                         height: 1.4,
                       ),
                       maxLines: 3,
@@ -231,7 +232,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: colors.surfaceVariant,
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(
@@ -240,7 +241,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                               width: 3,
                               height: 30,
                               decoration: BoxDecoration(
-                                color: Colors.grey[400],
+                                color: colors.iconSecondary,
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
@@ -250,7 +251,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                                 message.targetReplyContent,
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey[600],
+                                  color: colors.textSecondary,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -285,7 +286,7 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.grey[600],
+                                color: colors.textSecondary,
                               ),
                             ),
                           ),

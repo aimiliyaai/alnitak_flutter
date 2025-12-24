@@ -3,6 +3,7 @@ import '../services/auth_service.dart';
 import '../services/captcha_service.dart';
 import '../widgets/slider_captcha_widget.dart';
 import '../utils/error_handler.dart';
+import '../theme/theme_extensions.dart';
 
 /// 重置密码页面（忘记密码）
 class ResetPasswordPage extends StatefulWidget {
@@ -262,9 +263,10 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
 
   /// 构建步骤指示器
   Widget _buildStepIndicator() {
+    final colors = context.colors;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
-      color: Colors.white,
+      color: colors.card,
       child: Row(
         children: [
           _buildStepItem(1, '填写账号'),
@@ -278,6 +280,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
   }
 
   Widget _buildStepItem(int step, String label) {
+    final colors = context.colors;
     final isActive = _currentStep >= step;
     final isCurrent = _currentStep == step;
 
@@ -288,7 +291,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           height: 28,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isActive ? Theme.of(context).primaryColor : Colors.grey[300],
+            color: isActive ? Theme.of(context).primaryColor : colors.surfaceVariant,
             border: isCurrent
                 ? Border.all(color: Theme.of(context).primaryColor, width: 2)
                 : null,
@@ -299,7 +302,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                 : Text(
                     '$step',
                     style: TextStyle(
-                      color: isActive ? Colors.white : Colors.grey[600],
+                      color: isActive ? Colors.white : colors.textSecondary,
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
@@ -311,7 +314,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isActive ? Theme.of(context).primaryColor : Colors.grey[600],
+            color: isActive ? Theme.of(context).primaryColor : colors.textSecondary,
           ),
         ),
       ],
@@ -319,12 +322,13 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
   }
 
   Widget _buildStepLine(int afterStep) {
+    final colors = context.colors;
     final isActive = _currentStep > afterStep;
     return Expanded(
       child: Container(
         height: 2,
         margin: const EdgeInsets.only(bottom: 20),
-        color: isActive ? Theme.of(context).primaryColor : Colors.grey[300],
+        color: isActive ? Theme.of(context).primaryColor : colors.surfaceVariant,
       ),
     );
   }
@@ -388,6 +392,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
 
   /// 步骤2：重置密码
   Widget _buildStep2() {
+    final colors = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -397,16 +402,16 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.grey[100],
+            color: colors.surfaceVariant,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
-              const Icon(Icons.email_outlined, color: Colors.grey),
+              Icon(Icons.email_outlined, color: colors.iconSecondary),
               const SizedBox(width: 12),
               Text(
                 _desensitizeEmail(_emailController.text.trim()),
-                style: const TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 16, color: colors.textPrimary),
               ),
             ],
           ),
@@ -512,6 +517,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
 
   /// 步骤3：成功
   Widget _buildStep3() {
+    final colors = context.colors;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -533,11 +539,12 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
         ),
         const SizedBox(height: 24),
 
-        const Text(
+        Text(
           '重置成功',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
+            color: colors.textPrimary,
           ),
         ),
         const SizedBox(height: 8),
@@ -546,7 +553,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           '已成功重置密码',
           style: TextStyle(
             fontSize: 16,
-            color: Colors.grey[600],
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 40),

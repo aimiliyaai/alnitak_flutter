@@ -91,23 +91,29 @@ class CachedImage extends StatelessWidget {
       height: height,
       placeholder: placeholder != null
           ? (context, url) => placeholder!
-          : (context, url) => Container(
-                color: Colors.grey[200],
+          : (context, url) {
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              return Container(
+                color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
                 child: const Center(
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                   ),
                 ),
-              ),
+              );
+            },
       errorWidget: errorWidget != null
           ? (context, url, error) => errorWidget!
-          : (context, url, error) => Container(
-                color: Colors.grey[300],
-                child: const Icon(
+          : (context, url, error) {
+              final isDark = Theme.of(context).brightness == Brightness.dark;
+              return Container(
+                color: isDark ? const Color(0xFF3C3C3C) : Colors.grey[300],
+                child: Icon(
                   Icons.broken_image,
-                  color: Colors.grey,
+                  color: isDark ? const Color(0xFF808080) : Colors.grey,
                 ),
-              ),
+              );
+            },
       // 优化缓存策略
       memCacheWidth: 800, // 限制内存缓存宽度
       maxHeightDiskCache: 1000, // 限制磁盘缓存高度
@@ -149,10 +155,11 @@ class CachedCircleAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     // 使用自定义 key 或从 URL 提取稳定 key
     final effectiveCacheKey = cacheKey ?? SmartCacheManager.getStableCacheKey(imageUrl);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return CircleAvatar(
       radius: radius,
-      backgroundColor: Colors.grey[200],
+      backgroundColor: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
       child: ClipOval(
         child: CachedNetworkImage(
           imageUrl: imageUrl,

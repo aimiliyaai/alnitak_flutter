@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../models/video_detail.dart';
+import '../../../theme/theme_extensions.dart';
 
 /// 视频信息卡片
 class VideoInfoCard extends StatefulWidget {
@@ -54,6 +55,7 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Card(
       elevation: 0,
       color: Colors.transparent,
@@ -63,10 +65,11 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
           // 标题
           Text(
             widget.videoDetail.title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
               height: 1.4,
+              color: colors.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -75,39 +78,39 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
           Row(
             children: [
               // 播放量
-              Icon(Icons.play_circle_outline, size: 16, color: Colors.grey[600]),
+              Icon(Icons.play_circle_outline, size: 16, color: colors.textSecondary),
               const SizedBox(width: 4),
               Text(
                 _formatNumber(widget.videoDetail.clicks),
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 13, color: colors.textSecondary),
               ),
               const SizedBox(width: 16),
 
               // 弹幕数
-              Icon(Icons.chat_bubble_outline, size: 16, color: Colors.grey[600]),
+              Icon(Icons.chat_bubble_outline, size: 16, color: colors.textSecondary),
               const SizedBox(width: 4),
               Text(
                 _formatNumber(widget.videoDetail.danmakuCount),
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 13, color: colors.textSecondary),
               ),
               const SizedBox(width: 16),
 
               // 上传时间
-              Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+              Icon(Icons.access_time, size: 16, color: colors.textSecondary),
               const SizedBox(width: 4),
               Text(
                 _formatRelativeTime(widget.videoDetail.createdAt),
-                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 13, color: colors.textSecondary),
               ),
               const SizedBox(width: 16),
 
               // 在线观看人数
               if (widget.videoStat.onlineCount > 0) ...[
-                Icon(Icons.visibility, size: 16, color: Colors.grey[600]),
+                Icon(Icons.visibility, size: 16, color: colors.textSecondary),
                 const SizedBox(width: 4),
                 Text(
                   '${widget.videoStat.onlineCount}人正在观看',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
                 ),
               ],
             ],
@@ -125,7 +128,7 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: colors.surfaceVariant,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
@@ -135,7 +138,7 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
                       widget.videoDetail.desc,
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.grey[800],
+                        color: colors.textPrimary,
                         height: 1.5,
                       ),
                       maxLines: _isExpanded ? null : 3,

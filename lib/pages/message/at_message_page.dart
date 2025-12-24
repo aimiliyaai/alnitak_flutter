@@ -4,6 +4,7 @@ import '../../services/message_api_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import '../video/video_play_page.dart';
 
 /// @消息页面
@@ -99,19 +100,18 @@ class _AtMessagePageState extends State<AtMessagePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('@我的'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -121,11 +121,11 @@ class _AtMessagePageState extends State<AtMessagePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.alternate_email, size: 64, color: Colors.grey[300]),
+            Icon(Icons.alternate_email, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无@消息',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
           ],
         ),
@@ -149,6 +149,7 @@ class _AtMessagePageState extends State<AtMessagePage> {
   }
 
   Widget _buildMessageItem(AtMessage message) {
+    final colors = context.colors;
     final cover = message.type == 0
         ? message.video?.cover ?? ''
         : message.article?.cover ?? '';
@@ -162,7 +163,7 @@ class _AtMessagePageState extends State<AtMessagePage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -182,8 +183,8 @@ class _AtMessagePageState extends State<AtMessagePage> {
                     )
                   : CircleAvatar(
                       radius: 20,
-                      backgroundColor: Colors.grey[200],
-                      child: const Icon(Icons.person, size: 24, color: Colors.grey),
+                      backgroundColor: colors.surfaceVariant,
+                      child: Icon(Icons.person, size: 24, color: colors.iconSecondary),
                     ),
               const SizedBox(width: 12),
               // 消息内容
@@ -196,7 +197,7 @@ class _AtMessagePageState extends State<AtMessagePage> {
                         Expanded(
                           child: RichText(
                             text: TextSpan(
-                              style: const TextStyle(fontSize: 14, color: Colors.black87),
+                              style: TextStyle(fontSize: 14, color: colors.textPrimary),
                               children: [
                                 TextSpan(
                                   text: message.user.name,
@@ -219,7 +220,7 @@ class _AtMessagePageState extends State<AtMessagePage> {
                       TimeUtils.formatTime(message.createdAt),
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey[500],
+                        color: colors.textTertiary,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -247,7 +248,7 @@ class _AtMessagePageState extends State<AtMessagePage> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Colors.grey[700],
+                                color: colors.textSecondary,
                               ),
                             ),
                           ),

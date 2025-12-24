@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/theme_extensions.dart';
 
 /// 评论管理页面
 class CommentManagePage extends StatefulWidget {
@@ -100,15 +101,15 @@ class _CommentManagePageState extends State<CommentManagePage>
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('评论管理'),
         centerTitle: true,
-        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: colors.iconPrimary),
           onPressed: () => Navigator.pop(context),
         ),
         bottom: TabBar(
@@ -117,9 +118,9 @@ class _CommentManagePageState extends State<CommentManagePage>
             Tab(text: '视频评论'),
             Tab(text: '文章评论'),
           ],
-          labelColor: Colors.blue,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Colors.blue,
+          labelColor: Theme.of(context).primaryColor,
+          unselectedLabelColor: colors.textSecondary,
+          indicatorColor: Theme.of(context).primaryColor,
         ),
       ),
       body: Column(
@@ -144,14 +145,15 @@ class _CommentManagePageState extends State<CommentManagePage>
 
   /// 构建筛选栏
   Widget _buildFilterBar() {
+    final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(16),
-      color: Colors.white,
+      color: colors.card,
       child: Row(
         children: [
           Text(
             '选择${_tabController.index == 0 ? "视频" : "文章"}：',
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
+            style: TextStyle(fontSize: 14, color: colors.textPrimary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -159,6 +161,7 @@ class _CommentManagePageState extends State<CommentManagePage>
               value: _selectedVideoId,
               isExpanded: true,
               underline: Container(),
+              dropdownColor: colors.card,
               items: const [
                 DropdownMenuItem(
                   value: 0,
@@ -203,6 +206,7 @@ class _CommentManagePageState extends State<CommentManagePage>
 
   /// 构建空状态
   Widget _buildEmptyState() {
+    final colors = context.colors;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -210,14 +214,14 @@ class _CommentManagePageState extends State<CommentManagePage>
           Icon(
             Icons.comment_outlined,
             size: 80,
-            color: Colors.grey[300],
+            color: colors.iconSecondary,
           ),
           const SizedBox(height: 16),
           Text(
             '暂无评论',
             style: TextStyle(
               fontSize: 16,
-              color: Colors.grey[600],
+              color: colors.textSecondary,
             ),
           ),
         ],
@@ -237,8 +241,10 @@ class _CommentManagePageState extends State<CommentManagePage>
 
   /// 构建评论项
   Widget _buildCommentItem(Map<String, dynamic> comment) {
+    final colors = context.colors;
     return Card(
       elevation: 1,
+      color: colors.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -255,15 +261,16 @@ class _CommentManagePageState extends State<CommentManagePage>
                     children: [
                       CircleAvatar(
                         radius: 16,
-                        backgroundColor: Colors.grey[300],
-                        child: const Icon(Icons.person, size: 20),
+                        backgroundColor: colors.surfaceVariant,
+                        child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         comment['authorName'] ?? '匿名用户',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
+                          color: colors.textPrimary,
                         ),
                       ),
                     ],
@@ -273,7 +280,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                   // 评论内容
                   Text(
                     comment['content'] ?? '',
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14, color: colors.textPrimary),
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -284,7 +291,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: colors.surfaceVariant,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Column(
@@ -294,7 +301,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                             '回复 @${comment['targetUserName']}:',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey[600],
+                              color: colors.textSecondary,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -302,7 +309,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                             comment['targetReplyContent'],
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey[700],
+                              color: colors.textSecondary,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -318,7 +325,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                     comment['createdAt'] ?? '',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[500],
+                      color: colors.textTertiary,
                     ),
                   ),
                 ],
@@ -339,7 +346,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                 child: Container(
                   width: 80,
                   height: 60,
-                  color: Colors.grey[300],
+                  color: colors.surfaceVariant,
                   child: comment['videoCover'] != null
                       ? Image.network(
                           comment['videoCover'],
@@ -348,7 +355,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                             return Icon(
                               Icons.video_library_outlined,
                               size: 30,
-                              color: Colors.grey[400],
+                              color: colors.iconSecondary,
                             );
                           },
                         )
@@ -357,7 +364,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                               ? Icons.video_library_outlined
                               : Icons.article_outlined,
                           size: 30,
-                          color: Colors.grey[400],
+                          color: colors.iconSecondary,
                         ),
                 ),
               ),

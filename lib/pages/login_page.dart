@@ -283,11 +283,11 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
           children: [
             // Tab 切换
             Container(
-              color: Colors.white,
+              color: Theme.of(context).scaffoldBackgroundColor,
               child: TabBar(
                 controller: _tabController,
                 labelColor: Theme.of(context).primaryColor,
-                unselectedLabelColor: Colors.grey[600],
+                unselectedLabelColor: Theme.of(context).textTheme.bodyMedium?.color,
                 indicatorColor: Theme.of(context).primaryColor,
                 tabs: const [
                   Tab(text: '密码登录'),

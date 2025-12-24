@@ -3,6 +3,7 @@ import '../../models/collection_models.dart';
 import '../../services/collection_api_service.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import '../video/video_play_page.dart';
 
 /// 收藏夹详情页面
@@ -164,19 +165,18 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: Text(widget.collectionName),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -200,11 +200,11 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.video_library_outlined,
-                        size: 64, color: Colors.grey[300]),
+                        size: 64, color: colors.iconSecondary),
                     const SizedBox(height: 16),
                     Text(
                       '收藏夹里还没有视频',
-                      style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+                      style: TextStyle(fontSize: 16, color: colors.textSecondary),
                     ),
                   ],
                 ),
@@ -231,12 +231,13 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
   }
 
   Widget _buildInfoCard() {
+    final colors = context.colors;
     final info = _collectionInfo!;
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -256,8 +257,8 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                 : Container(
                     width: 100,
                     height: 70,
-                    color: Colors.grey[200],
-                    child: Icon(Icons.folder, size: 35, color: Colors.grey[400]),
+                    color: colors.surfaceVariant,
+                    child: Icon(Icons.folder, size: 35, color: colors.iconSecondary),
                   ),
           ),
           const SizedBox(width: 16),
@@ -271,9 +272,10 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                     Expanded(
                       child: Text(
                         info.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
+                          color: colors.textPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -301,7 +303,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                   const SizedBox(height: 6),
                   Text(
                     info.desc,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 13, color: colors.textSecondary),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -309,7 +311,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                 const SizedBox(height: 8),
                 Text(
                   '共 $_total 个视频',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 12, color: colors.textTertiary),
                 ),
               ],
             ),
@@ -320,10 +322,11 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
   }
 
   Widget _buildVideoItem(CollectionVideo video) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -376,10 +379,10 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                   children: [
                     Text(
                       video.title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: Colors.black87,
+                        color: colors.textPrimary,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -395,14 +398,14 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                               )
                             : CircleAvatar(
                                 radius: 10,
-                                backgroundColor: Colors.grey[200],
-                                child: const Icon(Icons.person, size: 12, color: Colors.grey),
+                                backgroundColor: colors.surfaceVariant,
+                                child: Icon(Icons.person, size: 12, color: colors.iconSecondary),
                               ),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             video.author.name,
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            style: TextStyle(fontSize: 12, color: colors.textSecondary),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -412,11 +415,11 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Icons.play_arrow_outlined, size: 14, color: Colors.grey[500]),
+                        Icon(Icons.play_arrow_outlined, size: 14, color: colors.iconSecondary),
                         const SizedBox(width: 2),
                         Text(
                           video.formattedClicks,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                          style: TextStyle(fontSize: 12, color: colors.textTertiary),
                         ),
                       ],
                     ),
@@ -425,7 +428,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
               ),
               // 删除按钮
               IconButton(
-                icon: Icon(Icons.close, size: 20, color: Colors.grey[400]),
+                icon: Icon(Icons.close, size: 20, color: colors.iconSecondary),
                 onPressed: () => _removeVideo(video),
                 tooltip: '移除',
               ),

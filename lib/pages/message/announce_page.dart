@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/message_models.dart';
 import '../../services/message_api_service.dart';
 import '../../utils/time_utils.dart';
+import '../../theme/theme_extensions.dart';
 
 /// 站内公告页面
 class AnnouncePage extends StatefulWidget {
@@ -93,19 +94,18 @@ class _AnnouncePageState extends State<AnnouncePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('站内公告'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -115,11 +115,11 @@ class _AnnouncePageState extends State<AnnouncePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.campaign_outlined, size: 64, color: Colors.grey[300]),
+            Icon(Icons.campaign_outlined, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无公告',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
           ],
         ),
@@ -143,10 +143,11 @@ class _AnnouncePageState extends State<AnnouncePage> {
   }
 
   Widget _buildAnnounceItem(AnnounceMessage announce) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -179,7 +180,7 @@ class _AnnouncePageState extends State<AnnouncePage> {
                     TimeUtils.formatTime(announce.createdAt),
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[500],
+                      color: colors.textTertiary,
                     ),
                   ),
                 ],
@@ -187,10 +188,10 @@ class _AnnouncePageState extends State<AnnouncePage> {
               const SizedBox(height: 12),
               Text(
                 announce.title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: colors.textPrimary,
                 ),
               ),
               if (announce.content.isNotEmpty) ...[
@@ -199,7 +200,7 @@ class _AnnouncePageState extends State<AnnouncePage> {
                   announce.content,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey[700],
+                    color: colors.textSecondary,
                     height: 1.5,
                   ),
                 ),

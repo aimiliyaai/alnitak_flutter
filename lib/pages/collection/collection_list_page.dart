@@ -5,6 +5,7 @@ import '../../utils/image_utils.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/login_guard.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import 'collection_detail_page.dart';
 
 /// 收藏夹列表页面
@@ -252,14 +253,13 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     if (_isCheckingLogin) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: colors.background,
         appBar: AppBar(
           title: const Text('收藏夹'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -267,22 +267,19 @@ class _CollectionListPageState extends State<CollectionListPage> {
 
     if (!_isLoggedIn) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: colors.background,
         appBar: AppBar(
           title: const Text('收藏夹'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
         ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.folder_outlined, size: 64, color: Colors.grey[300]),
+              Icon(Icons.folder_outlined, size: 64, color: colors.iconSecondary),
               const SizedBox(height: 16),
               Text(
                 '登录后查看收藏',
-                style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 16, color: colors.textSecondary),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -301,12 +298,9 @@ class _CollectionListPageState extends State<CollectionListPage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('收藏夹'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
@@ -320,6 +314,8 @@ class _CollectionListPageState extends State<CollectionListPage> {
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -329,11 +325,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.folder_outlined, size: 64, color: Colors.grey[300]),
+            Icon(Icons.folder_outlined, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无收藏夹',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -359,10 +355,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
   }
 
   Widget _buildCollectionItem(CollectionItem collection) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: InkWell(
@@ -387,11 +384,11 @@ class _CollectionListPageState extends State<CollectionListPage> {
                     : Container(
                         width: 80,
                         height: 60,
-                        color: Colors.grey[200],
+                        color: colors.surfaceVariant,
                         child: Icon(
                           Icons.folder,
                           size: 30,
-                          color: Colors.grey[400],
+                          color: colors.iconSecondary,
                         ),
                       ),
               ),
@@ -406,10 +403,10 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         Expanded(
                           child: Text(
                             collection.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
-                              color: Colors.black87,
+                              color: colors.textPrimary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -443,7 +440,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         collection.desc,
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.grey[600],
+                          color: colors.textSecondary,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -454,7 +451,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                       '创建于 ${TimeUtils.formatDate(collection.createdAt)}',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey[500],
+                        color: colors.textTertiary,
                       ),
                     ),
                   ],
@@ -462,7 +459,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
               ),
               // 操作按钮
               PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert, color: Colors.grey[400]),
+                icon: Icon(Icons.more_vert, color: colors.iconSecondary),
                 onSelected: (value) {
                   if (value == 'edit') {
                     _editCollection(collection);

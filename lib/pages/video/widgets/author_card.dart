@@ -3,6 +3,7 @@ import '../../../models/video_detail.dart';
 import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
+import '../../../theme/theme_extensions.dart';
 
 /// 作者信息卡片
 class AuthorCard extends StatefulWidget {
@@ -146,6 +147,7 @@ class _AuthorCardState extends State<AuthorCard> {
 
   /// 获取关注按钮样式
   ButtonStyle _getFollowButtonStyle() {
+    final colors = context.colors;
     if (_relationStatus == 0) {
       // 未关注：主题色
       return ElevatedButton.styleFrom(
@@ -156,10 +158,10 @@ class _AuthorCardState extends State<AuthorCard> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       );
     } else {
-      // 已关注/互粉：灰色
+      // 已关注/互粉：灰色（适配深色模式）
       return ElevatedButton.styleFrom(
-        backgroundColor: Colors.grey[200],
-        foregroundColor: Colors.grey[700],
+        backgroundColor: colors.surfaceVariant,
+        foregroundColor: colors.textSecondary,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -169,8 +171,10 @@ class _AuthorCardState extends State<AuthorCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Card(
       elevation: 2,
+      color: colors.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -188,8 +192,8 @@ class _AuthorCardState extends State<AuthorCard> {
                     )
                   : CircleAvatar(
                       radius: 28,
-                      backgroundColor: Colors.grey[200],
-                      child: const Icon(Icons.person, size: 32),
+                      backgroundColor: colors.surfaceVariant,
+                      child: Icon(Icons.person, size: 32, color: colors.iconSecondary),
                     ),
             ),
             const SizedBox(width: 12),
@@ -202,9 +206,10 @@ class _AuthorCardState extends State<AuthorCard> {
                   // 用户名
                   Text(
                     widget.author.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -216,7 +221,7 @@ class _AuthorCardState extends State<AuthorCard> {
                     '${_formatFansCount(widget.author.fans)} 粉丝',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[600],
+                      color: colors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -227,7 +232,7 @@ class _AuthorCardState extends State<AuthorCard> {
                       widget.author.sign,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey[600],
+                        color: colors.textSecondary,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,

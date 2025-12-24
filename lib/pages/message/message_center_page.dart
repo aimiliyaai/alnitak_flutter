@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../utils/login_guard.dart';
+import '../../theme/theme_extensions.dart';
 import 'announce_page.dart';
 import 'like_message_page.dart';
 import 'reply_message_page.dart';
@@ -36,14 +37,13 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     if (_isLoading) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: colors.background,
         appBar: AppBar(
           title: const Text('消息'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -51,22 +51,19 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
 
     if (!_isLoggedIn) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
+        backgroundColor: colors.background,
         appBar: AppBar(
           title: const Text('消息'),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          elevation: 0,
         ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.mail_outline, size: 64, color: Colors.grey[300]),
+              Icon(Icons.mail_outline, size: 64, color: colors.iconSecondary),
               const SizedBox(height: 16),
               Text(
                 '登录后查看消息',
-                style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+                style: TextStyle(fontSize: 16, color: colors.textSecondary),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -88,13 +85,11 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
   }
 
   Widget _buildContent() {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('消息'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -102,7 +97,7 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
           // 消息分类卡片
           Container(
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: colors.card,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -168,6 +163,7 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -191,10 +187,10 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: Colors.black87,
+                      color: colors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -202,7 +198,7 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
                     subtitle,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[500],
+                      color: colors.textSecondary,
                     ),
                   ),
                 ],
@@ -210,7 +206,7 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
             ),
             Icon(
               Icons.chevron_right,
-              color: Colors.grey[400],
+              color: colors.iconSecondary,
               size: 20,
             ),
           ],
@@ -220,12 +216,13 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
   }
 
   Widget _buildDivider() {
+    final colors = context.colors;
     return Padding(
       padding: const EdgeInsets.only(left: 74),
       child: Divider(
         height: 1,
         thickness: 1,
-        color: Colors.grey[100],
+        color: colors.divider,
       ),
     );
   }

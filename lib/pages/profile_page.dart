@@ -5,6 +5,7 @@ import '../services/user_service.dart';
 import '../models/user_model.dart';
 import '../utils/image_utils.dart';
 import '../utils/auth_state_manager.dart';
+import '../theme/theme_extensions.dart';
 import 'login_page.dart';
 import 'edit_profile_page.dart';
 import 'creator/creator_center_page.dart';
@@ -157,8 +158,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -192,15 +194,16 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 构建 AppBar
   Widget _buildAppBar() {
+    final colors = context.colors;
     return SliverAppBar(
       pinned: true,
       elevation: 0,
-      backgroundColor: Colors.white,
+      backgroundColor: colors.card,
       centerTitle: true,
-      title: const Text(
+      title: Text(
         '我的',
         style: TextStyle(
-          color: Colors.black,
+          color: colors.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.w500,
         ),
@@ -208,12 +211,12 @@ class _ProfilePageState extends State<ProfilePage> {
       actions: [
         if (_isLoggedIn)
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black),
+            icon: Icon(Icons.logout, color: colors.iconPrimary),
             onPressed: _handleLogout,
           )
         else
           IconButton(
-            icon: const Icon(Icons.login, color: Colors.black),
+            icon: Icon(Icons.login, color: colors.iconPrimary),
             onPressed: _navigateToLogin,
           ),
       ],
@@ -222,13 +225,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 构建用户信息卡片
   Widget _buildUserInfoCard() {
+    final colors = context.colors;
     // 加载中状态
     if (_isLoading) {
       return Container(
         margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.card,
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Center(
@@ -243,7 +247,7 @@ class _ProfilePageState extends State<ProfilePage> {
         margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colors.card,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -251,11 +255,11 @@ class _ProfilePageState extends State<ProfilePage> {
             // 默认头像
             CircleAvatar(
               radius: 50,
-              backgroundColor: const Color(0xFFE8D5C4),
-              child: const Icon(
+              backgroundColor: colors.surfaceVariant,
+              child: Icon(
                 Icons.person,
                 size: 60,
-                color: Color(0xFF8B7355),
+                color: colors.iconSecondary,
               ),
             ),
             const SizedBox(height: 16),
@@ -263,10 +267,10 @@ class _ProfilePageState extends State<ProfilePage> {
             // 未登录提示
             Text(
               '未登录',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                color: colors.textPrimary,
               ),
             ),
             const SizedBox(height: 12),
@@ -292,7 +296,7 @@ class _ProfilePageState extends State<ProfilePage> {
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -306,11 +310,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 )
               : CircleAvatar(
                   radius: 50,
-                  backgroundColor: const Color(0xFFE8D5C4),
-                  child: const Icon(
+                  backgroundColor: colors.surfaceVariant,
+                  child: Icon(
                     Icons.person,
                     size: 60,
-                    color: Color(0xFF8B7355),
+                    color: colors.iconSecondary,
                   ),
                 ),
           const SizedBox(height: 16),
@@ -318,10 +322,10 @@ class _ProfilePageState extends State<ProfilePage> {
           // 用户名
           Text(
             _userInfo!.name,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
-              color: Colors.black87,
+              color: colors.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
@@ -331,7 +335,7 @@ class _ProfilePageState extends State<ProfilePage> {
             'UID: ${_userInfo!.uid}',
             style: TextStyle(
               fontSize: 13,
-              color: Colors.grey[600],
+              color: colors.textSecondary,
             ),
           ),
 
@@ -342,7 +346,7 @@ class _ProfilePageState extends State<ProfilePage> {
               _userInfo!.sign,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[500],
+                color: colors.textTertiary,
               ),
               textAlign: TextAlign.center,
               maxLines: 2,
@@ -359,13 +363,13 @@ class _ProfilePageState extends State<ProfilePage> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              side: BorderSide(color: Colors.grey[300]!),
+              side: BorderSide(color: colors.border),
             ),
-            child: const Text(
+            child: Text(
               '编辑资料',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.black87,
+                color: colors.textPrimary,
               ),
             ),
           ),
@@ -376,10 +380,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 构建功能菜单列表
   Widget _buildMenuList() {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -439,6 +444,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 构建特色区域
   Widget _buildSpecialSection() {
+    final colors = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -450,7 +456,7 @@ class _ProfilePageState extends State<ProfilePage> {
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
+              color: colors.textPrimary,
             ),
           ),
         ),
@@ -459,7 +465,7 @@ class _ProfilePageState extends State<ProfilePage> {
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: colors.card,
             borderRadius: BorderRadius.circular(12),
           ),
           child: _buildMenuItem(
@@ -484,6 +490,7 @@ class _ProfilePageState extends State<ProfilePage> {
     required VoidCallback onTap,
     Widget? trailing,
   }) {
+    final colors = context.colors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -494,15 +501,15 @@ class _ProfilePageState extends State<ProfilePage> {
             Icon(
               icon,
               size: 24,
-              color: Colors.grey[700],
+              color: colors.iconPrimary,
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  color: Colors.black87,
+                  color: colors.textPrimary,
                 ),
               ),
             ),
@@ -510,7 +517,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 Icon(
                   Icons.chevron_right,
                   size: 20,
-                  color: Colors.grey[400],
+                  color: colors.iconSecondary,
                 ),
           ],
         ),
@@ -520,12 +527,13 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 构建分割线
   Widget _buildDivider() {
+    final colors = context.colors;
     return Padding(
       padding: const EdgeInsets.only(left: 56),
       child: Divider(
         height: 1,
         thickness: 1,
-        color: Colors.grey[100],
+        color: colors.divider,
       ),
     );
   }
