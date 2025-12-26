@@ -185,14 +185,14 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+                      color: colors.accentColor.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
                       tag,
                       style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).primaryColor,
+                        color: colors.accentColor,
                       ),
                     ),
                   ),
@@ -207,9 +207,9 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.orange[50],
+                  color: Colors.orange.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange[200]!),
+                  border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
@@ -236,18 +236,18 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.blue[50],
+                  color: colors.accentColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.list, size: 16, color: Colors.blue[700]),
+                    Icon(Icons.list, size: 16, color: colors.accentColor),
                     const SizedBox(width: 8),
                     Text(
                       '合集 · 共${widget.videoDetail.resources.length}集',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.blue[700],
+                        color: colors.accentColor,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -256,7 +256,7 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
                       '正在播放：P${widget.currentPart}',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.blue[700],
+                        color: colors.accentColor,
                       ),
                     ),
                   ],

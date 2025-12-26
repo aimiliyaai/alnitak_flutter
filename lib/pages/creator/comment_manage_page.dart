@@ -112,15 +112,21 @@ class _CommentManagePageState extends State<CommentManagePage>
           icon: Icon(Icons.arrow_back, color: colors.iconPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: '视频评论'),
-            Tab(text: '文章评论'),
-          ],
-          labelColor: Theme.of(context).primaryColor,
-          unselectedLabelColor: colors.textSecondary,
-          indicatorColor: Theme.of(context).primaryColor,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            color: colors.card,
+            child: TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(text: '视频评论'),
+                Tab(text: '文章评论'),
+              ],
+              labelColor: colors.accentColor,
+              unselectedLabelColor: colors.textSecondary,
+              indicatorColor: colors.accentColor,
+            ),
+          ),
         ),
       ),
       body: Column(

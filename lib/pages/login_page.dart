@@ -4,6 +4,7 @@ import '../services/captcha_service.dart';
 import '../widgets/slider_captcha_widget.dart';
 import '../utils/auth_state_manager.dart';
 import '../utils/error_handler.dart';
+import '../theme/theme_extensions.dart';
 import 'register_page.dart';
 import 'reset_password_page.dart';
 
@@ -282,18 +283,23 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
         child: Column(
           children: [
             // Tab 切换
-            Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: TabBar(
-                controller: _tabController,
-                labelColor: Theme.of(context).primaryColor,
-                unselectedLabelColor: Theme.of(context).textTheme.bodyMedium?.color,
-                indicatorColor: Theme.of(context).primaryColor,
-                tabs: const [
-                  Tab(text: '密码登录'),
-                  Tab(text: '验证码登录'),
-                ],
-              ),
+            Builder(
+              builder: (context) {
+                final colors = context.colors;
+                return Container(
+                  color: colors.card,
+                  child: TabBar(
+                    controller: _tabController,
+                    labelColor: colors.accentColor,
+                    unselectedLabelColor: colors.textSecondary,
+                    indicatorColor: colors.accentColor,
+                    tabs: const [
+                      Tab(text: '密码登录'),
+                      Tab(text: '验证码登录'),
+                    ],
+                  ),
+                );
+              },
             ),
 
             // Tab 内容

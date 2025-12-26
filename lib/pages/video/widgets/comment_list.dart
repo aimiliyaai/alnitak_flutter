@@ -3,6 +3,7 @@ import '../../../models/comment.dart';
 import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
+import '../../../theme/theme_extensions.dart';
 
 /// 评论列表组件 - 优化输入体验
 class CommentList extends StatefulWidget {
@@ -388,13 +389,14 @@ class _CommentListContentState extends State<CommentListContent> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Text(
               '评论 $_totalComments',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
+                color: context.colors.textPrimary,
               ),
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: context.colors.divider),
         ],
 
         // 评论列表（可滚动区域）
@@ -405,11 +407,11 @@ class _CommentListContentState extends State<CommentListContent> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.comment_outlined,
-                          size: 64, color: Colors.grey[400]),
+                          size: 64, color: context.colors.iconSecondary),
                       const SizedBox(height: 16),
                       Text(
                         '暂无评论',
-                        style: TextStyle(color: Colors.grey[600]),
+                        style: TextStyle(color: context.colors.textSecondary),
                       ),
                     ],
                   ),
@@ -451,12 +453,13 @@ class _CommentListContentState extends State<CommentListContent> {
 
   /// 构建输入区域（置顶）
   Widget _buildInputArea() {
+    final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
+        color: colors.card,
         border: Border(
-          bottom: BorderSide(color: Colors.grey[300]!, width: 0.5),
+          bottom: BorderSide(color: colors.border, width: 0.5),
         ),
       ),
       child: SafeArea(
@@ -476,7 +479,7 @@ class _CommentListContentState extends State<CommentListContent> {
                         '回复 @${_replyToComment!.username}',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.blue[700],
+                          color: Theme.of(context).primaryColor,
                         ),
                       ),
                     ),
@@ -485,7 +488,7 @@ class _CommentListContentState extends State<CommentListContent> {
                       child: Icon(
                         Icons.close,
                         size: 18,
-                        color: Colors.grey[600],
+                        color: colors.iconSecondary,
                       ),
                     ),
                   ],
@@ -499,8 +502,8 @@ class _CommentListContentState extends State<CommentListContent> {
                 // 当前登录用户头像
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: Colors.grey[300],
-                  child: const Icon(Icons.person, color: Colors.grey),
+                  backgroundColor: colors.surfaceVariant,
+                  child: Icon(Icons.person, color: colors.iconSecondary),
                 ),
                 const SizedBox(width: 12),
 
@@ -513,17 +516,19 @@ class _CommentListContentState extends State<CommentListContent> {
                       hintText: _replyToComment != null
                           ? '回复 @${_replyToComment!.username}'
                           : '添加公开评论...',
+                      hintStyle: TextStyle(color: colors.textSecondary),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.grey[200],
+                      fillColor: colors.surfaceVariant,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 12,
                       ),
                     ),
+                    style: TextStyle(color: colors.textPrimary),
                     maxLines: null,
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _submitComment(),
@@ -578,6 +583,7 @@ class _CommentItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -594,8 +600,8 @@ class _CommentItem extends StatelessWidget {
                     )
                   : CircleAvatar(
                       radius: 20,
-                      backgroundColor: Colors.grey[200],
-                      child: const Icon(Icons.person, size: 20),
+                      backgroundColor: colors.surfaceVariant,
+                      child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
                     ),
               const SizedBox(width: 12),
 
@@ -609,16 +615,17 @@ class _CommentItem extends StatelessWidget {
                       children: [
                         Text(
                           comment.username,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
+                            color: colors.textPrimary,
                           ),
                         ),
                         const SizedBox(width: 8),
                         Text(
                           formatTime(comment.createdAt),
                           style: TextStyle(
-                            color: Colors.grey[600],
+                            color: colors.textSecondary,
                             fontSize: 12,
                           ),
                         ),
@@ -629,7 +636,7 @@ class _CommentItem extends StatelessWidget {
                     // 评论正文
                     RichText(
                       text: TextSpan(
-                        style: const TextStyle(fontSize: 14, color: Colors.black87),
+                        style: TextStyle(fontSize: 14, color: colors.textPrimary),
                         children: [
                           if (comment.replyUserName != null && comment.replyUserName!.isNotEmpty)
                             TextSpan(
@@ -656,14 +663,14 @@ class _CommentItem extends StatelessWidget {
                               Icon(
                                 Icons.reply,
                                 size: 16,
-                                color: Colors.grey[600],
+                                color: colors.iconSecondary,
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 '回复',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[600],
+                                  color: colors.textSecondary,
                                 ),
                               ),
                             ],
@@ -680,14 +687,14 @@ class _CommentItem extends StatelessWidget {
                                 Icon(
                                   showReplies ? Icons.expand_less : Icons.expand_more,
                                   size: 16,
-                                  color: Colors.grey[600],
+                                  color: colors.iconSecondary,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '${comment.replyCount} 条回复',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Colors.grey[600],
+                                    color: colors.textSecondary,
                                   ),
                                 ),
                               ],
@@ -753,7 +760,7 @@ class _CommentItem extends StatelessWidget {
                                 '收起回复',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[600],
+                                  color: colors.textSecondary,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -765,12 +772,12 @@ class _CommentItem extends StatelessWidget {
                         padding: const EdgeInsets.all(16),
                         child: Text(
                           '暂无回复',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          style: TextStyle(color: colors.textSecondary, fontSize: 12),
                         ),
                       ),
           ),
 
-        const Divider(height: 1),
+        Divider(height: 1, color: colors.divider),
       ],
     );
   }
@@ -796,6 +803,7 @@ class _ReplyItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -808,8 +816,8 @@ class _ReplyItem extends StatelessWidget {
                 )
               : CircleAvatar(
                   radius: 16,
-                  backgroundColor: Colors.grey[200],
-                  child: const Icon(Icons.person, size: 16),
+                  backgroundColor: colors.surfaceVariant,
+                  child: Icon(Icons.person, size: 16, color: colors.iconSecondary),
                 ),
           const SizedBox(width: 12),
           Expanded(
@@ -820,16 +828,17 @@ class _ReplyItem extends StatelessWidget {
                   children: [
                     Text(
                       reply.username,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
+                        color: colors.textPrimary,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       formatTime(reply.createdAt),
                       style: TextStyle(
-                        color: Colors.grey[600],
+                        color: colors.textSecondary,
                         fontSize: 11,
                       ),
                     ),
@@ -840,7 +849,7 @@ class _ReplyItem extends StatelessWidget {
                 // 回复内容
                 RichText(
                   text: TextSpan(
-                    style: const TextStyle(fontSize: 13, color: Colors.black87),
+                    style: TextStyle(fontSize: 13, color: colors.textPrimary),
                     children: [
                       if (reply.replyUserName != null && reply.replyUserName!.isNotEmpty)
                         TextSpan(
@@ -865,7 +874,7 @@ class _ReplyItem extends StatelessWidget {
                         '回复',
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey[600],
+                          color: colors.textSecondary,
                         ),
                       ),
                     ),

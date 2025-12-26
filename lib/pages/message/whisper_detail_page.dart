@@ -5,6 +5,7 @@ import '../../services/user_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 
 /// 私信详情页面
 class WhisperDetailPage extends StatefulWidget {
@@ -138,8 +139,9 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: Row(
           children: [
@@ -151,21 +153,21 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                   )
                 : CircleAvatar(
                     radius: 16,
-                    backgroundColor: Colors.grey[200],
-                    child: const Icon(Icons.person, size: 18, color: Colors.grey),
+                    backgroundColor: colors.surfaceVariant,
+                    child: Icon(Icons.person, size: 18, color: colors.iconSecondary),
                   ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 widget.userName,
-                style: const TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 16, color: colors.textPrimary),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: colors.card,
+        foregroundColor: colors.textPrimary,
         elevation: 0,
       ),
       body: Column(
@@ -182,6 +184,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   }
 
   Widget _buildMessageList() {
+    final colors = context.colors;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -191,16 +194,16 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey[300]),
+            Icon(Icons.chat_bubble_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '暂无消息记录',
-              style: TextStyle(fontSize: 16, color: Colors.grey[500]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
             const SizedBox(height: 8),
             Text(
               '发送第一条消息吧',
-              style: TextStyle(fontSize: 14, color: Colors.grey[400]),
+              style: TextStyle(fontSize: 14, color: colors.textTertiary),
             ),
           ],
         ),
@@ -220,6 +223,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   }
 
   Widget _buildMessageBubble(WhisperDetail message, bool isMe) {
+    final colors = context.colors;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -235,8 +239,8 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                   )
                 : CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.grey[200],
-                    child: const Icon(Icons.person, size: 20, color: Colors.grey),
+                    backgroundColor: colors.surfaceVariant,
+                    child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
                   ),
             const SizedBox(width: 10),
           ],
@@ -250,7 +254,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: isMe ? Colors.blue[500] : Colors.white,
+                    color: isMe ? colors.accentColor : colors.card,
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
@@ -259,7 +263,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
+                        color: colors.shadow,
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -269,7 +273,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                     message.content,
                     style: TextStyle(
                       fontSize: 15,
-                      color: isMe ? Colors.white : Colors.black87,
+                      color: isMe ? Colors.white : colors.textPrimary,
                       height: 1.4,
                     ),
                   ),
@@ -279,7 +283,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                   TimeUtils.formatTime(message.createdAt),
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.grey[500],
+                    color: colors.textTertiary,
                   ),
                 ),
               ],
@@ -295,8 +299,8 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                   )
                 : CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.blue[100],
-                    child: Icon(Icons.person, size: 20, color: Colors.blue[600]),
+                    backgroundColor: colors.accentColor.withValues(alpha: 0.2),
+                    child: Icon(Icons.person, size: 20, color: colors.accentColor),
                   ),
           ],
         ],
@@ -305,6 +309,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   }
 
   Widget _buildInputBar() {
+    final colors = context.colors;
     return Container(
       padding: EdgeInsets.only(
         left: 16,
@@ -313,10 +318,10 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
         bottom: MediaQuery.of(context).padding.bottom + 10,
       ),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.card,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: colors.shadow,
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
@@ -330,15 +335,16 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
               focusNode: _focusNode,
               maxLines: null,
               maxLength: 255,
+              style: TextStyle(color: colors.textPrimary),
               decoration: InputDecoration(
                 hintText: '输入消息...',
-                hintStyle: TextStyle(color: Colors.grey[400]),
+                hintStyle: TextStyle(color: colors.textTertiary),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: colors.inputBackground,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 12,
@@ -358,7 +364,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
               style: ElevatedButton.styleFrom(
                 shape: const CircleBorder(),
                 padding: EdgeInsets.zero,
-                backgroundColor: Colors.blue[500],
+                backgroundColor: colors.accentColor,
               ),
               child: _isSending
                   ? const SizedBox(

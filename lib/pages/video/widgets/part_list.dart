@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/video_detail.dart';
+import '../../../theme/theme_extensions.dart';
 
 /// 分集列表组件
 class PartList extends StatefulWidget {
@@ -87,11 +88,12 @@ class _PartListState extends State<PartList> {
 
   /// 构建标题模式
   Widget _buildTitleMode() {
+    final colors = context.colors;
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: widget.resources.length,
-      separatorBuilder: (context, index) => const Divider(height: 1),
+      separatorBuilder: (context, index) => Divider(height: 1, color: colors.divider),
       itemBuilder: (context, index) {
         final part = widget.resources[index];
         final partNumber = index + 1;
@@ -99,14 +101,14 @@ class _PartListState extends State<PartList> {
 
         return ListTile(
           selected: isCurrentPart,
-          selectedTileColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+          selectedTileColor: colors.accentColor.withValues(alpha: 0.15),
           leading: Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
               color: isCurrentPart
-                  ? Theme.of(context).primaryColor
-                  : Colors.grey[200],
+                  ? colors.accentColor
+                  : colors.surfaceVariant,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Center(
@@ -115,7 +117,7 @@ class _PartListState extends State<PartList> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: isCurrentPart ? Colors.white : Colors.grey[700],
+                  color: isCurrentPart ? Colors.white : colors.textSecondary,
                 ),
               ),
             ),
@@ -125,17 +127,17 @@ class _PartListState extends State<PartList> {
             style: TextStyle(
               fontSize: 14,
               fontWeight: isCurrentPart ? FontWeight.bold : FontWeight.normal,
-              color: isCurrentPart ? Theme.of(context).primaryColor : null,
+              color: isCurrentPart ? colors.accentColor : colors.textPrimary,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           subtitle: Text(
             _formatDuration(part.duration),
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            style: TextStyle(fontSize: 12, color: colors.textSecondary),
           ),
           trailing: isCurrentPart
-              ? Icon(Icons.play_circle, color: Theme.of(context).primaryColor)
+              ? Icon(Icons.play_circle, color: colors.accentColor)
               : null,
           onTap: () {
             if (!isCurrentPart) {
@@ -149,6 +151,7 @@ class _PartListState extends State<PartList> {
 
   /// 构建网格模式
   Widget _buildGridMode() {
+    final colors = context.colors;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -173,11 +176,11 @@ class _PartListState extends State<PartList> {
           child: Container(
             decoration: BoxDecoration(
               color: isCurrentPart
-                  ? Theme.of(context).primaryColor
-                  : Colors.grey[200],
+                  ? colors.accentColor
+                  : colors.surfaceVariant,
               borderRadius: BorderRadius.circular(8),
               border: isCurrentPart
-                  ? Border.all(color: Theme.of(context).primaryColor, width: 2)
+                  ? Border.all(color: colors.accentColor, width: 2)
                   : null,
             ),
             child: Center(
@@ -186,7 +189,7 @@ class _PartListState extends State<PartList> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: isCurrentPart ? Colors.white : Colors.grey[700],
+                  color: isCurrentPart ? Colors.white : colors.textSecondary,
                 ),
               ),
             ),
@@ -202,8 +205,10 @@ class _PartListState extends State<PartList> {
       return const SizedBox.shrink();
     }
 
+    final colors = context.colors;
     return Card(
       elevation: 2,
+      color: colors.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -216,9 +221,10 @@ class _PartListState extends State<PartList> {
                 Expanded(
                   child: Text(
                     '合集 (${widget.resources.length})',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ),
@@ -228,7 +234,7 @@ class _PartListState extends State<PartList> {
                   children: [
                     Text(
                       '自动连播',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      style: TextStyle(fontSize: 12, color: colors.textSecondary),
                     ),
                     const SizedBox(width: 4),
                     Switch(
@@ -244,13 +250,14 @@ class _PartListState extends State<PartList> {
                   icon: Icon(
                     _showTitleMode ? Icons.grid_view : Icons.list,
                     size: 20,
+                    color: colors.iconPrimary,
                   ),
                   onPressed: _toggleViewMode,
                   tooltip: _showTitleMode ? '网格视图' : '列表视图',
                 ),
               ],
             ),
-            const Divider(height: 16),
+            Divider(height: 16, color: colors.divider),
 
             // 分集列表
             _showTitleMode ? _buildTitleMode() : _buildGridMode(),

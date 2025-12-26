@@ -283,6 +283,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
     final colors = context.colors;
     final isActive = _currentStep >= step;
     final isCurrent = _currentStep == step;
+    final isCompleted = _currentStep > step;
 
     return Column(
       children: [
@@ -291,18 +292,18 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           height: 28,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isActive ? Theme.of(context).primaryColor : colors.surfaceVariant,
+            color: isActive ? colors.accentColor : colors.surfaceVariant,
             border: isCurrent
-                ? Border.all(color: Theme.of(context).primaryColor, width: 2)
+                ? Border.all(color: colors.accentColor, width: 2)
                 : null,
           ),
           child: Center(
-            child: isActive && _currentStep > step
+            child: isCompleted
                 ? const Icon(Icons.check, size: 16, color: Colors.white)
                 : Text(
                     '$step',
                     style: TextStyle(
-                      color: isActive ? Colors.white : colors.textSecondary,
+                      color: isActive ? Colors.white : colors.textPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
@@ -314,7 +315,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isActive ? Theme.of(context).primaryColor : colors.textSecondary,
+            color: isActive ? colors.accentColor : colors.textPrimary,
           ),
         ),
       ],
@@ -328,7 +329,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
       child: Container(
         height: 2,
         margin: const EdgeInsets.only(bottom: 20),
-        color: isActive ? Theme.of(context).primaryColor : colors.surfaceVariant,
+        color: isActive ? colors.accentColor : colors.surfaceVariant,
       ),
     );
   }
@@ -529,7 +530,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           height: 80,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.green[50],
+            color: Colors.green.withValues(alpha: 0.1),
           ),
           child: Icon(
             Icons.check_circle,

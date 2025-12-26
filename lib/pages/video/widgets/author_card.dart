@@ -149,19 +149,19 @@ class _AuthorCardState extends State<AuthorCard> {
   ButtonStyle _getFollowButtonStyle() {
     final colors = context.colors;
     if (_relationStatus == 0) {
-      // 未关注：主题色
+      // 未关注：强调色（深色模式下使用亮蓝色）
       return ElevatedButton.styleFrom(
-        backgroundColor: Theme.of(context).primaryColor,
+        backgroundColor: colors.accentColor,
         foregroundColor: Colors.white,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       );
     } else {
-      // 已关注/互粉：灰色（适配深色模式）
+      // 已关注/互粉：高亮灰色（适配深色模式）
       return ElevatedButton.styleFrom(
         backgroundColor: colors.surfaceVariant,
-        foregroundColor: colors.textSecondary,
+        foregroundColor: colors.textPrimary,
         elevation: 0,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),

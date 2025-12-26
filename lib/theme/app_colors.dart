@@ -88,6 +88,9 @@ class LightColors {
   Color get tagBackground => const Color(0xFFF0F0F0);
   Color get tagText => const Color(0xFF666666);
 
+  // 强调色（用于当前选中项、标签等需要突出显示的地方）
+  Color get accentColor => AppColors.primary;
+
   // 进度条
   Color get progressBackground => const Color(0xFFE0E0E0);
   Color get progressForeground => AppColors.primary;
@@ -167,6 +170,9 @@ class DarkColors {
   // 标签/徽章
   Color get tagBackground => const Color(0xFF2C2C2C);
   Color get tagText => const Color(0xFFB0B0B0);
+
+  // 强调色（用于当前选中项、标签等需要突出显示的地方）
+  Color get accentColor => AppColors.primaryLight;
 
   // 进度条
   Color get progressBackground => const Color(0xFF3C3C3C);
