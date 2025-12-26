@@ -4,6 +4,7 @@ import '../models/video_item.dart';
 import '../services/video_api_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/video_card.dart';
+import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 import 'search_page.dart';
 
@@ -190,22 +191,30 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     // 显示错误信息
     if (_errorMessage != null && _videos.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.grey),
-              textAlign: TextAlign.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: colors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadInitialVideos,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.accentColor,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('重试'),
             ),
           ],
@@ -262,13 +271,13 @@ class _HomePageState extends State<HomePage> {
             ),
           // 没有更多数据提示
           if (!_hasMore && _videos.isNotEmpty)
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(16.0),
                 child: Center(
                   child: Text(
                     '没有更多了',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: colors.textTertiary),
                   ),
                 ),
               ),

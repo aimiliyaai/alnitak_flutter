@@ -12,6 +12,7 @@ import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
 import '../widgets/cached_image_widget.dart';
+import '../config/api_config.dart';
 
 /// 设置页面
 class SettingsPage extends StatefulWidget {
@@ -27,6 +28,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final ThemeService _themeService = ThemeService();
 
   bool _backgroundPlayEnabled = false;
+  bool _httpsEnabled = false;
   bool _isLoggedIn = false;
   PackageInfo? _packageInfo;
 
@@ -61,6 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _backgroundPlayEnabled = prefs.getBool('background_play_enabled') ?? false;
+      _httpsEnabled = ApiConfig.httpsEnabled;
     });
   }
 
@@ -79,6 +82,23 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _backgroundPlayEnabled = value;
     });
+  }
+
+  /// 保存 HTTPS 设置
+  Future<void> _saveHttpsSetting(bool value) async {
+    await ApiConfig.setHttpsEnabled(value);
+    setState(() {
+      _httpsEnabled = value;
+    });
+    // 提示用户需要重启应用
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('HTTPS 设置已更改，重启应用后生效'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   /// 加载最大缓存设置
@@ -417,6 +437,21 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: '退到后台时继续播放视频',
               value: _backgroundPlayEnabled,
               onChanged: _saveBackgroundPlaySetting,
+              colors: colors,
+            ),
+          ], colors),
+
+          const SizedBox(height: 12),
+
+          // 网络设置
+          _buildSectionHeader('网络设置', colors),
+          _buildSettingsGroup([
+            _buildSwitchTile(
+              icon: Icons.lock_outline,
+              title: '启用 HTTPS',
+              subtitle: '使用加密连接访问服务器（重启后生效）',
+              value: _httpsEnabled,
+              onChanged: _saveHttpsSetting,
               colors: colors,
             ),
           ], colors),

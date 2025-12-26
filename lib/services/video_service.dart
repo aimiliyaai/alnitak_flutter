@@ -41,38 +41,48 @@ class VideoService {
 
   /// 获取用户操作状态（点赞、收藏、关注）
   Future<UserActionStatus?> getUserActionStatus(int vid, int authorUid) async {
+    bool hasLiked = false;
+    bool hasCollected = false;
+    int relationStatus = 0;
+
+    // 【修复】分别请求，确保某个接口失败不影响其他接口
     try {
-      // 并发请求点赞和收藏状态
-      final results = await Future.wait([
-        _dio.get('/api/v1/archive/video/hasLike', queryParameters: {'vid': vid}),
-        _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid}),
-        _dio.get('/api/v1/relation/getUserRelation', queryParameters: {'userId': authorUid}),
-      ]);
-
-      print('🔍 hasLike响应: ${results[0].data}');
-      print('🔍 hasCollect响应: ${results[1].data}');
-      print('🔍 getUserRelation响应: ${results[2].data}');
-
-      final hasLiked = results[0].data['code'] == 200 ? (results[0].data['data']['like'] ?? false) : false;
-      final hasCollected = results[1].data['code'] == 200 ? (results[1].data['data']['collect'] ?? false) : false;
-      final relationStatus = results[2].data['code'] == 200 ? (results[2].data['data']['relation'] ?? 0) : 0;
-
-      print('🔍 解析后状态: hasLiked=$hasLiked, hasCollected=$hasCollected, relationStatus=$relationStatus');
-
-      return UserActionStatus(
-        hasLiked: hasLiked,
-        hasCollected: hasCollected,
-        relationStatus: relationStatus,
-      );
+      final likeResp = await _dio.get('/api/v1/archive/video/hasLike', queryParameters: {'vid': vid});
+      print('🔍 hasLike响应: ${likeResp.data}');
+      if (likeResp.data['code'] == 200 && likeResp.data['data'] != null) {
+        hasLiked = likeResp.data['data']['like'] == true;
+      }
     } catch (e) {
-      print('获取用户操作状态失败: $e');
-      // 出错时返回默认值
-      return UserActionStatus(
-        hasLiked: false,
-        hasCollected: false,
-        relationStatus: 0,
-      );
+      print('❌ 获取点赞状态失败: $e');
     }
+
+    try {
+      final collectResp = await _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid});
+      print('🔍 hasCollect响应: ${collectResp.data}');
+      if (collectResp.data['code'] == 200 && collectResp.data['data'] != null) {
+        hasCollected = collectResp.data['data']['collect'] == true;
+      }
+    } catch (e) {
+      print('❌ 获取收藏状态失败: $e');
+    }
+
+    try {
+      final relationResp = await _dio.get('/api/v1/relation/getUserRelation', queryParameters: {'userId': authorUid});
+      print('🔍 getUserRelation响应: ${relationResp.data}');
+      if (relationResp.data['code'] == 200 && relationResp.data['data'] != null) {
+        relationStatus = relationResp.data['data']['relation'] ?? 0;
+      }
+    } catch (e) {
+      print('❌ 获取关注状态失败: $e');
+    }
+
+    print('🔍 解析后状态: hasLiked=$hasLiked, hasCollected=$hasCollected, relationStatus=$relationStatus');
+
+    return UserActionStatus(
+      hasLiked: hasLiked,
+      hasCollected: hasCollected,
+      relationStatus: relationStatus,
+    );
   }
 
   /// 点赞视频

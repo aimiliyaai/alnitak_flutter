@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'error_handler.dart';
+import '../config/api_config.dart';
 
 /// HTTP 客户端单例
 class HttpClient {
@@ -19,7 +20,7 @@ class HttpClient {
   HttpClient._internal() {
     dio = Dio(
       BaseOptions(
-        baseUrl: 'http://anime.ayypd.cn:3000',
+        baseUrl: ApiConfig.baseUrl,
         // 大幅增加超时时间,确保HLS分片请求在弱网环境下也能成功
         connectTimeout: const Duration(seconds: 30),  // 连接超时 30秒（提高到30秒）
         receiveTimeout: const Duration(seconds: 60),  // 接收超时 60秒（提高到60秒）
@@ -27,6 +28,9 @@ class HttpClient {
         headers: {
           'Content-Type': 'application/json',
         },
+        // 启用自动重定向支持（最多跟踪5次重定向）
+        followRedirects: true,
+        maxRedirects: 5,
       ),
     );
 
@@ -77,6 +81,17 @@ class HttpClient {
 
     // 【关键修复】初始化时预加载 Token 到内存
     _preloadTokens();
+  }
+
+  /// 初始化 HttpClient（应在 ApiConfig.init() 之后调用）
+  /// 用于更新 baseUrl 并预加载 Token
+  Future<void> init() async {
+    // 更新 baseUrl（确保使用最新的 ApiConfig 配置）
+    dio.options.baseUrl = ApiConfig.baseUrl;
+    print('🌐 HttpClient baseUrl 已更新: ${ApiConfig.baseUrl}');
+
+    // 预加载 Token
+    await _preloadTokens();
   }
 
   /// 预加载 Token 到内存缓存
@@ -156,7 +171,7 @@ class HttpClient {
 
       // 使用新的 Dio 实例避免拦截器循环
       final refreshDio = Dio(BaseOptions(
-        baseUrl: 'http://anime.ayypd.cn:3000',
+        baseUrl: ApiConfig.baseUrl,
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 10),
       ));

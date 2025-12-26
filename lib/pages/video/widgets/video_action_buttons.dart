@@ -56,6 +56,27 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   }
 
   @override
+  void didUpdateWidget(covariant VideoActionButtons oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 【关键修复】当父组件传入新的状态时，更新本地状态
+    if (oldWidget.initialStat != widget.initialStat) {
+      setState(() {
+        _stat = widget.initialStat;
+      });
+    }
+    if (oldWidget.initialHasLiked != widget.initialHasLiked) {
+      setState(() {
+        _hasLiked = widget.initialHasLiked;
+      });
+    }
+    if (oldWidget.initialHasCollected != widget.initialHasCollected) {
+      setState(() {
+        _hasCollected = widget.initialHasCollected;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _likeAnimationController.dispose();
     super.dispose();

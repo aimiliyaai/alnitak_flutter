@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
+import '../config/api_config.dart';
 
 /// HLS 视频流服务类
 /// 负责处理 m3u8 文件的获取、转换和临时文件管理
@@ -12,7 +13,6 @@ class HlsService {
   HlsService._internal();
 
   final Dio _dio = HttpClient().dio;
-  static const String baseUrl = 'http://anime.ayypd.cn:3000';
 
   // 临时文件缓存目录
   Directory? _cacheDir;
@@ -145,7 +145,7 @@ class HlsService {
           convertedLines.add('#EXT-X-ALLOW-CACHE:YES');
           hasAddedCacheTag = true;
         }
-        convertedLines.add('$baseUrl$line');
+        convertedLines.add('${ApiConfig.baseUrl}$line');
       } else {
         convertedLines.add(line);
       }
@@ -331,7 +331,7 @@ class HlsService {
           tsUrls.add(trimmed);
         } else if (trimmed.startsWith('/api/v1/video/slice/')) {
           // 相对路径，转换为绝对URL
-          tsUrls.add('$baseUrl$trimmed');
+          tsUrls.add('${ApiConfig.baseUrl}$trimmed');
         }
       }
       

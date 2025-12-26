@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/api_response.dart';
 import '../models/video_api_model.dart';
+import '../config/api_config.dart';
 import 'logger_service.dart';
 
 class VideoApiService {
-  static const String baseUrl = 'http://anime.ayypd.cn:3000';
+  static String get baseUrl => ApiConfig.baseUrl;
   static const int pageSize = 10;
 
   // 同步获取热门视频（用于初始加载）

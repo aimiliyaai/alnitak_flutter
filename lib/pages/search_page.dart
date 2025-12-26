@@ -3,6 +3,7 @@ import '../models/video_item.dart';
 import '../services/video_api_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/video_card.dart';
+import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 
 class SearchPage extends StatefulWidget {
@@ -185,19 +186,19 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return Scaffold(
       appBar: AppBar(
         title: Container(
           height: 40,
           decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey[800]
-                : Colors.grey[200],
+            color: colors.inputBackground,
             borderRadius: BorderRadius.circular(20),
           ),
           child: TextField(
             controller: _searchController,
             focusNode: _searchFocusNode,
+            style: TextStyle(color: colors.textPrimary),
             decoration: InputDecoration(
               hintText: '搜索视频',
               border: InputBorder.none,
@@ -206,19 +207,19 @@ class _SearchPageState extends State<SearchPage> {
                 vertical: 10,
               ),
               hintStyle: TextStyle(
-                color: Colors.grey[400],
+                color: colors.textTertiary,
                 fontSize: 15,
               ),
               prefixIcon: Icon(
                 Icons.search,
-                color: Colors.grey[400],
+                color: colors.iconSecondary,
                 size: 20,
               ),
               suffixIcon: _searchController.text.isNotEmpty
                   ? IconButton(
                       icon: Icon(
                         Icons.clear,
-                        color: Colors.grey[400],
+                        color: colors.iconSecondary,
                         size: 20,
                       ),
                       onPressed: () {
@@ -239,9 +240,9 @@ class _SearchPageState extends State<SearchPage> {
         actions: [
           TextButton(
             onPressed: _performSearch,
-            child: const Text(
+            child: Text(
               '搜索',
-              style: TextStyle(fontSize: 15),
+              style: TextStyle(fontSize: 15, color: colors.accentColor),
             ),
           ),
         ],
@@ -251,17 +252,18 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     // 未搜索状态
     if (!_hasSearched) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search, size: 80, color: Colors.grey[300]),
+            Icon(Icons.search, size: 80, color: colors.iconSecondary),
             const SizedBox(height: 16),
             Text(
               '输入关键词搜索视频',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
           ],
         ),
@@ -274,16 +276,23 @@ class _SearchPageState extends State<SearchPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: TextStyle(color: Colors.grey[600]),
-              textAlign: TextAlign.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: colors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _performSearch,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.accentColor,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('重试'),
             ),
           ],
@@ -310,7 +319,7 @@ class _SearchPageState extends State<SearchPage> {
               '找到 ${_videos.length} 个相关视频',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey[600],
+                color: colors.textSecondary,
               ),
             ),
           ),
@@ -350,13 +359,13 @@ class _SearchPageState extends State<SearchPage> {
           ),
         // 没有更多数据提示
         if (!_hasMore && _videos.isNotEmpty)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16.0),
               child: Center(
                 child: Text(
                   '没有更多了',
-                  style: TextStyle(color: Colors.grey),
+                  style: TextStyle(color: colors.textTertiary),
                 ),
               ),
             ),

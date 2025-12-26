@@ -10,6 +10,7 @@ import '../../services/video_submit_api_service.dart';
 import '../../utils/image_utils.dart';
 import '../../utils/login_guard.dart';
 import '../../theme/theme_extensions.dart';
+import '../../widgets/cached_image_widget.dart';
 import 'widgets/video_resource_list.dart';
 
 class VideoUploadPage extends StatefulWidget {
@@ -749,36 +750,21 @@ Future<void> _uploadVideo({String? title}) async {
                                 height: double.infinity,
                                 fit: BoxFit.cover,
                               )
-                            : Image.network(
-                                ImageUtils.getFullImageUrl(_coverUrl),
+                            : CachedImage(
+                                imageUrl: ImageUtils.getFullImageUrl(_coverUrl),
                                 width: double.infinity,
                                 height: double.infinity,
                                 fit: BoxFit.cover,
-                                loadingBuilder: (context, child, loadingProgress) {
-                                  if (loadingProgress == null) return child;
-                                  return Center(
-                                    child: CircularProgressIndicator(
-                                      value: loadingProgress.expectedTotalBytes != null
-                                          ? loadingProgress.cumulativeBytesLoaded /
-                                              loadingProgress.expectedTotalBytes!
-                                          : null,
-                                    ),
-                                  );
-                                },
-                                errorBuilder: (context, error, stackTrace) {
-                                  print('⚠️ 封面加载失败: $error');
-                                  print('⚠️ URL: ${ImageUtils.getFullImageUrl(_coverUrl)}');
-                                  return const Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.error, color: Colors.red),
-                                        SizedBox(height: 8),
-                                        Text('封面加载失败', style: TextStyle(fontSize: 12)),
-                                      ],
-                                    ),
-                                  );
-                                },
+                                errorWidget: const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.error, color: Colors.red),
+                                      SizedBox(height: 8),
+                                      Text('封面加载失败', style: TextStyle(fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
                               ),
                       ),
                       Positioned(

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../models/video_detail.dart';
 import '../../models/comment.dart';
+import '../../models/history_models.dart';
 import '../../services/video_service.dart';
 import '../../services/hls_service.dart';
 import '../../services/history_service.dart';
 import '../../utils/auth_state_manager.dart';
+import '../../theme/theme_extensions.dart';
 import 'widgets/media_player_widget.dart';
 import 'widgets/author_card.dart';
 import 'widgets/video_info_card.dart';
@@ -146,8 +148,17 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     });
 
     try {
-      // 先获取视频详情，然后获取历史记录（不传part参数，获取最后观看的分P）
-      final videoDetail = await _videoService.getVideoDetail(widget.vid);
+      // 【性能优化】并发请求视频详情和历史记录
+      final initialResults = await Future.wait([
+        _videoService.getVideoDetail(widget.vid),
+        _historyService.getProgress(
+          vid: widget.vid,
+          part: widget.initialPart, // 如果指定了分P则获取该分P进度，否则获取最后观看的
+        ),
+      ]);
+
+      final videoDetail = initialResults[0] as VideoDetail?;
+      final progressData = initialResults[1] as PlayProgressData?;
 
       if (videoDetail == null) {
         setState(() {
@@ -157,69 +168,91 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 如果指定了初始分P，使用指定的；否则从历史记录获取最后观看的分P
+      // 解析历史记录
       int targetPart = widget.initialPart ?? 1;
       double? progress;
 
-      if (widget.initialPart == null) {
-        // 没有指定初始分P，从历史记录获取最后观看的分P和进度
-        final progressData = await _historyService.getProgress(vid: widget.vid);
-        if (progressData != null) {
-          targetPart = progressData.part;
-          progress = progressData.progress;
-          print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
-        }
-      } else {
-        // 指定了初始分P，获取该分P的进度
-        final progressData = await _historyService.getProgress(
-          vid: widget.vid,
-          part: widget.initialPart,
-        );
-        if (progressData != null) {
-          progress = progressData.progress;
-        }
+      if (progressData != null) {
+        targetPart = progressData.part;
+        progress = progressData.progress;
+        print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
       }
-
-      // 并发请求其他接口
-      final results = await Future.wait([
-        _videoService.getVideoStat(widget.vid),
-        _videoService.getUserActionStatus(
-          widget.vid,
-          videoDetail.author.uid,
-        ),
-      ]);
-
-      final videoStat = results[0] as VideoStat?;
-      final actionStatus = results[1] as UserActionStatus?;
 
       // 如果进度为-1，表示已看完，应该从头开始播放
       if (progress != null && progress == -1) {
         print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
-        progress = null; // 设为null表示从头播放
-        _hasReportedCompleted = false; // 重置已看完标记，允许重新上报完成状态
+        progress = null;
+        _hasReportedCompleted = false;
       }
 
-      // 获取评论信息（仅获取第一页的第一条评论作为预览）
-      await _loadCommentPreview();
-
+      // 【关键优化】先设置基础数据，让UI立即渲染（播放器可以开始加载）
       setState(() {
         _videoDetail = videoDetail;
-        _currentPart = targetPart; // 设置从历史记录获取的分P
-        _videoStat = videoStat ?? VideoStat(like: 0, collect: 0, share: 0);
-        _actionStatus = actionStatus ?? UserActionStatus(
+        _currentPart = targetPart;
+        _videoStat = VideoStat(like: 0, collect: 0, share: 0); // 临时默认值
+        _actionStatus = UserActionStatus(
           hasLiked: false,
           hasCollected: false,
           relationStatus: 0,
         );
         _initialProgress = progress;
-        _isLoading = false;
+        _isLoading = false; // 立即结束加载状态
       });
+
+      // 【后台加载】并发请求次要数据（不阻塞主UI）
+      _loadSecondaryData(videoDetail.author.uid);
     } catch (e) {
       setState(() {
         _errorMessage = '加载失败: $e';
         _isLoading = false;
       });
     }
+  }
+
+  /// 后台加载次要数据（统计、操作状态、评论预览）
+  Future<void> _loadSecondaryData(int authorUid) async {
+    // 【优化】并发请求所有次要数据，每个请求独立处理错误
+    final futures = await Future.wait([
+      // 1. 视频统计（不需要登录）
+      _videoService.getVideoStat(widget.vid).catchError((e) {
+        print('❌ 获取视频统计失败: $e');
+        return null;
+      }),
+      // 2. 评论预览（不需要登录）
+      _videoService.getComments(vid: widget.vid, page: 1, pageSize: 1).catchError((e) {
+        print('❌ 获取评论预览失败: $e');
+        return null;
+      }),
+      // 3. 用户操作状态（需要登录）
+      _videoService.getUserActionStatus(widget.vid, authorUid).catchError((e) {
+        print('❌ 获取用户操作状态失败: $e');
+        return null;
+      }),
+    ]);
+
+    if (!mounted) return;
+
+    final videoStat = futures[0] as VideoStat?;
+    final commentResponse = futures[1] as CommentListResponse?;
+    final actionStatus = futures[2] as UserActionStatus?;
+
+    print('📺 次要数据加载完成: stat=${videoStat != null}, comments=${commentResponse != null}, action=${actionStatus != null}');
+    print('📺 用户操作状态: hasLiked=${actionStatus?.hasLiked}, hasCollected=${actionStatus?.hasCollected}');
+
+    setState(() {
+      if (videoStat != null) {
+        _videoStat = videoStat;
+      }
+      if (commentResponse != null) {
+        _totalComments = commentResponse.total;
+        _latestComment = commentResponse.comments.isNotEmpty
+            ? commentResponse.comments.first
+            : null;
+      }
+      if (actionStatus != null) {
+        _actionStatus = actionStatus;
+      }
+    });
   }
 
   /// 刷新作者信息（用于从个人中心返回后更新）
@@ -335,28 +368,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
-  /// 加载评论预览（仅加载第一条评论和总数）
-  Future<void> _loadCommentPreview() async {
-    try {
-      final response = await _videoService.getComments(
-        vid: widget.vid,
-        page: 1,
-        pageSize: 1, // 只获取第一条评论
-      );
-
-      if (response != null) {
-        setState(() {
-          _totalComments = response.total;
-          _latestComment =
-          response.comments.isNotEmpty ? response.comments.first : null;
-        });
-      }
-    } catch (e) {
-      print('加载评论预览失败: $e');
-      // 失败时不影响主流程
-    }
-  }
-
   /// 播放结束回调（仅用于上报播放完成，不处理自动播放逻辑）
   void _onVideoEnded() {
     // 避免重复上报
@@ -405,16 +416,28 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     if (_errorMessage != null) {
+      final colors = context.colors;
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            Text(_errorMessage!, style: const TextStyle(color: Colors.grey)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: colors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadVideoData,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.accentColor,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('重试'),
             ),
           ],
@@ -423,8 +446,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
 
     if (_videoDetail == null) {
-      return const Center(
-        child: Text('视频加载失败', style: TextStyle(color: Colors.grey)),
+      final colors = context.colors;
+      return Center(
+        child: Text('视频加载失败', style: TextStyle(color: colors.textSecondary)),
       );
     }
 

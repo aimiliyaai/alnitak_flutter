@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/upload_article.dart';
 import '../../services/article_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import 'article_upload_page.dart';
 
 class ArticleManuscriptPage extends StatefulWidget {
@@ -187,22 +188,30 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     // 显示错误信息
     if (_errorMessage != null && _articles.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.grey),
-              textAlign: TextAlign.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: colors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadArticles,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.accentColor,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('重试'),
             ),
           ],
@@ -223,11 +232,11 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.article_outlined, size: 80, color: Colors.grey),
+            Icon(Icons.article_outlined, size: 80, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               '还没有投稿文章',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(

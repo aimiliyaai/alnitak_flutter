@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/upload_video.dart';
 import '../../services/video_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../theme/theme_extensions.dart';
 import 'video_upload_page.dart';
 
 class VideoManuscriptPage extends StatefulWidget {
@@ -191,22 +192,30 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
   }
 
   Widget _buildBody() {
+    final colors = context.colors;
     // 显示错误信息
     if (_errorMessage != null && _videos.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            Text(
-              _errorMessage!,
-              style: const TextStyle(color: Colors.grey),
-              textAlign: TextAlign.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: colors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadVideos,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colors.accentColor,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('重试'),
             ),
           ],
@@ -227,11 +236,11 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.video_library_outlined, size: 80, color: Colors.grey),
+            Icon(Icons.video_library_outlined, size: 80, color: colors.iconSecondary),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               '还没有投稿视频',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(

@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import '../utils/redirect_http_service.dart';
 
 /// 自定义缓存管理器 - 使用稳定的缓存 key 避免重复缓存
 ///
@@ -15,10 +16,10 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
   SmartCacheManager._() : super(
     Config(
       key,
-      stalePeriod: const Duration(days: 7), // 7天后过期
-      maxNrOfCacheObjects: 200, // 最多缓存200个文件
+      stalePeriod: const Duration(days: 14), // 14天后过期
+      maxNrOfCacheObjects: 1000, // 缓存1000个文件
       repo: JsonCacheInfoRepository(databaseName: key),
-      fileService: HttpFileService(),
+      fileService: RedirectAwareHttpFileService(), // 使用支持重定向的服务
     ),
   );
 
@@ -89,19 +90,15 @@ class CachedImage extends StatelessWidget {
       fit: fit ?? BoxFit.cover,
       width: width,
       height: height,
+      fadeInDuration: const Duration(milliseconds: 200),
+      fadeOutDuration: const Duration(milliseconds: 100),
+      // 加载中：带闪烁动画的骨架屏
       placeholder: placeholder != null
           ? (context, url) => placeholder!
-          : (context, url) {
-              final isDark = Theme.of(context).brightness == Brightness.dark;
-              return Container(
-                color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                  ),
-                ),
-              );
-            },
+          : (context, url) => _ShimmerPlaceholder(
+                width: width,
+                height: height,
+              ),
       errorWidget: errorWidget != null
           ? (context, url, error) => errorWidget!
           : (context, url, error) {
@@ -114,10 +111,11 @@ class CachedImage extends StatelessWidget {
                 ),
               );
             },
-      // 优化缓存策略
-      memCacheWidth: 800, // 限制内存缓存宽度
-      maxHeightDiskCache: 1000, // 限制磁盘缓存高度
-      maxWidthDiskCache: 1000, // 限制磁盘缓存宽度
+      // 根据实际显示尺寸缓存
+      memCacheWidth: width?.toInt(),
+      memCacheHeight: height?.toInt(),
+      maxHeightDiskCache: 800,
+      maxWidthDiskCache: 800,
     );
 
     if (borderRadius != null) {
@@ -128,6 +126,55 @@ class CachedImage extends StatelessWidget {
     }
 
     return imageWidget;
+  }
+}
+
+/// 闪烁骨架屏占位符
+class _ShimmerPlaceholder extends StatefulWidget {
+  final double? width;
+  final double? height;
+
+  const _ShimmerPlaceholder({this.width, this.height});
+
+  @override
+  State<_ShimmerPlaceholder> createState() => _ShimmerPlaceholderState();
+}
+
+class _ShimmerPlaceholderState extends State<_ShimmerPlaceholder>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.3, end: 0.6).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]!;
+    final highlightColor = isDark ? const Color(0xFF3C3C3C) : Colors.grey[300]!;
+
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, _) => Container(
+        width: widget.width,
+        height: widget.height,
+        color: Color.lerp(baseColor, highlightColor, _animation.value),
+      ),
+    );
   }
 }
 
@@ -168,11 +215,13 @@ class CachedCircleAvatar extends StatelessWidget {
           fit: BoxFit.cover,
           width: radius * 2,
           height: radius * 2,
+          // 【性能优化】快速淡入
+          fadeInDuration: const Duration(milliseconds: 150),
+          fadeOutDuration: const Duration(milliseconds: 150),
+          // 【性能优化】使用空容器占位，头像背景色已由 CircleAvatar 提供
           placeholder: placeholder != null
               ? (context, url) => placeholder!
-              : (context, url) => const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+              : (context, url) => const SizedBox(),
           errorWidget: errorWidget != null
               ? (context, url, error) => errorWidget!
               : (context, url, error) => Icon(
@@ -181,6 +230,7 @@ class CachedCircleAvatar extends StatelessWidget {
                     color: Colors.grey,
                   ),
           memCacheWidth: (radius * 2 * 2).toInt(), // 2x for retina
+          memCacheHeight: (radius * 2 * 2).toInt(),
           maxHeightDiskCache: (radius * 2 * 2).toInt(),
           maxWidthDiskCache: (radius * 2 * 2).toInt(),
         ),

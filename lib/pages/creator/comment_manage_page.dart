@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/theme_extensions.dart';
+import '../../widgets/cached_image_widget.dart';
 
 /// 评论管理页面
 class CommentManagePage extends StatefulWidget {
@@ -354,16 +355,16 @@ class _CommentManagePageState extends State<CommentManagePage>
                   height: 60,
                   color: colors.surfaceVariant,
                   child: comment['videoCover'] != null
-                      ? Image.network(
-                          comment['videoCover'],
+                      ? CachedImage(
+                          imageUrl: comment['videoCover'],
+                          width: 80,
+                          height: 60,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(
-                              Icons.video_library_outlined,
-                              size: 30,
-                              color: colors.iconSecondary,
-                            );
-                          },
+                          errorWidget: Icon(
+                            Icons.video_library_outlined,
+                            size: 30,
+                            color: colors.iconSecondary,
+                          ),
                         )
                       : Icon(
                           _tabController.index == 0

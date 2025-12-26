@@ -146,33 +146,33 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
 
-      // --- 【以下是关键改动区域】 ---
-      await _loadLoopMode();
-      await _loadBackgroundPlaySetting();
+      // 【性能优化】并发执行初始化操作
+      // 第一批：配置播放器属性 + 获取清晰度列表 + 加载设置（并发）
+      final initResults = await Future.wait([
+        _configurePlayerProperties(), // 配置 MPV 属性
+        _hlsService.getAvailableQualities(resourceId), // 获取清晰度
+        _loadSettingsParallel(), // 并发加载所有设置
+      ]);
 
-      // 【关键修复】切换视频时，不销毁 Service，而是更新它的 player 实例
-      if (backgroundPlayEnabled.value) {
-        try {
-          await _ensureAudioServiceReady();
-        } catch (e) {
-          debugPrint('❌ [AudioService] 准备失败: $e');
-        }
-      }
-      // --- 【以上是关键改动区域】 ---
-      await _configurePlayerProperties();
+      final qualities = initResults[1] as List<String>;
 
-      // 【关键】重新初始化时清理 MPV 底层缓存
-      await _clearPlayerCache();
-
-      availableQualities.value = await _hlsService.getAvailableQualities(resourceId);
-
-      if (availableQualities.value.isEmpty) {
+      if (qualities.isEmpty) {
         throw Exception('没有可用的清晰度');
       }
 
-      availableQualities.value = _sortQualitiesDescending(availableQualities.value);
+      availableQualities.value = _sortQualitiesDescending(qualities);
+
+      // 获取首选清晰度（使用已缓存的 prefs）
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
+      // 【性能优化】后台启动 AudioService（不阻塞视频加载）
+      if (backgroundPlayEnabled.value) {
+        _ensureAudioServiceReady().catchError((e) {
+          debugPrint('❌ [AudioService] 准备失败: $e');
+        });
+      }
+
+      // 加载视频（这里是主要耗时操作）
       await _loadVideo(currentQuality.value!, isInitialLoad: true, initialPosition: initialPosition);
 
       isLoading.value = false;
@@ -187,6 +187,14 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = false;
       errorMessage.value = _getErrorMessage(e);
     }
+  }
+
+  /// 并发加载所有设置
+  Future<void> _loadSettingsParallel() async {
+    final prefs = await SharedPreferences.getInstance();
+    // 一次性读取所有设置
+    loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
+    backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
   }
 
   /// 根据错误类型返回友好的错误提示
@@ -620,16 +628,16 @@ class VideoPlayerController extends ChangeNotifier {
       // 允许缓存 seek（在已缓冲范围内快进不重新请求）
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
 
-      // ========== 3. 秒开优化（边播边缓冲）==========
+      // ========== 3. 激进预缓冲模式 ==========
 
-      // 不暂停等待缓冲（边播边加载）
-      await nativePlayer.setProperty('cache-pause', 'no');
+      // 【关键】允许暂停等待缓冲（这样MPV才会积极预载）
+      await nativePlayer.setProperty('cache-pause', 'yes');
 
-      // 最小缓冲阈值：3秒就开始播放（更快秒开）
-      await nativePlayer.setProperty('cache-pause-initial', 'no');
+      // 【关键】初始缓冲：等待一定量的数据后再开始播放
+      await nativePlayer.setProperty('cache-pause-initial', 'yes');
 
-      // 缓冲恢复阈值：当缓冲低于此值时暂停等待
-      await nativePlayer.setProperty('cache-pause-wait', '2');
+      // 缓冲恢复阈值：当缓冲低于5秒时暂停等待
+      await nativePlayer.setProperty('cache-pause-wait', '5');
 
       // ========== 4. 网络优化 ==========
 
@@ -988,11 +996,12 @@ class VideoPlayerController extends ChangeNotifier {
   /// 只要duration>0就继续，最多等待2秒
   Future<void> _waitForPlayerReadyFast() async {
     int waitCount = 0;
+    // 【秒开优化】只等待最多1秒，50ms检测间隔（更快响应）
     while (player.state.duration.inSeconds <= 0 && waitCount < 20) {
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 50));
       waitCount++;
     }
-    // 如果2秒内还没就绪，也继续（让播放器边播边加载）
+    // 如果1秒内还没就绪，也继续（让播放器边播边加载）
     if (player.state.duration.inSeconds <= 0) {
       debugPrint('⚠️ 播放器未完全就绪，但继续加载（边播边缓冲）');
     }
@@ -1176,30 +1185,10 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> setRate(double rate) async => await player.setRate(rate);
 
   // ============ 偏好设置与辅助方法 ============
-  Future<void> _loadLoopMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
-  }
-
   Future<void> _saveLoopMode(LoopMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_loopModeKey, mode.toSavedString());
     loopMode.value = mode;
-  }
-
-  Future<void> _loadBackgroundPlaySetting() async {
-    final prefs = await SharedPreferences.getInstance();
-    backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
-
-    // 【关键】如果后台播放已开启，预初始化 AudioService
-    if (backgroundPlayEnabled.value && !_audioServiceInitialized) {
-      // 延迟初始化，避免阻塞视频加载
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (!_audioServiceInitialized && backgroundPlayEnabled.value) {
-          _ensureAudioServiceReady();
-        }
-      });
-    }
   }
 
   Future<String> _getPreferredQuality(List<String> availableQualitiesList) async {
