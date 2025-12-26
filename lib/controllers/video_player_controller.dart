@@ -628,16 +628,17 @@ class VideoPlayerController extends ChangeNotifier {
       // 允许缓存 seek（在已缓冲范围内快进不重新请求）
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
 
-      // ========== 3. 激进预缓冲模式 ==========
+      // ========== 3. 激进预缓冲模式（平衡秒开与预载）==========
 
       // 【关键】允许暂停等待缓冲（这样MPV才会积极预载）
       await nativePlayer.setProperty('cache-pause', 'yes');
 
-      // 【关键】初始缓冲：等待一定量的数据后再开始播放
-      await nativePlayer.setProperty('cache-pause-initial', 'yes');
+      // 【秒开优化】初始不等待缓冲，立即开始播放
+      // 结合 demuxer-readahead-secs=120，播放的同时会积极预载后续内容
+      await nativePlayer.setProperty('cache-pause-initial', 'no');
 
-      // 缓冲恢复阈值：当缓冲低于5秒时暂停等待
-      await nativePlayer.setProperty('cache-pause-wait', '5');
+      // 缓冲恢复阈值：当缓冲低于3秒时才暂停等待（减少卡顿）
+      await nativePlayer.setProperty('cache-pause-wait', '3');
 
       // ========== 4. 网络优化 ==========
 
