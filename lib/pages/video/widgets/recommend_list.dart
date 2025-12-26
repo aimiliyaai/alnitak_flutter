@@ -157,17 +157,16 @@ class _RecommendListState extends State<RecommendList> {
                 ),
               ),
 
-            // 推荐视频列表
+            // 推荐视频列表 - 使用 Column 代替 ListView 避免嵌套滚动性能问题
+            // 由于推荐列表通常不超过10个，直接使用 Column 比 shrinkWrap ListView 更高效
             if (!_isLoading && _recommendVideos.isNotEmpty)
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _recommendVideos.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final video = _recommendVideos[index];
-                  return _buildVideoCard(video, index);
-                },
+              Column(
+                children: [
+                  for (int index = 0; index < _recommendVideos.length; index++) ...[
+                    if (index > 0) const SizedBox(height: 12),
+                    _buildVideoCard(_recommendVideos[index], index),
+                  ],
+                ],
               ),
 
             // 空状态

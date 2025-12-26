@@ -86,116 +86,121 @@ class _PartListState extends State<PartList> {
     return null;
   }
 
-  /// 构建标题模式
+  /// 构建标题模式 - 使用 Column 代替 shrinkWrap ListView 提升性能
   Widget _buildTitleMode() {
     final colors = context.colors;
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: widget.resources.length,
-      separatorBuilder: (context, index) => Divider(height: 1, color: colors.divider),
-      itemBuilder: (context, index) {
-        final part = widget.resources[index];
-        final partNumber = index + 1;
-        final isCurrentPart = partNumber == widget.currentPart;
+    return Column(
+      children: [
+        for (int index = 0; index < widget.resources.length; index++) ...[
+          if (index > 0) Divider(height: 1, color: colors.divider),
+          _buildPartListTile(index, colors),
+        ],
+      ],
+    );
+  }
 
-        return ListTile(
-          selected: isCurrentPart,
-          selectedTileColor: colors.accentColor.withValues(alpha: 0.15),
-          leading: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: isCurrentPart
-                  ? colors.accentColor
-                  : colors.surfaceVariant,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Text(
-                'P$partNumber',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isCurrentPart ? Colors.white : colors.textSecondary,
-                ),
-              ),
-            ),
-          ),
-          title: Text(
-            part.title.isNotEmpty ? part.title : 'P$partNumber',
+  /// 构建单个分集项
+  Widget _buildPartListTile(int index, dynamic colors) {
+    final part = widget.resources[index];
+    final partNumber = index + 1;
+    final isCurrentPart = partNumber == widget.currentPart;
+
+    return ListTile(
+      selected: isCurrentPart,
+      selectedTileColor: colors.accentColor.withValues(alpha: 0.15),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isCurrentPart
+              ? colors.accentColor
+              : colors.surfaceVariant,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'P$partNumber',
             style: TextStyle(
-              fontSize: 14,
-              fontWeight: isCurrentPart ? FontWeight.bold : FontWeight.normal,
-              color: isCurrentPart ? colors.accentColor : colors.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isCurrentPart ? Colors.white : colors.textSecondary,
             ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
-          subtitle: Text(
-            _formatDuration(part.duration),
-            style: TextStyle(fontSize: 12, color: colors.textSecondary),
-          ),
-          trailing: isCurrentPart
-              ? Icon(Icons.play_circle, color: colors.accentColor)
-              : null,
-          onTap: () {
-            if (!isCurrentPart) {
-              widget.onPartChange(partNumber);
-            }
-          },
-        );
+        ),
+      ),
+      title: Text(
+        part.title.isNotEmpty ? part.title : 'P$partNumber',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: isCurrentPart ? FontWeight.bold : FontWeight.normal,
+          color: isCurrentPart ? colors.accentColor : colors.textPrimary,
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        _formatDuration(part.duration),
+        style: TextStyle(fontSize: 12, color: colors.textSecondary),
+      ),
+      trailing: isCurrentPart
+          ? Icon(Icons.play_circle, color: colors.accentColor)
+          : null,
+      onTap: () {
+        if (!isCurrentPart) {
+          widget.onPartChange(partNumber);
+        }
       },
     );
   }
 
-  /// 构建网格模式
+  /// 构建网格模式 - 使用 Wrap 代替 shrinkWrap GridView 提升性能
   Widget _buildGridMode() {
     final colors = context.colors;
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 6,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        childAspectRatio: 1.5,
-      ),
-      itemCount: widget.resources.length,
-      itemBuilder: (context, index) {
-        final partNumber = index + 1;
-        final isCurrentPart = partNumber == widget.currentPart;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (int index = 0; index < widget.resources.length; index++)
+          _buildGridItem(index, colors),
+      ],
+    );
+  }
 
-        return InkWell(
-          onTap: () {
-            if (!isCurrentPart) {
-              widget.onPartChange(partNumber);
-            }
-          },
+  /// 构建网格项
+  Widget _buildGridItem(int index, dynamic colors) {
+    final partNumber = index + 1;
+    final isCurrentPart = partNumber == widget.currentPart;
+
+    return InkWell(
+      onTap: () {
+        if (!isCurrentPart) {
+          widget.onPartChange(partNumber);
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 48,
+        height: 32,
+        decoration: BoxDecoration(
+          color: isCurrentPart
+              ? colors.accentColor
+              : colors.surfaceVariant,
           borderRadius: BorderRadius.circular(8),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isCurrentPart
-                  ? colors.accentColor
-                  : colors.surfaceVariant,
-              borderRadius: BorderRadius.circular(8),
-              border: isCurrentPart
-                  ? Border.all(color: colors.accentColor, width: 2)
-                  : null,
-            ),
-            child: Center(
-              child: Text(
-                '$partNumber',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: isCurrentPart ? Colors.white : colors.textSecondary,
-                ),
-              ),
+          border: isCurrentPart
+              ? Border.all(color: colors.accentColor, width: 2)
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            '$partNumber',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: isCurrentPart ? Colors.white : colors.textSecondary,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 

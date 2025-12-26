@@ -76,21 +76,19 @@ class HistoryService {
       final code = response.data['code'];
 
       if (code == 200) {
-        final data = PlayProgressData.fromJson(response.data['data']);
+        final progress = PlayProgressData.fromJson(response.data['data']);
         print(
-          '📍 获取播放进度: '
-          'vid=$vid, part=${data.part}, progress=${data.progress.toStringAsFixed(1)}s',
+          '📍 获取服务端进度: '
+          'vid=$vid, part=${progress.part}, progress=${progress.progress.toStringAsFixed(1)}s',
         );
-        return data;
-      }
-
-      if (code == 404) {
-        print('ℹ️ 无历史记录: vid=$vid${part != null ? ", part=$part" : ""}');
+        return progress;
+      } else if (code == 404) {
+        print('ℹ️ 服务端无历史记录: vid=$vid${part != null ? ", part=$part" : ""}');
+        return null;
+      } else {
+        print('⚠️ 获取播放进度失败: code=$code, msg=${response.data['msg']}');
         return null;
       }
-
-      print('⚠️ 获取播放进度失败: code=$code, msg=${response.data['msg']}');
-      return null;
     } catch (e) {
       print('❌ 获取播放进度异常: $e');
       return null;

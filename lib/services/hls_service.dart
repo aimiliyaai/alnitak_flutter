@@ -318,15 +318,26 @@ class HlsService {
   /// 
   /// [m3u8Content] m3u8内容字符串
   /// [segmentCount] 预加载的分片数量（默认3个）
+  /// [startPosition] 起始播放位置（秒），用于智能预加载对应位置的分片
   /// 返回预加载的分片URL列表
-  Future<List<String>> preloadTsSegments(String m3u8Content, {int segmentCount = 3}) async {
+  Future<List<String>> preloadTsSegments(String m3u8Content, {int segmentCount = 3, double? startPosition}) async {
     try {
       final lines = m3u8Content.split('\n');
       final tsUrls = <String>[];
-      
-      // 解析TS分片URL
-      for (var line in lines) {
-        final trimmed = line.trim();
+      final segmentDurations = <double>[];
+
+      // 解析TS分片URL和时长
+      for (int i = 0; i < lines.length; i++) {
+        final trimmed = lines[i].trim();
+
+        // 解析分片时长
+        if (trimmed.startsWith('#EXTINF:')) {
+          final durationStr = trimmed.substring(8).split(',')[0];
+          final duration = double.tryParse(durationStr) ?? 4.0;
+          segmentDurations.add(duration);
+        }
+
+        // 解析分片URL
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
           tsUrls.add(trimmed);
         } else if (trimmed.startsWith('/api/v1/video/slice/')) {
@@ -334,17 +345,36 @@ class HlsService {
           tsUrls.add('${ApiConfig.baseUrl}$trimmed');
         }
       }
-      
+
       if (tsUrls.isEmpty) {
         print('⚠️ 未找到TS分片URL');
         return [];
       }
-      
-      // 只预加载前N个分片
-      final segmentsToPreload = tsUrls.take(segmentCount).toList();
-      
-      print('🚀 开始预加载 ${segmentsToPreload.length} 个TS分片...');
-      
+
+      // 【智能预加载】根据起始位置确定预加载的分片索引
+      int startIndex = 0;
+      if (startPosition != null && startPosition > 0) {
+        double accumulatedDuration = 0;
+        for (int i = 0; i < segmentDurations.length && i < tsUrls.length; i++) {
+          if (accumulatedDuration >= startPosition) {
+            startIndex = i > 0 ? i - 1 : 0; // 从前一个分片开始，确保无缝
+            break;
+          }
+          accumulatedDuration += segmentDurations[i];
+        }
+        // 如果累计时长仍小于起始位置，从最后几个分片开始
+        if (startIndex == 0 && accumulatedDuration < startPosition) {
+          startIndex = tsUrls.length > segmentCount ? tsUrls.length - segmentCount : 0;
+        }
+        print('📍 智能预加载: 起始位置=${startPosition.toInt()}s, 从分片#$startIndex 开始');
+      }
+
+      // 获取要预加载的分片（从 startIndex 开始）
+      final endIndex = (startIndex + segmentCount).clamp(0, tsUrls.length);
+      final segmentsToPreload = tsUrls.sublist(startIndex, endIndex);
+
+      print('🚀 开始预加载 ${segmentsToPreload.length} 个TS分片 ($startIndex-${endIndex - 1})...');
+
       // 并发下载分片（不等待完成，让播放器边播边加载）
       unawaited(Future.wait(
         segmentsToPreload.map((url) async {
@@ -363,7 +393,7 @@ class HlsService {
           }
         }),
       ));
-      
+
       return segmentsToPreload;
     } catch (e) {
       print('❌ 预加载TS分片失败: $e');

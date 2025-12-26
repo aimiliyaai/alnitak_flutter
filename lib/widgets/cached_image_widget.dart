@@ -129,51 +129,21 @@ class CachedImage extends StatelessWidget {
   }
 }
 
-/// 闪烁骨架屏占位符
-class _ShimmerPlaceholder extends StatefulWidget {
+/// 静态骨架屏占位符（性能优化：移除动画，减少CPU消耗）
+/// 多个图片同时加载时，静态占位符比闪烁动画性能更好
+class _ShimmerPlaceholder extends StatelessWidget {
   final double? width;
   final double? height;
 
   const _ShimmerPlaceholder({this.width, this.height});
 
   @override
-  State<_ShimmerPlaceholder> createState() => _ShimmerPlaceholderState();
-}
-
-class _ShimmerPlaceholderState extends State<_ShimmerPlaceholder>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    )..repeat(reverse: true);
-    _animation = Tween<double>(begin: 0.3, end: 0.6).animate(_controller);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = isDark ? const Color(0xFF2C2C2C) : Colors.grey[200]!;
-    final highlightColor = isDark ? const Color(0xFF3C3C3C) : Colors.grey[300]!;
-
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, _) => Container(
-        width: widget.width,
-        height: widget.height,
-        color: Color.lerp(baseColor, highlightColor, _animation.value),
-      ),
+    return Container(
+      width: width,
+      height: height,
+      color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
     );
   }
 }

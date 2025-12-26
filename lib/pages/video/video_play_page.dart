@@ -53,6 +53,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
   double _currentDuration = 0;
 
+  // 【关键】播放器控制器引用，用于离开页面时获取实时进度
+  dynamic _playerController;
+
   // 评论相关
   int _totalComments = 0;
   Comment? _latestComment;
@@ -112,8 +115,30 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 移除登录状态监听
     _authStateManager.removeListener(_onAuthStateChanged);
 
-    // 页面关闭前上报最后播放进度（参考PC端逻辑）
-    if (_lastReportedPosition != null) {
+    // 【关键修复】页面关闭前获取播放器当前实时进度
+    // 优先使用播放器实时位置，而不是回调更新的 _lastReportedPosition
+    double? progressToSave;
+
+    // 1. 首先尝试从播放器获取实时位置
+    if (_playerController != null) {
+      try {
+        final currentPosition = _playerController.player.state.position;
+        if (currentPosition.inSeconds > 0) {
+          progressToSave = currentPosition.inSeconds.toDouble();
+          print('📊 从播放器获取实时进度: ${currentPosition.inSeconds}秒');
+        }
+      } catch (e) {
+        print('⚠️ 获取播放器实时进度失败: $e');
+      }
+    }
+
+    // 2. 如果无法从播放器获取，使用回调记录的位置
+    progressToSave ??= _lastReportedPosition?.inSeconds.toDouble();
+
+    // 3. 最后使用初始进度作为兜底
+    progressToSave ??= _initialProgress;
+
+    if (progressToSave != null && progressToSave > 0) {
       // 如果已经完播，退出时应该上报-1而不是总时长
       if (_hasReportedCompleted) {
         print('📊 页面关闭前上报进度: -1 (已完播)');
@@ -124,14 +149,16 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           duration: _currentDuration.toInt(),
         );
       } else {
-        print('📊 页面关闭前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+        print('📊 页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒');
         _historyService.addHistory(
           vid: widget.vid,
           part: _currentPart,
-          time: _lastReportedPosition!.inSeconds.toDouble(),
+          time: progressToSave,
           duration: _currentDuration.toInt(),
         );
       }
+    } else {
+      print('📊 页面关闭: 无有效进度需要保存');
     }
 
     _scrollController.dispose();
@@ -504,6 +531,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             initialPosition: _initialProgress,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
+            onControllerReady: (controller) => _playerController = controller,
             title: currentResource.title, // 传递分P标题
             author: _videoDetail!.author.name, // 传递作者名（后台播放通知用）
             coverUrl: _videoDetail!.cover, // 传递封面（后台播放通知用）

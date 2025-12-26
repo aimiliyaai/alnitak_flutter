@@ -12,10 +12,10 @@ class ApiConfig {
   static const String host = 'anime.ayypd.cn';
 
   /// 服务器端口
-  static const int port = 2053;
+  static const int port = 3000;
 
   /// 是否启用 HTTPS（默认关闭）
-  static bool _httpsEnabled = true;
+  static bool _httpsEnabled = false;
 
   /// 获取当前 HTTPS 启用状态
   static bool get httpsEnabled => _httpsEnabled;
