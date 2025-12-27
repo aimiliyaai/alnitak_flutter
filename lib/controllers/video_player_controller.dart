@@ -983,8 +983,8 @@ class VideoPlayerController extends ChangeNotifier {
       final bool needSeek = initialPosition != null && initialPosition > 0.0;
 
       if (needSeek) {
-        // 用户期望的精确位置
-        targetPosition = Duration(seconds: initialPosition.toInt());
+        // 用户期望的精确位置（保留毫秒精度）
+        targetPosition = Duration(milliseconds: (initialPosition * 1000).toInt());
 
         // 预加载位置：回退 10 秒，确保 HLS 分片完整加载
         // 这样 MPV 会从更早的分片开始下载，避免关键帧丢失
@@ -995,7 +995,7 @@ class VideoPlayerController extends ChangeNotifier {
         }
 
         _isSeekingInitialPosition = true;
-        debugPrint('🎯 [LoadVideo] 进场恢复: 预加载=${preloadPosition.inSeconds}s, 目标=${targetPosition.inSeconds}s');
+        debugPrint('🎯 [LoadVideo] 进场恢复: 预加载=${preloadPosition.inSeconds}s, 目标=${targetPosition.inSeconds}s (${targetPosition.inMilliseconds}ms)');
       }
 
       // ========== 步骤 1: 设置原生 Start 属性（使用预加载位置）==========
@@ -1125,17 +1125,18 @@ class VideoPlayerController extends ChangeNotifier {
   /// 【阻塞式校验栅栏】验证位置是否正确，不正确则 seek + 死等
   /// 返回 true 表示位置已正确，false 表示最终失败
   Future<bool> _blockingVerifyAndSeek(Duration targetPosition) async {
-    // 先检查当前位置
+    // 先检查当前位置（使用毫秒级精度）
     var currentPos = player.state.position;
-    var diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+    // 容差：1500ms（1.5秒），比之前的3秒更严格
+    var diffMs = (currentPos.inMilliseconds - targetPosition.inMilliseconds).abs();
 
-    if (diff <= 3) {
-      debugPrint('✅ [Verify] 原生 start 生效，位置正确: ${currentPos.inSeconds}s');
+    if (diffMs <= 1500) {
+      debugPrint('✅ [Verify] 原生 start 生效，位置正确: ${currentPos.inSeconds}s (偏差${diffMs}ms)');
       return true;
     }
 
     // 原生 start 未生效，执行阻塞式 Seek
-    debugPrint('⚠️ [Verify] 原生 start 未生效 (当前=${currentPos.inSeconds}s)，执行阻塞 Seek');
+    debugPrint('⚠️ [Verify] 原生 start 未生效 (当前=${currentPos.inSeconds}s, 偏差${diffMs}ms)，执行阻塞 Seek');
     await player.seek(targetPosition);
 
     // 死循环等待，最多 3 秒 (30 * 100ms)
@@ -1145,10 +1146,10 @@ class VideoPlayerController extends ChangeNotifier {
       if (_isDisposed) return false;
 
       currentPos = player.state.position;
-      diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+      diffMs = (currentPos.inMilliseconds - targetPosition.inMilliseconds).abs();
 
-      if (diff <= 3) {
-        debugPrint('✅ [Verify] 阻塞 Seek 成功: ${currentPos.inSeconds}s (耗时 ${(i + 1) * 100}ms)');
+      if (diffMs <= 1500) {
+        debugPrint('✅ [Verify] 阻塞 Seek 成功: ${currentPos.inSeconds}s (偏差${diffMs}ms, 耗时${(i + 1) * 100}ms)');
         return true;
       }
 
