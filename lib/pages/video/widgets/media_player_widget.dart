@@ -13,6 +13,7 @@ class MediaPlayerWidget extends StatefulWidget {
   final int resourceId;
   final double? initialPosition;
   final VoidCallback? onVideoEnd;
+  // 【关键】参数签名必须匹配 Controller 中的定义 (进度, 总时长)
   final Function(Duration position, Duration totalDuration)? onProgressUpdate;
   final Function(String quality)? onQualityChanged;
   final String? title;
@@ -53,15 +54,20 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     super.initState();
     debugPrint('📹 [MediaPlayerWidget] 初始化 - resourceId: ${widget.resourceId}');
 
-    // 创建 Controller
+    // 1. 【必须】创建 Controller 实例
     _controller = VideoPlayerController();
 
-    // 设置回调
+    // 2. 【必须】绑定回调函数
     _controller.onVideoEnd = widget.onVideoEnd;
-    _controller.onProgressUpdate = widget.onProgressUpdate;
+
+    // 绑定进度回调 (注意参数透传)
+    _controller.onProgressUpdate = (pos, total) {
+      widget.onProgressUpdate?.call(pos, total);
+    };
+
     _controller.onQualityChanged = widget.onQualityChanged;
 
-    // 设置视频元数据（用于后台播放通知）
+    // 3. 设置视频元数据（用于后台播放通知）
     if (widget.title != null) {
       _controller.setVideoMetadata(
         title: widget.title!,
@@ -70,28 +76,37 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       );
     }
 
-    // 初始化播放器
+    // 4. 初始化播放器
     _controller.initialize(
       resourceId: widget.resourceId,
       initialPosition: widget.initialPosition,
     );
 
-    // 通知父组件控制器已就绪
-    widget.onControllerReady?.call(_controller);
+    // 5. 【优化】在下一帧通知父组件，避免构建期间 setState 报错
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onControllerReady?.call(_controller);
+      }
+    });
 
-    // 添加生命周期监听
+    // 6. 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didUpdateWidget(MediaPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    debugPrint('📹 [didUpdateWidget] old resourceId: ${oldWidget.resourceId}, new resourceId: ${widget.resourceId}');
+
+    // 如果 resourceId 没变，但回调变了，需要重新绑定回调
+    if (oldWidget.onProgressUpdate != widget.onProgressUpdate) {
+      _controller.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
+    }
+    // ... 其他回调更新同理
 
     if (oldWidget.resourceId != widget.resourceId) {
-      debugPrint('📹 resourceId 改变，重新初始化');
+      debugPrint('📹 [didUpdateWidget] resourceId 改变，重新初始化');
 
-      // 【关键】先更新视频元数据（确保通知栏显示新视频信息）
+      // 更新视频元数据
       if (widget.title != null) {
         _controller.setVideoMetadata(
           title: widget.title!,
@@ -100,6 +115,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
         );
       }
 
+      // 重新加载视频
       _controller.initialize(
         resourceId: widget.resourceId,
         initialPosition: widget.initialPosition,
@@ -118,15 +134,11 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     debugPrint('📹 [MediaPlayerWidget] 销毁');
     WidgetsBinding.instance.removeObserver(this);
 
-    // 【关键修复】防止 "Callback invoked after deleted" 崩溃
-    // 步骤1: 同步取消所有订阅（这是最关键的一步，必须在 super.dispose() 之前完成）
-    _controller.prepareDispose();
+    // 【关键修复】直接调用 controller 的 dispose 方法
+    // Controller 内部已经实现了"同步切断 + 延迟销毁"的逻辑
+    _controller.dispose();
 
-    // 步骤2: 启动异步清理（停止播放器、禁用日志、dispose player 等）
-    // 这会在后台完成，即使 Widget 已销毁也没关系
-    _controller.disposeAsync();
-
-    // 退出时恢复系统UI
+    // 退出时恢复系统UI方向
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,

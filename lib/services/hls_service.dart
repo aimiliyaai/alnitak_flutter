@@ -5,6 +5,20 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../config/api_config.dart';
 
+/// 媒体源信息（用于播放器加载）
+class MediaSource {
+  /// 是否为直接视频URL（mp4/m4s等），false 表示是 m3u8 内容
+  final bool isDirectUrl;
+
+  /// m3u8 内容（isDirectUrl=false）或 直接视频URL（isDirectUrl=true）
+  final String content;
+
+  const MediaSource({
+    required this.isDirectUrl,
+    required this.content,
+  });
+}
+
 /// HLS 视频流服务类
 /// 负责处理 m3u8 文件的获取、转换和临时文件管理
 class HlsService {
@@ -54,9 +68,56 @@ class HlsService {
     }
   }
 
-  /// [推荐] 获取 m3u8 内容字符串
+  /// 获取媒体源信息
   ///
-  /// 这种方式避免了本地I/O，更高效且能避免因文件读写延迟导致的问题
+  /// 返回 MediaSource 对象，包含：
+  /// - isDirectUrl: 是否为直接视频URL（mp4/m4s等）
+  /// - content: m3u8内容 或 直接视频URL
+  ///
+  /// [resourceId] 资源ID
+  /// [quality] 清晰度
+  Future<MediaSource> getMediaSource(int resourceId, String quality) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/video/getVideoFile',
+        queryParameters: {
+          'resourceId': resourceId,
+          'quality': quality,
+        },
+        options: Options(
+          responseType: ResponseType.plain,
+        ),
+      );
+
+      String content = response.data as String;
+      content = content.trim();
+
+      // 判断返回内容类型
+      if (content.startsWith('#EXTM3U')) {
+        // HLS m3u8 内容，需要转换相对路径
+        final m3u8Content = _convertToAbsoluteUrls(content);
+        print('✅ M3U8 内容已获取 (HLS流)');
+        return MediaSource(isDirectUrl: false, content: m3u8Content);
+      } else if (content.startsWith('http://') || content.startsWith('https://')) {
+        // 直接视频URL (mp4/m4s等)
+        print('✅ 直接视频URL已获取: ${content.split('?').first.split('/').last}');
+        return MediaSource(isDirectUrl: true, content: content);
+      } else {
+        // 未知格式，尝试作为m3u8处理
+        print('⚠️ 未知响应格式，尝试作为M3U8处理');
+        final m3u8Content = _convertToAbsoluteUrls(content);
+        return MediaSource(isDirectUrl: false, content: m3u8Content);
+      }
+    } catch (e) {
+      print('❌ 获取媒体源错误: $e');
+      rethrow;
+    }
+  }
+
+  /// [已废弃] 获取 m3u8 内容字符串（兼容旧接口）
+  ///
+  /// 注意：此方法仅用于 HLS 流，如果后端返回直接 URL 会报错
+  /// 推荐使用 getMediaSource() 方法
   /// [resourceId] 资源ID
   /// [quality] 清晰度
   /// 返回 m3u8 内容字符串
@@ -131,21 +192,40 @@ class HlsService {
   }
 
   /// 将 m3u8 内容中的相对路径转换为绝对URL，并添加优化配置
+  /// 支持 TS 切片 (.ts) 和 fMP4 切片 (.m4s + _init.mp4)
   String _convertToAbsoluteUrls(String m3u8Content) {
     final lines = m3u8Content.split('\n');
     final convertedLines = <String>[];
     bool hasAddedCacheTag = false;
 
     for (var line in lines) {
-      // 如果是 .ts 文件路径（以 / 开头的相对路径）
-      if (line.trim().startsWith('/api/v1/video/slice/')) {
-        // 在第一个TS文件前添加缓存配置（如果还没添加过）
+      final trimmedLine = line.trim();
+
+      // 处理 fMP4 格式的初始化文件 (EXT-X-MAP:URI="xxx")
+      if (trimmedLine.startsWith('#EXT-X-MAP:URI=')) {
+        // 提取 URI 中的路径
+        final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(trimmedLine);
+        if (uriMatch != null) {
+          final uri = uriMatch.group(1)!;
+          // 如果是相对路径，转换为绝对URL
+          if (uri.startsWith('/api/v1/video/slice/')) {
+            convertedLines.add('#EXT-X-MAP:URI="${ApiConfig.baseUrl}$uri"');
+          } else {
+            convertedLines.add(line);
+          }
+        } else {
+          convertedLines.add(line);
+        }
+      }
+      // 如果是切片文件路径 (.ts 或 .m4s，以 / 开头的相对路径)
+      else if (trimmedLine.startsWith('/api/v1/video/slice/')) {
+        // 在第一个切片文件前添加缓存配置（如果还没添加过）
         if (!hasAddedCacheTag) {
-          // 添加允许缓存标签，帮助播放器缓存TS分片
+          // 添加允许缓存标签，帮助播放器缓存分片
           convertedLines.add('#EXT-X-ALLOW-CACHE:YES');
           hasAddedCacheTag = true;
         }
-        convertedLines.add('${ApiConfig.baseUrl}$line');
+        convertedLines.add('${ApiConfig.baseUrl}$trimmedLine');
       } else {
         convertedLines.add(line);
       }
@@ -261,14 +341,16 @@ class HlsService {
         }
       }
 
-      // 【修复】清理临时目录中的 .ts 分片文件（MPV 可能直接存储在 temp 根目录）
+      // 【修复】清理临时目录中的分片文件（MPV 可能直接存储在 temp 根目录）
       try {
         final tempFiles = tempDir.listSync();
         for (final entity in tempFiles) {
           if (entity is File) {
             final fileName = entity.path.split('/').last;
-            // 清理可能的 TS 分片和临时视频文件
+            // 清理可能的 TS/fMP4 分片和临时视频文件
             if (fileName.endsWith('.ts') ||
+                fileName.endsWith('.m4s') ||
+                fileName.endsWith('.mp4') ||
                 fileName.endsWith('.m3u8') ||
                 fileName.startsWith('mpv') ||
                 fileName.startsWith('libmpv')) {
@@ -285,7 +367,7 @@ class HlsService {
           }
         }
       } catch (e) {
-        print('⚠️ 清理临时目录 ts 文件失败: $e');
+        print('⚠️ 清理临时目录分片文件失败: $e');
       }
 
       if (totalDeleted > 0) {
@@ -314,8 +396,9 @@ class HlsService {
     }
   }
 
-  /// 预加载TS分片（用于秒开优化）
-  /// 
+  /// 预加载视频分片（用于秒开优化）
+  ///
+  /// 支持 TS 切片 (.ts) 和 fMP4 切片 (.m4s)
   /// [m3u8Content] m3u8内容字符串
   /// [segmentCount] 预加载的分片数量（默认3个）
   /// [startPosition] 起始播放位置（秒），用于智能预加载对应位置的分片
@@ -323,12 +406,21 @@ class HlsService {
   Future<List<String>> preloadTsSegments(String m3u8Content, {int segmentCount = 3, double? startPosition}) async {
     try {
       final lines = m3u8Content.split('\n');
-      final tsUrls = <String>[];
+      final segmentUrls = <String>[];
       final segmentDurations = <double>[];
+      String? initSegmentUrl; // fMP4 初始化片段
 
-      // 解析TS分片URL和时长
+      // 解析分片URL和时长
       for (int i = 0; i < lines.length; i++) {
         final trimmed = lines[i].trim();
+
+        // 解析 fMP4 初始化片段
+        if (trimmed.startsWith('#EXT-X-MAP:URI=')) {
+          final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(trimmed);
+          if (uriMatch != null) {
+            initSegmentUrl = uriMatch.group(1)!;
+          }
+        }
 
         // 解析分片时长
         if (trimmed.startsWith('#EXTINF:')) {
@@ -337,17 +429,17 @@ class HlsService {
           segmentDurations.add(duration);
         }
 
-        // 解析分片URL
+        // 解析分片URL (.ts 或 .m4s)
         if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-          tsUrls.add(trimmed);
+          segmentUrls.add(trimmed);
         } else if (trimmed.startsWith('/api/v1/video/slice/')) {
           // 相对路径，转换为绝对URL
-          tsUrls.add('${ApiConfig.baseUrl}$trimmed');
+          segmentUrls.add('${ApiConfig.baseUrl}$trimmed');
         }
       }
 
-      if (tsUrls.isEmpty) {
-        print('⚠️ 未找到TS分片URL');
+      if (segmentUrls.isEmpty) {
+        print('⚠️ 未找到分片URL');
         return [];
       }
 
@@ -355,7 +447,7 @@ class HlsService {
       int startIndex = 0;
       if (startPosition != null && startPosition > 0) {
         double accumulatedDuration = 0;
-        for (int i = 0; i < segmentDurations.length && i < tsUrls.length; i++) {
+        for (int i = 0; i < segmentDurations.length && i < segmentUrls.length; i++) {
           if (accumulatedDuration >= startPosition) {
             startIndex = i > 0 ? i - 1 : 0; // 从前一个分片开始，确保无缝
             break;
@@ -364,16 +456,25 @@ class HlsService {
         }
         // 如果累计时长仍小于起始位置，从最后几个分片开始
         if (startIndex == 0 && accumulatedDuration < startPosition) {
-          startIndex = tsUrls.length > segmentCount ? tsUrls.length - segmentCount : 0;
+          startIndex = segmentUrls.length > segmentCount ? segmentUrls.length - segmentCount : 0;
         }
         print('📍 智能预加载: 起始位置=${startPosition.toInt()}s, 从分片#$startIndex 开始');
       }
 
       // 获取要预加载的分片（从 startIndex 开始）
-      final endIndex = (startIndex + segmentCount).clamp(0, tsUrls.length);
-      final segmentsToPreload = tsUrls.sublist(startIndex, endIndex);
+      final endIndex = (startIndex + segmentCount).clamp(0, segmentUrls.length);
+      final segmentsToPreload = <String>[];
 
-      print('🚀 开始预加载 ${segmentsToPreload.length} 个TS分片 ($startIndex-${endIndex - 1})...');
+      // 如果有 fMP4 初始化片段，先预加载它（必须最先加载）
+      if (initSegmentUrl != null) {
+        segmentsToPreload.add(initSegmentUrl);
+        print('📦 fMP4 初始化片段: $initSegmentUrl');
+      }
+
+      // 添加普通分片
+      segmentsToPreload.addAll(segmentUrls.sublist(startIndex, endIndex));
+
+      print('🚀 开始预加载 ${segmentsToPreload.length} 个分片 ($startIndex-${endIndex - 1})...');
 
       // 并发下载分片（不等待完成，让播放器边播边加载）
       unawaited(Future.wait(
@@ -396,7 +497,7 @@ class HlsService {
 
       return segmentsToPreload;
     } catch (e) {
-      print('❌ 预加载TS分片失败: $e');
+      print('❌ 预加载分片失败: $e');
       return [];
     }
   }
