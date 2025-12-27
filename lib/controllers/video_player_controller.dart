@@ -101,6 +101,11 @@ class VideoPlayerController extends ChangeNotifier {
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
   static const String _backgroundPlayKey = 'background_play_enabled';
+  static const String _decodeModeKey = 'video_decode_mode';
+
+  // 解码模式：软解码(no)、硬解码(auto-copy)
+  // 默认使用软解码，兼容性更好
+  String _currentDecodeMode = 'no';
 
   int? _currentResourceId;
 
@@ -202,6 +207,8 @@ class VideoPlayerController extends ChangeNotifier {
     // 一次性读取所有设置
     loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
     backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
+    // 加载解码模式设置，默认软解码
+    _currentDecodeMode = prefs.getString(_decodeModeKey) ?? 'no';
   }
 
   /// 根据错误类型返回友好的错误提示
@@ -681,12 +688,15 @@ class VideoPlayerController extends ChangeNotifier {
       // 【关键】demuxer 层面的精确 seek
       await nativePlayer.setProperty('demuxer-seek-fast', 'no');
 
-      // ========== 6. 画面雪花/花屏修复 ==========
+      // ========== 6. 解码模式配置 ==========
 
-      // 使用 auto-copy 模式（保留硬件加速同时避免花屏）
-      await nativePlayer.setProperty('hwdec', 'auto-copy');
+      // 根据设置选择解码模式
+      // 'no' = 软解码（兼容性好，CPU解码）
+      // 'auto-copy' = 硬解码（GPU加速，性能好但可能有兼容性问题）
+      await nativePlayer.setProperty('hwdec', _currentDecodeMode);
+      debugPrint('🎬 解码模式: ${_currentDecodeMode == "no" ? "软解码" : "硬解码"}');
 
-      // 关闭直接渲染
+      // 关闭直接渲染（软解码时可提高稳定性）
       await nativePlayer.setProperty('vd-lavc-dr', 'no');
 
       // ========== 7. 帧缓冲优化（解决 ImageReader buffer 不足）==========
@@ -700,7 +710,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 减少视频输出延迟
       await nativePlayer.setProperty('video-latency-hacks', 'yes');
 
-      debugPrint('✅ MPV 底层配置完成：激进预载模式 (120秒前向读取)');
+      debugPrint('✅ MPV 底层配置完成：激进预载模式 (120秒前向读取), 解码=${_currentDecodeMode == "no" ? "软" : "硬"}');
     } catch (e) {
       debugPrint('⚠️ 配置失败: $e');
     }
@@ -900,6 +910,18 @@ class VideoPlayerController extends ChangeNotifier {
 
         // 【关键优化】如果需要恢复进度，使用非阻塞方式
         if (targetPosition != Duration.zero) {
+          // 【关键修复】如果播放器 duration 还是0，说明还没完全就绪
+          // 需要在 seek 之前再等待一下，否则 seek 可能失败
+          if (player.state.duration.inSeconds <= 0) {
+            debugPrint('⏳ [LoadVideo] duration 仍为0，额外等待播放器就绪...');
+            int extraWait = 0;
+            while (player.state.duration.inSeconds <= 0 && extraWait < 30) {
+              await Future.delayed(const Duration(milliseconds: 100));
+              extraWait++;
+            }
+            debugPrint('📍 [LoadVideo] 额外等待 ${extraWait * 100}ms, duration=${player.state.duration.inSeconds}s');
+          }
+
           // 先 seek，不等待完成
           player.seek(targetPosition);
           debugPrint('📍 [LoadVideo] 已发送 seek 指令到 ${targetPosition.inSeconds}s');
@@ -940,27 +962,32 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 【秒开优化】最小等待 - 只等 duration > 0，最多 1 秒
+  /// 【秒开优化】最小等待 - 只等 duration > 0，最多 2 秒
+  /// 【关键修复】增加等待时间，确保播放器有足够时间初始化以支持 seek
   Future<void> _waitForPlayerReadyMinimal() async {
     int waitCount = 0;
-    while (player.state.duration.inSeconds <= 0 && waitCount < 20) {
+    // 增加到 40 次 * 50ms = 2 秒，给播放器更多初始化时间
+    while (player.state.duration.inSeconds <= 0 && waitCount < 40) {
       await Future.delayed(const Duration(milliseconds: 50));
       waitCount++;
     }
     if (player.state.duration.inSeconds <= 0) {
       debugPrint('⚠️ 播放器未完全就绪（${waitCount * 50}ms），边播边加载...');
     } else {
-      debugPrint('✅ 播放器就绪: ${waitCount * 50}ms');
+      debugPrint('✅ 播放器就绪: ${waitCount * 50}ms, duration=${player.state.duration.inSeconds}s');
     }
   }
 
   /// 【行业标准】后台验证 seek 是否成功，失败则重试
   void _verifySeekInBackground(Duration targetPosition) {
-    Future.delayed(const Duration(milliseconds: 500), () async {
+    // 【关键修复】增加首次验证延迟到 800ms，给 seek 更多时间完成
+    Future.delayed(const Duration(milliseconds: 800), () async {
       if (!_isSeekingInitialPosition) return; // 已被其他逻辑处理
 
       final currentPos = player.state.position;
       final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
+
+      debugPrint('🔍 [Verify] 首次检查: 当前=${currentPos.inSeconds}s, 目标=${targetPosition.inSeconds}s, diff=$diff');
 
       if (diff <= 3) {
         // seek 成功
@@ -969,6 +996,11 @@ class VideoPlayerController extends ChangeNotifier {
         _seekProtectionEndTime = DateTime.now().add(const Duration(seconds: 3));
         debugPrint('✅ [Verify] seek 成功: ${currentPos.inSeconds}s (目标=${targetPosition.inSeconds}s)');
       } else {
+        // 【关键修复】如果当前位置是0，可能是播放器还没开始播放，立即重新 seek
+        if (currentPos.inSeconds == 0) {
+          debugPrint('🔄 [Verify] 当前位置为0，立即重新 seek 到 ${targetPosition.inSeconds}s');
+          player.seek(targetPosition);
+        }
         // seek 可能还在进行中，继续监听
         debugPrint('🔄 [Verify] seek 进行中: ${currentPos.inSeconds}s → ${targetPosition.inSeconds}s');
         _startSeekVerifyLoop(targetPosition);
@@ -976,9 +1008,12 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-  /// 持续验证 seek 状态，最多 10 秒
+  /// 持续验证 seek 状态，最多重试3次，每次10秒
   void _startSeekVerifyLoop(Duration targetPosition) {
     int attempts = 0;
+    int retryCount = 0;
+    const maxRetries = 3; // 最多重试3次
+
     Timer.periodic(const Duration(milliseconds: 500), (timer) {
       attempts++;
 
@@ -998,10 +1033,18 @@ class VideoPlayerController extends ChangeNotifier {
         debugPrint('✅ [VerifyLoop] seek 成功: ${currentPos.inSeconds}s');
         timer.cancel();
       } else if (attempts >= 20) {
-        // 10秒后仍未成功，尝试重新 seek
-        debugPrint('⚠️ [VerifyLoop] seek 超时，重新尝试...');
-        player.seek(targetPosition);
-        attempts = 0; // 重置计数，再给 10 秒
+        retryCount++;
+        if (retryCount >= maxRetries) {
+          // 已达最大重试次数，放弃 seek，解锁进度上报
+          debugPrint('❌ [VerifyLoop] seek 失败，已达最大重试次数($maxRetries)，放弃恢复进度');
+          _isSeekingInitialPosition = false;
+          timer.cancel();
+        } else {
+          // 重新 seek
+          debugPrint('⚠️ [VerifyLoop] seek 超时，重新尝试... ($retryCount/$maxRetries)');
+          player.seek(targetPosition);
+          attempts = 0; // 重置计数，再给 10 秒
+        }
       }
     });
   }
@@ -1184,6 +1227,27 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> setRate(double rate) async => await player.setRate(rate);
 
   // ============ 偏好设置与辅助方法 ============
+
+  /// 获取当前解码模式设置（静态方法，供设置页面使用）
+  /// 返回值：'no' = 软解码，'auto-copy' = 硬解码
+  static Future<String> getDecodeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_decodeModeKey) ?? 'no'; // 默认软解码
+  }
+
+  /// 设置解码模式（静态方法，供设置页面使用）
+  /// [mode] 'no' = 软解码，'auto-copy' = 硬解码
+  static Future<void> setDecodeMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_decodeModeKey, mode);
+    debugPrint('🎬 解码模式已保存: ${mode == "no" ? "软解码" : "硬解码"}');
+  }
+
+  /// 获取解码模式显示名称
+  static String getDecodeModeDisplayName(String mode) {
+    return mode == 'no' ? '软解码' : '硬解码';
+  }
+
   Future<void> _saveLoopMode(LoopMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_loopModeKey, mode.toSavedString());

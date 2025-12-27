@@ -9,6 +9,7 @@ import 'reset_password_page.dart';
 import '../services/auth_service.dart';
 import '../services/hls_service.dart';
 import '../services/theme_service.dart';
+import '../controllers/video_player_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
 import '../widgets/cached_image_widget.dart';
@@ -38,6 +39,9 @@ class _SettingsPageState extends State<SettingsPage> {
   int _maxCacheSizeMB = 500; // 默认最大缓存 500MB
   static const String _maxCacheSizeKey = 'max_cache_size_mb';
 
+  // 解码模式：'no' = 软解码，'auto-copy' = 硬解码
+  String _decodeMode = 'no';
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +50,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _checkLoginStatus();
     _calculateCacheSize();
     _loadMaxCacheSetting();
+    _loadDecodeModeSetting();
   }
 
   /// 检查登录状态
@@ -108,6 +113,33 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _maxCacheSizeMB = prefs.getInt(_maxCacheSizeKey) ?? 500;
       });
+    }
+  }
+
+  /// 加载解码模式设置
+  Future<void> _loadDecodeModeSetting() async {
+    final mode = await VideoPlayerController.getDecodeMode();
+    if (mounted) {
+      setState(() {
+        _decodeMode = mode;
+      });
+    }
+  }
+
+  /// 保存解码模式设置
+  Future<void> _saveDecodeModeSetting(String mode) async {
+    await VideoPlayerController.setDecodeMode(mode);
+    setState(() {
+      _decodeMode = mode;
+    });
+    // 提示用户需要重新打开视频
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('解码模式已更改，重新打开视频后生效'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -381,6 +413,53 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 显示解码模式选择对话框
+  void _showDecodeModeDialog() {
+    // 解码模式选项：软解码(no)、硬解码(auto-copy)
+    final options = [
+      {'value': 'no', 'label': '软解码', 'desc': 'CPU解码，兼容性好（推荐）'},
+      {'value': 'auto-copy', 'label': '硬解码', 'desc': 'GPU加速，性能更好'},
+    ];
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('解码模式'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: options.map((option) {
+            final isSelected = option['value'] == _decodeMode;
+            return ListTile(
+              title: Text(option['label']!),
+              subtitle: Text(
+                option['desc']!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              trailing: isSelected
+                  ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
+                  : null,
+              onTap: () {
+                Navigator.pop(context);
+                if (option['value'] != _decodeMode) {
+                  _saveDecodeModeSetting(option['value']!);
+                }
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 打开 URL
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
@@ -437,6 +516,14 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: '退到后台时继续播放视频',
               value: _backgroundPlayEnabled,
               onChanged: _saveBackgroundPlaySetting,
+              colors: colors,
+            ),
+            _buildDivider(colors),
+            _buildTappableTile(
+              icon: Icons.memory_outlined,
+              title: '解码模式',
+              value: VideoPlayerController.getDecodeModeDisplayName(_decodeMode),
+              onTap: _showDecodeModeDialog,
               colors: colors,
             ),
           ], colors),
