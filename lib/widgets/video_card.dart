@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/video_item.dart';
+import '../theme/theme_extensions.dart';
 import 'cached_image_widget.dart';
 
 class VideoCard extends StatelessWidget {
@@ -14,120 +15,149 @@ class VideoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 封面图片
-          Stack(
-            children: [
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: CachedImage(
-                  imageUrl: video.coverUrl,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(8),
-                  cacheKey: 'video_cover_${video.id}', // 使用视频ID作为缓存key
-                ),
-              ),
-              // 时长标签
-              Positioned(
-                bottom: 6,
-                right: 6,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    video.duration,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          // 标题
-          Text(
-            video.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              height: 1.15,
-            ),
-          ),
-          const SizedBox(height: 3),
-          // 用户名
-          Row(
-            children: [
-              if (video.authorAvatar != null)
-                CachedCircleAvatar(
-                  imageUrl: video.authorAvatar!,
-                  radius: 8,
-                  cacheKey: video.authorUid != null ? 'author_avatar_${video.authorUid}' : null,
-                ),
-              if (video.authorAvatar != null) const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  video.authorName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          // 播放次数和弹幕数量
-          Row(
-            children: [
-              Icon(
-                Icons.play_circle_outline,
-                size: 12,
-                color: Colors.grey[600],
-              ),
-              const SizedBox(width: 4),
-              Text(
-                video.formattedPlayCount,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Icon(
-                Icons.chat_bubble_outline,
-                size: 12,
-                color: Colors.grey[600],
-              ),
-              const SizedBox(width: 4),
-              Text(
-                video.formattedDanmakuCount,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
+    final colors = context.colors;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.card,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: colors.shadow,
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 封面图片
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                child: Stack(
+                  children: [
+                    AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: CachedImage(
+                        imageUrl: video.coverUrl,
+                        fit: BoxFit.cover,
+                        cacheKey: 'video_cover_${video.id}',
+                      ),
+                    ),
+                    // 时长标签
+                    Positioned(
+                      bottom: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          video.duration,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // 内容区域
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 标题
+                    Text(
+                      video.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        height: 1.2,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // 用户名
+                    Row(
+                      children: [
+                        if (video.authorAvatar != null)
+                          CachedCircleAvatar(
+                            imageUrl: video.authorAvatar!,
+                            radius: 8,
+                            cacheKey: video.authorUid != null ? 'author_avatar_${video.authorUid}' : null,
+                          ),
+                        if (video.authorAvatar != null) const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            video.authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    // 播放次数和弹幕数量
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.play_circle_outline,
+                          size: 12,
+                          color: colors.textTertiary,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          video.formattedPlayCount,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 12,
+                          color: colors.textTertiary,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          video.formattedDanmakuCount,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

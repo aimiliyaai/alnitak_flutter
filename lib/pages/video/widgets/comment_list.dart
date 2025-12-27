@@ -537,10 +537,18 @@ class _CommentListContentState extends State<CommentListContent> {
                 const SizedBox(width: 8),
 
                 // 发送按钮
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _submitComment,
-                  color: Theme.of(context).primaryColor,
+                Container(
+                  decoration: BoxDecoration(
+                    color: colors.accentColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.send, size: 20),
+                    onPressed: _submitComment,
+                    color: Colors.white,
+                    padding: const EdgeInsets.all(8),
+                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  ),
                 ),
               ],
             ),

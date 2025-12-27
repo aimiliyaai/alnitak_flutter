@@ -64,6 +64,26 @@ class TimeUtils {
     }
   }
 
+  /// 格式化DateTime为友好显示（相对时间）
+  static String formatRelativeTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final diff = now.difference(dateTime);
+
+    if (diff.inMinutes < 1) {
+      return '刚刚';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}分钟前';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}小时前';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}天前';
+    } else if (dateTime.year == now.year) {
+      return DateFormat('MM-dd').format(dateTime);
+    } else {
+      return DateFormat('yyyy-MM-dd').format(dateTime);
+    }
+  }
+
   /// 格式化秒数为时分秒
   static String formatDuration(int seconds) {
     if (seconds <= 0) return '00:00';

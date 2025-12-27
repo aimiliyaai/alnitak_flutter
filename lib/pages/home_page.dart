@@ -167,11 +167,16 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Scaffold(
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('首页'),
         elevation: 0,
         centerTitle: false,
+        backgroundColor: colors.appBarBackground,
+        foregroundColor: colors.appBarForeground,
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -237,13 +242,13 @@ class _HomePageState extends State<HomePage> {
         slivers: [
           // 双列网格布局
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             sliver: SliverGrid(
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                crossAxisSpacing: 4,
-                mainAxisSpacing: 4,
-                childAspectRatio: 0.88,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 6,
+                childAspectRatio: 0.78,
               ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {

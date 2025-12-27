@@ -27,51 +27,51 @@ class _MainPageState extends State<MainPage> {
   ];
 
   /// 处理返回键按下事件
-  /// 第一次返回：清理缓存
+  /// 第一次返回：清理缓存并提示
   /// 第二次返回（2秒内）：退出应用
-  Future<bool> _onWillPop() async {
+  Future<void> _onWillPop() async {
     final now = DateTime.now();
 
-    // 第一次按返回键：清理缓存
-    if (!_hasCleaned) {
-      _hasCleaned = true;
-      _lastBackPressTime = now;
-
-      // 显示清理提示
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('正在清理缓存...再按一次退出'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      // 执行缓存清理
-      await _cleanupCache();
-      return false;
-    }
-
-    // 已清理过，检查是否在2秒内再次按返回
+    // 检查是否在2秒内再次按返回
     if (_lastBackPressTime != null &&
         now.difference(_lastBackPressTime!) <= const Duration(seconds: 2)) {
-      // 2秒内再次按返回，退出应用
-      await _exitApp();
-      return true;
+      // 2秒内再次按返回，直接退出应用（不返回，直接终止进程）
+      _exitApp();
+      return;
     }
 
-    // 超过2秒，重置状态，重新开始
-    _hasCleaned = false;
+    // 第一次按返回或超过2秒后再按
     _lastBackPressTime = now;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('再按一次退出应用'),
-        duration: Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    // 如果还没清理过缓存，执行清理
+    if (!_hasCleaned) {
+      _hasCleaned = true;
 
-    return false;
+      // 显示清理提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('正在清理缓存...再按一次退出'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+
+      // 异步执行缓存清理（不阻塞）
+      _cleanupCache();
+    } else {
+      // 已清理过，只显示退出提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('再按一次退出应用'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   /// 仅清理缓存（不退出）
@@ -144,13 +144,10 @@ class _MainPageState extends State<MainPage> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-
-        final shouldPop = await _onWillPop();
-        if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
-        }
+        // 直接调用处理函数，退出逻辑在内部处理
+        _onWillPop();
       },
       child: Scaffold(
         body: IndexedStack(
