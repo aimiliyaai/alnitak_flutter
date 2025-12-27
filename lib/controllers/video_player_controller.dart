@@ -51,8 +51,12 @@ class VideoPlayerController extends ChangeNotifier {
   // ============ 核心并发控制变量 ============
   Timer? _debounceTimer;
   int _switchEpoch = 0;
+  Timer? _seekRetryTimer;
   Duration? _anchorPosition;
+  bool? _resumeAfterQualitySwitch;
+  Duration _lastKnownGoodPosition = Duration.zero;
   bool _isFreezingPosition = false;
+  bool _isDisposed = false;
 
   // ============ 内部状态 ============
   bool _hasTriggeredCompletion = false;
@@ -248,6 +252,15 @@ class VideoPlayerController extends ChangeNotifier {
       if (_isFreezingPosition && _anchorPosition != null) {
         _positionStreamController.add(_anchorPosition!);
         return;
+      }
+      // 【新增】时刻记录最后一次非0进度
+      if (position.inSeconds > 0) {
+        _lastKnownGoodPosition = position;
+      }
+      // 【关键修复】只有在 非切换状态 且 大于0 时才更新备份
+      // 防止切换瞬间的 0 值覆盖了正确的备份
+      if (!isSwitchingQuality.value && position.inSeconds > 0) {
+        _lastKnownGoodPosition = position;
       }
       // UI 进度条始终实时更新
       _positionStreamController.add(position);
@@ -586,7 +599,14 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       // 第二次卡顿或第一次失败：重新加载 m3u8
-      debugPrint('💡 方案2: 重新加载 m3u8，恢复到 ${reliablePosition.inSeconds}s');
+      // 【关键修复】应用分片边界保护：回退 2 秒
+      Duration safePosition = reliablePosition;
+      if (reliablePosition.inSeconds >= 2) {
+        safePosition = Duration(seconds: reliablePosition.inSeconds - 2);
+        debugPrint('🛡️ [StalledRecovery] 分片边界保护: 原始=${reliablePosition.inSeconds}s -> 回退后=${safePosition.inSeconds}s');
+      }
+
+      debugPrint('💡 方案2: 重新加载 m3u8，恢复到 ${safePosition.inSeconds}s');
       final wasPlaying = player.state.playing;
 
       // 获取新的 m3u8 内容
@@ -600,7 +620,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 重新打开
       await player.open(media, play: false);
       await _waitForPlayerReady();
-      await player.seek(reliablePosition);
+      await player.seek(safePosition);
 
       if (wasPlaying) {
         await player.play();
@@ -743,217 +763,318 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality) return;
 
-    // 1. 取消上一次未执行的切换任务
+    // 1. 【优化】记录原始播放状态 (使用 ??= 简化写法)
+    // 如果 _resumeAfterQualitySwitch 为空，则赋值；否则保持原值
+    _resumeAfterQualitySwitch ??= player.state.playing;
+
+    // 2. 立即暂停
+    await player.pause();
+
+    // 3. 锁定锚点位置（三级兜底）
+    if (_anchorPosition == null) {
+      final currentPos = player.state.position;
+      if (currentPos.inSeconds > 0) {
+        // 1. 优先用当前播放器位置
+        _anchorPosition = currentPos;
+      } else if (_lastKnownGoodPosition.inSeconds > 0) {
+        // 2. 如果播放器变0了，用最后一次记录的好位置
+        _anchorPosition = _lastKnownGoodPosition;
+        debugPrint('⚓ [Quality] 播放器位置归零，使用备份位置: ${_anchorPosition!.inSeconds}s');
+      } else {
+        // 3. 实在没有，才认命是0
+        _anchorPosition = Duration.zero;
+      }
+    }
+
+    // 4. 取消上一次未执行的任务
     _debounceTimer?.cancel();
 
-    // 2. 版本号递增 (标记这是最新的操作)
+    // 5. 状态标记
     _switchEpoch++;
     final int myEpoch = _switchEpoch;
-
-    // 锁定当前位置（如果是连续点击，保持最早的那个位置）
-    _anchorPosition ??= player.state.position;
-
-    // 立即进入切换状态，冻结 UI
     isSwitchingQuality.value = true;
     _isFreezingPosition = true;
 
-    // 4. 启动防抖计时器 (400ms)
-    // 如果用户在 400ms 内狂点，之前的 timer 会被 cancel，只有最后一次会执行
+// 6. 启动防抖
     _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
-      // 双重检查：如果当前版本号不等于最新版本号，说明被插队了，直接废弃
       if (myEpoch != _switchEpoch) return;
+
+      // 【优化】智能兜底目标位置
+      var targetPos = _anchorPosition;
+
+      // 如果锚点因故丢失（为null或0），尝试从当前状态或历史备份恢复
+      // 这里的逻辑是为了防止播放器在切换瞬间归零导致 targetPos 变成 0
+      if (targetPos == null || targetPos == Duration.zero) {
+        if (player.state.position.inSeconds > 5) {
+          // 1. 如果当前位置大于5秒，说明播放器还没重置，数值可信
+          targetPos = player.state.position;
+        } else if (_lastKnownGoodPosition.inSeconds > 5) {
+          // 2. 如果播放器变0了，赶紧用我们备份的“最后一次好位置”
+          targetPos = _lastKnownGoodPosition;
+        } else {
+          // 3. 实在没办法（真的是刚开始播），或者是短视频，才认命是0
+          targetPos = Duration.zero;
+        }
+      }
+
+      // 打印最终决定的位置，方便调试查看是否因为这里变0导致的进度丢失
+      debugPrint('🎯 [Quality] 最终决定 Seek 目标: ${targetPos.inSeconds}s (锚点=${_anchorPosition?.inSeconds}, 备份=${_lastKnownGoodPosition.inSeconds})');
+
       try {
-        await _performSwitch(quality, _anchorPosition!);
+        // targetPos 在经过上面的逻辑后一定不为 null
+        await _performSwitch(quality, targetPos);
       } catch (e) {
         _logger.logError(message: '切换失败', error: e, context: {'quality': quality});
-        // 出错恢复状态
+        // 恢复状态
         _isFreezingPosition = false;
         isSwitchingQuality.value = false;
         _anchorPosition = null;
+        _resumeAfterQualitySwitch = null;
       }
     });
   }
 
   /// 执行真正的切换逻辑（优化版：使用预加载缓存）
+  ///
+  /// 【关键修复】分片边界保护：
+  /// 当历史进度刚好卡在两个 TS 分片中间时（如分片 A 结束于 30.0s，分片 B 开始于 30.0s），
+  /// 如果直接 seek 到 30.0s，MPV 可能会跳到分片 B 的开头，导致丢失分片 A 的末尾内容。
+  /// 解决方案：回退 2 秒，确保 seek 落在分片 A 的有效范围内。
   Future<void> _performSwitch(String quality, Duration seekPos) async {
-    final bool wasPlaying = player.state.playing;
+    // 【关键修复】应用分片边界保护：回退 2 秒
+    // 这与 _loadVideo 中的逻辑保持一致，防止切换清晰度时跳过分片 A
+    Duration targetPosition = seekPos;
+    if (seekPos.inSeconds >= 2) {
+      targetPosition = Duration(seconds: seekPos.inSeconds - 2);
+      debugPrint('🛡️ [SwitchQuality] 分片边界保护: 原始=${seekPos.inSeconds}s -> 回退后=${targetPosition.inSeconds}s');
+    }
 
-    // 【关键修复】保存目标位置的副本，避免后续被修改
-    final targetPosition = seekPos;
-    debugPrint('🔄 [SwitchQuality] 开始切换: $quality, 目标位置=${targetPosition.inSeconds}s, wasPlaying=$wasPlaying');
+    // 默认恢复播放，除非明确要求暂停
+    final bool shouldResume = _resumeAfterQualitySwitch ?? true;
+
+    debugPrint('🔄 [SwitchQuality] 执行切换: $quality -> 目标 ${targetPosition.inSeconds}s (高码率保护模式)');
 
     try {
-      // 1. 暂停播放器
-      await player.pause();
-
-      // 2. 【关键】清理 MPV 底层缓存（切换清晰度时必须清理旧缓存）
+      // 1. 清理
       await _clearPlayerCache();
 
-      // 3. 【核心优化】优先从缓存获取 m3u8
+      // 2. 准备资源
       Uint8List? m3u8Bytes = _qualityCache[quality];
-
       if (m3u8Bytes == null) {
-        // 缓存未命中，实时加载
-        debugPrint('⚠️ 缓存未命中，实时加载: ${HlsService.getQualityLabel(quality)}');
-        final m3u8Content = await _hlsService.getHlsStreamContent(
-          _currentResourceId!,
-          quality,
-        );
+        final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
         m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
-      } else {
-        debugPrint('✅ 使用预加载缓存: ${HlsService.getQualityLabel(quality)} - 切换速度提升 80%');
       }
 
-      // 4. 创建媒体对象
       final media = await Media.memory(m3u8Bytes);
 
-      // 5. 使用 Playlist 快速切换（比直接 open 更轻量）
+      // 3. 打开 (绝对暂停状态)
       await player.open(Playlist([media]), play: false);
 
-      // 5. 【关键修复】等待播放器就绪，避免 seek 失败
-      // 使用轻量级等待，最多等待 2 秒
-      int waitCount = 0;
-      while (player.state.duration.inSeconds <= 0 && waitCount < 20) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        waitCount++;
+      // 4. 等待元数据加载 (Duration > 0)
+      // 高清晰度加载元数据也可能变慢，增加等待时间
+      int waitMetadataCount = 0;
+      while (player.state.duration.inSeconds <= 0 && waitMetadataCount < 100) { // 5秒超时
+        await Future.delayed(const Duration(milliseconds: 50));
+        waitMetadataCount++;
       }
-      debugPrint('🔄 [SwitchQuality] 播放器就绪: duration=${player.state.duration.inSeconds}s');
 
-      // 6. 【关键修复】精确跳转，使用保存的目标位置
-      debugPrint('🔄 [SwitchQuality] 开始 seek 到 ${targetPosition.inSeconds}s');
+      // =========================================================
+      // 【终极修复】双重 Seek + 长超时机制
+      // =========================================================
+
+      // 5. 第一次 Seek
+      debugPrint('🔄 [SwitchQuality] 第一次 Seek 指令: ${targetPosition.inSeconds}s');
       await player.seek(targetPosition);
 
-      // 7. 【关键修复】等待 seek 完成并验证位置
-      int seekRetry = 0;
-      bool seekSuccess = false;
-      while (seekRetry < 20) {
-        await Future.delayed(const Duration(milliseconds: 100));
+      // 给一点反应时间，对于高码率视频，这很重要
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 6. 第二次 Seek (Double Tap)
+      // 这是一个由于 MPV 在高负载下可能丢弃指令的防御性措施
+      // 再次发送 Seek，确保指令处于队列最顶端
+      debugPrint('🔄 [SwitchQuality] 第二次 Seek 指令 (确认): ${targetPosition.inSeconds}s');
+      await player.seek(targetPosition);
+
+      // 7. 验证循环 (大幅延长超时时间)
+      bool seekConfirmed = false;
+
+      // 等待 10 秒 (200次 * 50ms)
+      // 高清晰度缓冲慢，必须给足时间，否则一旦超时就会从头播放
+      for (int i = 0; i < 200; i++) {
         final currentPos = player.state.position;
         final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
-        if (diff < 3) {
-          debugPrint('🔄 [SwitchQuality] seek 成功: 当前位置=${currentPos.inSeconds}s');
-          seekSuccess = true;
+
+        // 允许 3 秒误差
+        if (diff <= 3) {
+          seekConfirmed = true;
+          debugPrint('✅ [SwitchQuality] Seek 确认到位: ${currentPos.inSeconds}s (耗时 ${i * 50 + 500}ms)');
           break;
         }
-        seekRetry++;
+
+        // 如果正在缓冲中，不要急着报错，继续等
+        if (player.state.buffering) {
+          // 缓冲期间循环继续，但不做额外操作
+        }
+        // 如果没在缓冲，且位置还是 0，且已经等了 2 秒了，再补一刀
+        else if (i == 40 && currentPos.inSeconds == 0) {
+          debugPrint('⚠️ [SwitchQuality] 响应迟缓且未缓冲，补发第三次指令...');
+          await player.seek(targetPosition);
+        }
+
+        await Future.delayed(const Duration(milliseconds: 50));
       }
 
-      if (!seekSuccess) {
-        debugPrint('⚠️ [SwitchQuality] seek 未完成，重试一次...');
+      if (!seekConfirmed) {
+        debugPrint('❌ [SwitchQuality] Seek 确认超时 (当前 ${player.state.position.inSeconds}s)，强制继续。注意：如果此处未到位，可能会从头播放。');
+        // 最后的挣扎
         await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      // 8. 更新状态（提前更新，避免阻塞播放）
+      // =========================================================
+
+      // 8. 更新状态
       currentQuality.value = quality;
       await _savePreferredQuality(quality);
 
       _isFreezingPosition = false;
       isSwitchingQuality.value = false;
       _anchorPosition = null;
+      _resumeAfterQualitySwitch = null;
 
-      // 9. 恢复播放（立即恢复，不再等待）
-      if (wasPlaying) {
+      // 9. 恢复播放
+      if (shouldResume) {
         await player.play();
-        debugPrint('🔄 [SwitchQuality] 恢复播放');
+        debugPrint('▶️ [SwitchQuality] 恢复播放');
       }
 
-      // 10. 【关键】触发新的预加载
+      // 10. 后续工作
       _startPreloadAdjacentQualities();
-
       onQualityChanged?.call(quality);
-      debugPrint('✅ [SwitchQuality] 切换完成');
+
     } catch (e) {
-      debugPrint('❌ [SwitchQuality] 切换失败: $e');
+      debugPrint('❌ [SwitchQuality] 异常: $e');
+      _isFreezingPosition = false;
+      isSwitchingQuality.value = false;
+      _anchorPosition = null;
+      _resumeAfterQualitySwitch = null;
       rethrow;
     }
   }
 
-  // ============ 基础加载逻辑 ============
+  // ============ 基础加载逻辑 (V_Final_Resilient_Seek) ============
 
   Future<void> _loadVideo(String quality, {bool isInitialLoad = false, double? initialPosition}) async {
+    if (_isDisposed) return;
+
     try {
-        _hasTriggeredCompletion = false;
+      _hasTriggeredCompletion = false;
 
-        // 【关键修复】保存初始位置，避免后续被覆盖
-        final targetPosition = (isInitialLoad && initialPosition != null && initialPosition > 0.0)
-            ? Duration(seconds: initialPosition.toInt())
-            : Duration.zero;
+      // ============================================================
+      // 1. 【逻辑核心】判断是否需要恢复进度
+      // ============================================================
+      // 只有当 initialPosition 存在且大于 0 时才为 true
+      // null (无记录) -> false
+      // -1 (已看完)   -> false
+      // 0 (刚开始)    -> false
+      // > 0 (有进度)  -> true
+      final bool needSeek = isInitialLoad &&
+          initialPosition != null &&
+          initialPosition > 0.0;
 
-        // 【关键】如果需要恢复进度，设置锁定标志，阻止进度上报
-        if (targetPosition != Duration.zero) {
-          _isSeekingInitialPosition = true;
-          debugPrint('🔒 [LoadVideo] 进度上报已锁定，等待恢复到 ${targetPosition.inSeconds}s');
+      // 计算目标 Seek 位置（仅当 needSeek 为 true 时使用）
+      Duration targetPosition = Duration.zero;
+      if (needSeek) {
+        // 安全回退策略：回退 2 秒，避开分片边界
+        double safeSeconds = initialPosition - 2.0;
+        if (safeSeconds < 0) safeSeconds = 0;
+        targetPosition = Duration(seconds: safeSeconds.toInt());
+
+        // 锁定进度上报，防止恢复期间乱报数据
+        _isSeekingInitialPosition = true;
+        if (!isSwitchingQuality.value) {
+          debugPrint('🔒 [LoadVideo] 进场恢复: 原始=$initialPosition, 修正=${targetPosition.inSeconds}s');
         }
-
-        debugPrint('📍 [LoadVideo] 开始加载: quality=$quality, initialPosition=$initialPosition, targetPosition=${targetPosition.inSeconds}s');
-
-        // 【秒开优化】获取m3u8内容
-        final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
-
-        // 【智能预加载】根据起始位置预加载对应的TS分片（不等待完成，后台进行）
+      } else {
         if (isInitialLoad) {
-          _hlsService.preloadTsSegments(m3u8Content, segmentCount: 3, startPosition: initialPosition);
+          debugPrint('▶️ [LoadVideo] 无需恢复进度 (pos=$initialPosition)，直接从头播放');
         }
+      }
 
-        final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
-        final media = await Media.memory(m3u8Bytes);
+      // ============================================================
+      // 2. 资源加载与播放器初始化
+      // ============================================================
+      final m3u8Content = await _hlsService.getHlsStreamContent(_currentResourceId!, quality);
+      final m3u8Bytes = Uint8List.fromList(utf8.encode(m3u8Content));
+      final media = await Media.memory(m3u8Bytes);
 
-        // 【行业标准方案】非阻塞 seek：先播放，后台 seek
-        // 参考 B站/YouTube：用户立即看到画面，seek 在后台完成
-        await player.open(media, play: false);
+      // 【核心修复】始终以暂停状态打开 (play: false)
+      // 这里的关键是：无论是否有历史进度，先按住暂停。
+      // 如果没进度，后面直接 play，用户感觉不到停顿。
+      // 如果有进度，这能防止 0 秒画面偷跑。
+      await player.open(media, play: false);
 
-        // 【秒开优化】只等待 duration > 0，最多 1 秒
-        await _waitForPlayerReadyMinimal();
+      if (_isDisposed) return;
 
-        debugPrint('📍 [LoadVideo] 播放器就绪: duration=${player.state.duration.inSeconds}s');
+      // ============================================================
+      // 3. 执行 Seek 逻辑 (仅当 needSeek = true)
+      // ============================================================
+      if (needSeek) {
+        // 等待元数据加载
+        final completer = Completer<void>();
+        StreamSubscription? durationSub;
 
-        // 【关键优化】如果需要恢复进度，使用非阻塞方式
-        if (targetPosition != Duration.zero) {
-          // 【关键修复】如果播放器 duration 还是0，说明还没完全就绪
-          // 需要在 seek 之前再等待一下，否则 seek 可能失败
-          if (player.state.duration.inSeconds <= 0) {
-            debugPrint('⏳ [LoadVideo] duration 仍为0，额外等待播放器就绪...');
-            int extraWait = 0;
-            while (player.state.duration.inSeconds <= 0 && extraWait < 30) {
-              await Future.delayed(const Duration(milliseconds: 100));
-              extraWait++;
-            }
-            debugPrint('📍 [LoadVideo] 额外等待 ${extraWait * 100}ms, duration=${player.state.duration.inSeconds}s');
-          }
-
-          // 先 seek，不等待完成
-          player.seek(targetPosition);
-          debugPrint('📍 [LoadVideo] 已发送 seek 指令到 ${targetPosition.inSeconds}s');
-
-          // 立即开始播放（边播边seek）
-          if (!isSwitchingQuality.value) {
-            await player.play();
-            debugPrint('📍 [LoadVideo] 开始播放（seek 在后台进行）');
-          }
-
-          // 后台验证 seek 是否成功
-          _verifySeekInBackground(targetPosition);
+        if (player.state.duration.inSeconds > 0) {
+          completer.complete();
         } else {
-          // 无需恢复进度，直接播放
-          if (!isSwitchingQuality.value) {
-            await player.play();
-            debugPrint('📍 [LoadVideo] 开始播放');
-          }
+          durationSub = player.stream.duration.listen((duration) {
+            if (duration.inSeconds > 0 && !completer.isCompleted) {
+              completer.complete();
+            }
+          });
         }
 
-        // 【新增】视频加载完成后，启动预加载
-        if (isInitialLoad) {
-          _startPreloadAdjacentQualities();
-        }
+        // 超时保护
+        await completer.future.timeout(const Duration(seconds: 4), onTimeout: () {
+          debugPrint('⚠️ [LoadVideo] 等待 Duration 超时');
+        });
+        durationSub?.cancel();
+
+        if (_isDisposed) return;
+
+        // 发送 Seek 指令
+        debugPrint('📍 [LoadVideo] 执行 Seek: ${targetPosition.inSeconds}s');
+        await player.seek(targetPosition);
+
+        // 稍作等待，让底层处理指令
+        await Future.delayed(const Duration(milliseconds: 100));
+
+        // 启动后台验证
+        _verifySeekInBackground(targetPosition);
+      }
+
+      // ============================================================
+      // 4. 开始播放
+      // ============================================================
+      // 只有在 Seek 指令（如果有）发出后，才允许播放
+      if (!isSwitchingQuality.value) {
+        await player.play();
+        debugPrint('▶️ [LoadVideo] 开始播放');
+      }
+
+      // 5. 预加载
+      if (isInitialLoad) {
+        _startPreloadAdjacentQualities();
+      }
+
     } catch (e) {
-        debugPrint('❌ [LoadVideo] 加载失败: $e');
-        // 加载失败时也要解除锁定
-        _isSeekingInitialPosition = false;
-        rethrow;
+      debugPrint('❌ [LoadVideo] 加载失败: $e');
+      _isSeekingInitialPosition = false;
+      rethrow;
     }
   }
 
+  /// 等待播放器准备就绪 (Duration > 0)
+  /// 用于异常恢复时的稳定等待 (最多等待 5 秒)
   Future<void> _waitForPlayerReady() async {
     int waitCount = 0;
     while (player.state.duration.inSeconds <= 0 && waitCount < 50) {
@@ -961,7 +1082,6 @@ class VideoPlayerController extends ChangeNotifier {
       waitCount++;
     }
   }
-
   /// 【秒开优化】最小等待 - 只等 duration > 0，最多 2 秒
   /// 【关键修复】增加等待时间，确保播放器有足够时间初始化以支持 seek
   Future<void> _waitForPlayerReadyMinimal() async {
@@ -980,34 +1100,34 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// 【行业标准】后台验证 seek 是否成功，失败则重试
   void _verifySeekInBackground(Duration targetPosition) {
-    // 【关键修复】增加首次验证延迟到 800ms，给 seek 更多时间完成
+    // 延迟 800ms 检查，给播放器一点缓冲时间
     Future.delayed(const Duration(milliseconds: 800), () async {
-      if (!_isSeekingInitialPosition) return; // 已被其他逻辑处理
+      if (_isDisposed || !_isSeekingInitialPosition) return;
 
       final currentPos = player.state.position;
       final diff = (currentPos.inSeconds - targetPosition.inSeconds).abs();
 
-      debugPrint('🔍 [Verify] 首次检查: 当前=${currentPos.inSeconds}s, 目标=${targetPosition.inSeconds}s, diff=$diff');
+      debugPrint('🔍 [Verify] 检查进度: 当前=${currentPos.inSeconds}s, 目标=${targetPosition.inSeconds}s');
 
       if (diff <= 3) {
-        // seek 成功
+        // 成功
         _isSeekingInitialPosition = false;
+        // 设置3秒保护期，防止后续微小的跳变触发上报
         _confirmedSeekPosition = targetPosition;
         _seekProtectionEndTime = DateTime.now().add(const Duration(seconds: 3));
-        debugPrint('✅ [Verify] seek 成功: ${currentPos.inSeconds}s (目标=${targetPosition.inSeconds}s)');
+        debugPrint('✅ [Verify] 进度恢复成功');
       } else {
-        // 【关键修复】如果当前位置是0，可能是播放器还没开始播放，立即重新 seek
-        if (currentPos.inSeconds == 0) {
-          debugPrint('🔄 [Verify] 当前位置为0，立即重新 seek 到 ${targetPosition.inSeconds}s');
+        // 失败或尚未完成
+        if (currentPos.inSeconds == 0 && player.state.playing) {
+          // 如果已经在播放了还是 0，说明 seek 没生效，重试
+          debugPrint('🔄 [Verify] 播放中但进度为0，重试 Seek');
           player.seek(targetPosition);
         }
-        // seek 可能还在进行中，继续监听
-        debugPrint('🔄 [Verify] seek 进行中: ${currentPos.inSeconds}s → ${targetPosition.inSeconds}s');
+        // 启动轮询检查
         _startSeekVerifyLoop(targetPosition);
       }
     });
   }
-
   /// 持续验证 seek 状态，最多重试3次，每次10秒
   void _startSeekVerifyLoop(Duration targetPosition) {
     int attempts = 0;
@@ -1188,12 +1308,21 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// 快进位置恢复机制
   /// 当快进遇到分片加载问题时,重新加载视频并恢复到目标位置
+  ///
+  /// 【关键修复】分片边界保护：回退 2 秒防止跳过分片 A
   Future<void> _recoverSeekPosition(Duration targetPosition, bool wasPlaying) async {
     if (_currentResourceId == null || currentQuality.value == null) {
       return;
     }
 
     try {
+      // 【关键修复】应用分片边界保护：回退 2 秒
+      Duration safePosition = targetPosition;
+      if (targetPosition.inSeconds >= 2) {
+        safePosition = Duration(seconds: targetPosition.inSeconds - 2);
+        debugPrint('🛡️ [RecoverSeek] 分片边界保护: 原始=${targetPosition.inSeconds}s -> 回退后=${safePosition.inSeconds}s');
+      }
+
       // 1. 暂停播放
       await player.pause();
 
@@ -1209,8 +1338,8 @@ class VideoPlayerController extends ChangeNotifier {
       await player.open(media, play: false);
       await _waitForPlayerReady();
 
-      // 4. 跳转到目标位置
-      await player.seek(targetPosition);
+      // 4. 跳转到安全位置（已回退 2 秒）
+      await player.seek(safePosition);
       await Future.delayed(const Duration(milliseconds: 300));
 
       // 5. 恢复播放状态
@@ -1868,45 +1997,38 @@ class VideoPlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    // 如果已经通过 disposeAsync() 清理过，跳过
-    if (_isDisposing) {
-      debugPrint('🗑️ [VideoPlayerController] dispose() 跳过（已通过 disposeAsync 清理）');
-      super.dispose();
-      return;
-    }
+    if (_isDisposed) return; // 防止重复调用
+    _isDisposed = true;      // 【关键】标记已销毁
+    debugPrint('🗑️ [VideoPlayerController] 开始销毁...');
 
-    // 如果直接调用 dispose()（不推荐），做同步清理
-    // 注意：这可能仍然会导致崩溃，应该总是先调用 disposeAsync()
-    debugPrint('⚠️ [VideoPlayerController] 警告: dispose() 被直接调用，可能导致崩溃');
-
+    // 1. 【同步切断】第一步：立即取消所有 Timer
     _debounceTimer?.cancel();
     _stalledTimer?.cancel();
     _preloadTimer?.cancel();
     _seekDebounceTimer?.cancel();
+    _seekRetryTimer?.cancel();
 
+    // 2. 【同步切断】第二步：立即取消所有 StreamSubscription
+    // 这一步至关重要，必须同步执行，不能 await
     _positionSubscription?.cancel();
     _completedSubscription?.cancel();
     _playingSubscription?.cancel();
     _bufferingSubscription?.cancel();
-
     _connectivitySubscription?.cancel();
     _audioInterruptionSubscription?.cancel();
     _callStateSubscription?.cancel();
     _callStateHandler?.dispose();
-
     _positionStreamController.close();
+
+    // 3. 【同步切断】第三步：清理业务状态
     _qualityCache.clear();
-
     WakelockManager.disable();
-
     if (_audioHandler != null) {
-      _audioHandler!.stop();
+      _audioHandler!.stop(); // 停止通知，但不销毁静态实例
     }
-
     _hlsService.cleanupAllTempCache();
 
-    // 【关键】player.dispose() 必须在所有订阅取消之后调用
-    player.dispose();
+    // 4. 【同步切断】第四步：销毁 Notifiers
     availableQualities.dispose();
     currentQuality.dispose();
     isLoading.dispose();
@@ -1916,6 +2038,26 @@ class VideoPlayerController extends ChangeNotifier {
     loopMode.dispose();
     backgroundPlayEnabled.dispose();
     isBuffering.dispose();
+
+    // 5. 【关键防御】将 player 的销毁放入 isolate 或延迟执行
+    // 这里的逻辑是：先同步切断所有回调，Dart 层已经安全了。
+    // 然后告诉底层 "停止工作"，并给它 100ms 的时间去处理未完成的帧。
+    // 最后再销毁句柄。
+    final playerToDispose = player; // 捕获引用
+
+    // 立即停止（发送指令，不等待）
+    playerToDispose.stop();
+
+    // 延迟销毁（防止 Native 线程竞争）
+    Future.delayed(const Duration(milliseconds: 200), () async {
+      try {
+        await playerToDispose.dispose();
+        debugPrint('🗑️ [VideoPlayerController] 播放器底层资源已释放');
+      } catch (e) {
+        // 忽略销毁时的错误
+      }
+    });
+
     super.dispose();
   }
 }

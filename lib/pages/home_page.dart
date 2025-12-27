@@ -247,8 +247,8 @@ class _HomePageState extends State<HomePage> {
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 crossAxisSpacing: 10,
-                mainAxisSpacing: 6,
-                childAspectRatio: 0.78,
+                mainAxisSpacing: 10,
+                childAspectRatio: 1,
               ),
               delegate: SliverChildBuilderDelegate(
                 (context, index) {

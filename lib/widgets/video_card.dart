@@ -79,7 +79,7 @@ class VideoCard extends StatelessWidget {
               ),
               // 内容区域
               Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -95,7 +95,7 @@ class VideoCard extends StatelessWidget {
                         color: colors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     // 用户名
                     Row(
                       children: [
@@ -119,7 +119,7 @@ class VideoCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     // 播放次数和弹幕数量
                     Row(
                       children: [
