@@ -93,6 +93,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
   }
 
+  // 【关键】跟踪是否已应用初始进度，避免重复 seek
+  bool _hasAppliedInitialPosition = false;
+
   @override
   void didUpdateWidget(MediaPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -105,6 +108,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
     if (oldWidget.resourceId != widget.resourceId) {
       debugPrint('📹 [didUpdateWidget] resourceId 改变，重新初始化');
+      _hasAppliedInitialPosition = false; // 切换视频时重置
 
       // 更新视频元数据
       if (widget.title != null) {
@@ -120,6 +124,14 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
         resourceId: widget.resourceId,
         initialPosition: widget.initialPosition,
       );
+    } else if (!_hasAppliedInitialPosition &&
+               widget.initialPosition != null &&
+               oldWidget.initialPosition == null) {
+      // 【关键修复】initialPosition 从 null 变为有值（异步加载历史记录完成）
+      // 此时播放器已初始化，需要手动 seek 到目标位置
+      debugPrint('📹 [didUpdateWidget] 历史进度加载完成: ${widget.initialPosition}s，执行 seek');
+      _hasAppliedInitialPosition = true;
+      _controller.seek(Duration(seconds: widget.initialPosition!.toInt()));
     }
   }
 

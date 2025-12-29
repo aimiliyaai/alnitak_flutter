@@ -115,56 +115,67 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 移除登录状态监听
     _authStateManager.removeListener(_onAuthStateChanged);
 
-    // 【关键修复】页面关闭前获取播放器当前实时进度
-    // 优先使用播放器实时位置，而不是回调更新的 _lastReportedPosition
-    double? progressToSave;
-
-    // 1. 首先尝试从播放器获取实时位置
-    if (_playerController != null) {
-      try {
-        final currentPosition = _playerController.player.state.position;
-        if (currentPosition.inSeconds > 0) {
-          progressToSave = currentPosition.inSeconds.toDouble();
-          print('📊 从播放器获取实时进度: ${currentPosition.inSeconds}秒');
-        }
-      } catch (e) {
-        print('⚠️ 获取播放器实时进度失败: $e');
-      }
-    }
-
-    // 2. 如果无法从播放器获取，使用回调记录的位置
-    progressToSave ??= _lastReportedPosition?.inSeconds.toDouble();
-
-    // 3. 最后使用初始进度作为兜底
-    progressToSave ??= _initialProgress;
-
-    if (progressToSave != null && progressToSave > 0) {
-      // 如果已经完播，退出时应该上报-1而不是总时长
-      if (_hasReportedCompleted) {
-        print('📊 页面关闭前上报进度: -1 (已完播)');
-        _historyService.addHistory(
-          vid: widget.vid,
-          part: _currentPart,
-          time: -1,
-          duration: _currentDuration.toInt(),
-        );
-      } else {
-        print('📊 页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒');
-        _historyService.addHistory(
-          vid: widget.vid,
-          part: _currentPart,
-          time: progressToSave,
-          duration: _currentDuration.toInt(),
-        );
-      }
-    } else {
-      print('📊 页面关闭: 无有效进度需要保存');
-    }
+    // 【关键修复】页面关闭前保存播放进度
+    // 核心原则：只有当视频真正播放过（有 duration）时才保存进度，避免覆盖服务器正确记录
+    _saveProgressOnDispose();
 
     _scrollController.dispose();
     // 【修复】退出播放页时立即清理HLS流缓存（使用 clearAllCache 确保完整清理）
     _hlsService.clearAllCache();
     super.dispose();
+  }
+
+  /// 页面关闭时保存进度
+  void _saveProgressOnDispose() {
+    // 【关键】如果视频从未真正加载完成（duration == 0），不保存进度
+    // 避免用户快速进入又退出时，用错误的进度覆盖服务器的正确记录
+    if (_currentDuration <= 0) {
+      print('📊 页面关闭: 视频未加载完成(duration=0)，不保存进度以保留服务器记录');
+      return;
+    }
+
+    // 【优先级】使用回调记录的位置（已经验证过的稳定位置）
+    // 而不是播放器的实时位置（可能在 seek/切换过程中不稳定）
+    double? progressToSave = _lastReportedPosition?.inSeconds.toDouble();
+
+    // 如果回调没有记录过，再尝试从播放器获取
+    if (progressToSave == null && _playerController != null) {
+      try {
+        final currentPosition = _playerController.player.state.position;
+        final playerDuration = _playerController.player.state.duration;
+        // 只有当播放器的 duration 也有效时，才信任其 position
+        if (playerDuration.inSeconds > 0 && currentPosition.inSeconds > 0) {
+          progressToSave = currentPosition.inSeconds.toDouble();
+          print('📊 从播放器获取进度: ${currentPosition.inSeconds}秒');
+        }
+      } catch (e) {
+        print('⚠️ 获取播放器进度失败: $e');
+      }
+    }
+
+    if (progressToSave == null || progressToSave <= 0) {
+      print('📊 页面关闭: 无有效进度需要保存');
+      return;
+    }
+
+    // 如果已经完播，退出时应该上报-1而不是总时长
+    if (_hasReportedCompleted) {
+      print('📊 页面关闭前上报进度: -1 (已完播)');
+      _historyService.addHistory(
+        vid: widget.vid,
+        part: _currentPart,
+        time: -1,
+        duration: _currentDuration.toInt(),
+      );
+    } else {
+      print('📊 页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒, duration=${_currentDuration.toInt()}秒');
+      _historyService.addHistory(
+        vid: widget.vid,
+        part: _currentPart,
+        time: progressToSave,
+        duration: _currentDuration.toInt(),
+      );
+    }
   }
 
   /// 加载视频数据
