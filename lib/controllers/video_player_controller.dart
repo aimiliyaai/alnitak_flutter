@@ -286,18 +286,18 @@ class VideoPlayerController extends ChangeNotifier {
         if (targetPosition.inSeconds > 0) {
           debugPrint('🔄 [Quality] seek 到 ${targetPosition.inSeconds}s');
 
-          // 先播放一下让播放器真正就绪，然后立即暂停
-          await player.play();
-          await Future.delayed(const Duration(milliseconds: 100));
-          await player.pause();
+            // 先播放一下让播放器真正就绪，然后立即暂停
+            await player.play();
+            await Future.delayed(const Duration(milliseconds: 100));
+            await player.pause();
 
-          // 现在 seek
-          await player.seek(targetPosition);
-          await Future.delayed(const Duration(milliseconds: 200));
+            // 现在 seek
+            await player.seek(targetPosition);
+            await Future.delayed(const Duration(milliseconds: 200));
 
-          // 验证位置
-          final actualPos = player.state.position;
-          debugPrint('📍 [Quality] seek 后位置: ${actualPos.inSeconds}s');
+            // 验证位置
+            final actualPos = player.state.position;
+            debugPrint('📍 [Quality] seek 后位置: ${actualPos.inSeconds}s');
         }
 
         // 更新状态
@@ -666,6 +666,8 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       if (_audioServiceInitialized && _audioHandler != null) {
         _audioHandler!.setPlayer(player);
+        // 同步元数据，确保通知栏信息更新
+        _updateAudioServiceMetadata();
         return;
       }
 
@@ -681,6 +683,9 @@ class VideoPlayerController extends ChangeNotifier {
           ),
         );
         _audioServiceInitialized = true;
+        // 附加 player 并同步已有的媒体元数据（如果有）
+        _audioHandler?.setPlayer(player);
+        _updateAudioServiceMetadata();
       }
     } catch (e) {
       debugPrint('❌ AudioService 初始化失败: $e');
