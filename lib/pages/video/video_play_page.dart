@@ -3,7 +3,6 @@ import '../../models/video_detail.dart';
 import '../../models/comment.dart';
 import '../../models/history_models.dart';
 import '../../services/video_service.dart';
-import '../../services/hls_service.dart';
 import '../../services/history_service.dart';
 import '../../managers/video_player_manager.dart';
 import '../../utils/auth_state_manager.dart';
@@ -33,7 +32,6 @@ class VideoPlayPage extends StatefulWidget {
 
 class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserver {
   final VideoService _videoService = VideoService();
-  final HlsService _hlsService = HlsService();
   final HistoryService _historyService = HistoryService();
   final AuthStateManager _authStateManager = AuthStateManager();
   final ScrollController _scrollController = ScrollController();
@@ -128,11 +126,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     _scrollController.dispose();
 
-    // 【新增】销毁播放管理器
+    // 【新增】销毁播放管理器（会自动清理HLS缓存）
     _playerManager.dispose();
 
-    // 【修复】退出播放页时立即清理HLS流缓存（使用 clearAllCache 确保完整清理）
-    _hlsService.clearAllCache();
     super.dispose();
   }
 

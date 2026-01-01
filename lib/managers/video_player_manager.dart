@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../services/hls_service.dart';
 import '../controllers/video_player_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/quality_utils.dart';
 
 /// 播放状态枚举
 enum PlaybackState {
@@ -310,6 +312,11 @@ class VideoPlayerManager extends ChangeNotifier {
 
   /// 获取首选清晰度
   Future<String> _getPreferredQuality(List<String> qualities) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final preferredName = prefs.getString('preferred_video_quality_display_name');
+      return findBestQualityMatch(qualities, preferredName);
+    } catch (_) {}
     return HlsService.getDefaultQuality(qualities);
   }
 

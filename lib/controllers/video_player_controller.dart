@@ -15,6 +15,7 @@ import '../services/audio_service_handler.dart';
 import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
 import '../utils/error_handler.dart';
+import '../utils/quality_utils.dart';
 
 /// 视频播放器控制器 (V2 - 简化版)
 ///
@@ -290,7 +291,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 5));
+      await Future.delayed(const Duration(milliseconds: 7));
 
       // 再次检查是否已被销毁
       if (_isDisposed) return;
@@ -361,7 +362,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 7));
 
       // 再次检查是否已被销毁
       if (_isDisposed) return;
@@ -707,13 +708,7 @@ class VideoPlayerController extends ChangeNotifier {
   Future<String> _getPreferredQuality(List<String> qualities) async {
     final prefs = await SharedPreferences.getInstance();
     final preferredName = prefs.getString(_preferredQualityKey);
-
-    if (preferredName != null) {
-      for (final q in qualities) {
-        if (getQualityDisplayName(q) == preferredName) return q;
-      }
-    }
-    return HlsService.getDefaultQuality(qualities);
+    return findBestQualityMatch(qualities, preferredName);
   }
 
   Future<void> _savePreferredQuality(String quality) async {
@@ -754,35 +749,7 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   String getQualityDisplayName(String quality) {
-    const map = {
-      '640x360_1000k_30': '360p',
-      '854x480_1500k_30': '480p',
-      '1280x720_3000k_30': '720p',
-      '1920x1080_6000k_30': '1080p',
-      '1920x1080_8000k_60': '1080p60',
-    };
-
-    if (map.containsKey(quality)) return map[quality]!;
-
-    try {
-      final parts = quality.split('_');
-      final resolution = parts[0];
-      final fps = parts.length >= 3 ? (int.tryParse(parts[2]) ?? 30) : 30;
-
-      if (resolution.contains('x')) {
-        final height = int.tryParse(resolution.split('x')[1]);
-        if (height != null) {
-          final suffix = fps > 30 ? '$fps' : '';
-          if (height <= 360) return '360p$suffix';
-          if (height <= 480) return '480p$suffix';
-          if (height <= 720) return '720p$suffix';
-          if (height <= 1080) return '1080p$suffix';
-          if (height <= 1440) return '2K$suffix';
-          return '4K$suffix';
-        }
-      }
-    } catch (_) {}
-    return quality;
+    return formatQualityDisplayName(quality);
   }
 
   // ============================================================
@@ -979,7 +946,11 @@ class VideoPlayerController extends ChangeNotifier {
     _qualityCache.clear();
     WakelockManager.disable();
     _audioHandler?.stop();
-    _hlsService.cleanupAllTempCache();
+    
+    // 【修复】异步清理 HLS 缓存，不等待但捕获异常，避免快速退出时丢失
+    _hlsService.cleanupAllTempCache().catchError((e) {
+      debugPrint('⚠️ [VideoPlayerController.dispose] HLS 缓存清理失败: $e');
+    });
 
     // 停止并销毁播放器
     player.stop();
