@@ -11,6 +11,10 @@ class LoginGuard {
 
   // 缓存当前用户ID，避免频繁请求
   static int? _cachedUserId;
+  // 【新增】缓存时间戳，用于自动过期
+  static DateTime? _cacheTimestamp;
+  // 【新增】缓存有效期（5分钟）
+  static const Duration _cacheExpiry = Duration(minutes: 5);
 
   /// 检查是否已登录
   static Future<bool> isLoggedIn() async {
@@ -19,14 +23,26 @@ class LoginGuard {
 
   /// 获取当前登录用户的ID
   /// 返回 null 表示未登录或获取失败
+  ///
+  /// 【修复】添加缓存自动过期机制
   static Future<int?> getCurrentUserId() async {
-    // 如果已有缓存，直接返回
-    if (_cachedUserId != null) {
-      return _cachedUserId;
+    // 【修复】检查缓存是否过期
+    if (_cachedUserId != null && _cacheTimestamp != null) {
+      final now = DateTime.now();
+      if (now.difference(_cacheTimestamp!) < _cacheExpiry) {
+        return _cachedUserId;
+      } else {
+        // 缓存过期，清除
+        print('⏰ 用户ID缓存已过期，重新获取');
+        _cachedUserId = null;
+        _cacheTimestamp = null;
+      }
     }
 
     final isLogged = await isLoggedIn();
     if (!isLogged) {
+      // 【修复】未登录时清除缓存
+      clearCache();
       return null;
     }
 
@@ -34,6 +50,7 @@ class LoginGuard {
     if (userInfo != null) {
       // UserInfo 包含 userInfo 字段（UserBaseInfo 类型），uid 在 UserBaseInfo 中
       _cachedUserId = userInfo.userInfo.uid;
+      _cacheTimestamp = DateTime.now();
       return userInfo.userInfo.uid;
     }
     return null;
@@ -42,6 +59,8 @@ class LoginGuard {
   /// 清除用户缓存（登出时调用）
   static void clearCache() {
     _cachedUserId = null;
+    _cacheTimestamp = null;
+    print('🔄 LoginGuard 缓存已清除');
   }
 
   /// 执行需要登录的操作

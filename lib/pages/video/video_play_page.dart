@@ -406,55 +406,86 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
   }
 
+  // 【新增】防止并发切换视频
+  bool _isSwitchingVideo = false;
+
   /// 切换到其他视频（原地刷新，不重新导航）
   Future<void> _switchToVideo(int vid) async {
     if (vid == _currentVid) return; // 同一个视频不需要切换
 
-    print('🔄 [VideoPlayPage] 切换视频: $_currentVid -> $vid');
-
-    // 1. 先上报当前视频的播放进度
-    if (_lastReportedPosition != null && _currentDuration > 0) {
-      print('📊 切换视频前上报进度: ${_lastReportedPosition!.inSeconds}秒');
-      await _historyService.addHistory(
-        vid: _currentVid,
-        part: _currentPart,
-        time: _hasReportedCompleted ? -1 : _lastReportedPosition!.inSeconds.toDouble(),
-        duration: _currentDuration.toInt(),
-      );
+    // 【修复】防止并发切换
+    if (_isSwitchingVideo) {
+      print('⚠️ [VideoPlayPage] 正在切换视频中，忽略重复请求');
+      return;
     }
+    _isSwitchingVideo = true;
 
-    // 2. 清理旧视频的 HLS 缓存
-    final hlsService = HlsService();
-    hlsService.clearAllCache();
-    print('🧹 [VideoPlayPage] 已清理旧视频缓存');
+    final oldVid = _currentVid;
+    print('🔄 [VideoPlayPage] 切换视频: $oldVid -> $vid');
 
-    // 3. 更新视频ID并重置播放状态（但保留旧的界面数据，避免闪烁）
+    // 【修复】先更新 _currentVid，防止异步操作期间的竞态
     _currentVid = vid;
-    _currentPart = 1;
-    _lastReportedPosition = null;
-    _hasReportedCompleted = false;
-    _lastSavedSeconds = null;
-    _currentDuration = 0;
 
-    // 4. 并行加载新视频数据（不设置 loading 状态，保持界面显示）
-    await _loadVideoDataSeamless();
+    try {
+      // 1. 上报当前视频的播放进度（不阻塞，后台执行）
+      if (_lastReportedPosition != null && _currentDuration > 0) {
+        print('📊 切换视频前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+        // 【优化】不等待上报完成，避免阻塞切换
+        _historyService.addHistory(
+          vid: oldVid,
+          part: _currentPart,
+          time: _hasReportedCompleted ? -1 : _lastReportedPosition!.inSeconds.toDouble(),
+          duration: _currentDuration.toInt(),
+        );
+      }
 
-    // 5. 滚动到顶部
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+      // 2. 重置播放状态（保留旧界面数据避免闪烁）
+      _currentPart = 1;
+      _lastReportedPosition = null;
+      _hasReportedCompleted = false;
+      _lastSavedSeconds = null;
+      _currentDuration = 0;
+
+      // 【新增】重置历史记录服务的进度上报状态
+      _historyService.resetProgressState();
+
+      // 3. 加载新视频数据
+      await _loadVideoDataSeamless();
+
+      // 4. 清理旧视频缓存（在新视频开始加载后再清理，避免影响播放）
+      // 【修复】使用 Future.delayed 确保新视频开始播放后再清理
+      Future.delayed(const Duration(seconds: 2), () {
+        HlsService().cleanupExpiredCache();
+      });
+
+      // 5. 滚动到顶部
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    } finally {
+      _isSwitchingVideo = false;
+    }
   }
 
   /// 无缝加载视频数据（不显示 loading，用于切换推荐视频）
   Future<void> _loadVideoDataSeamless() async {
+    // 【修复】记录当前要加载的视频ID，用于防止竞态
+    final targetVid = _currentVid;
+
     try {
       // 并发请求视频详情和历史记录
       final initialResults = await Future.wait([
-        _videoService.getVideoDetail(_currentVid),
-        _historyService.getProgress(vid: _currentVid, part: null),
+        _videoService.getVideoDetail(targetVid),
+        _historyService.getProgress(vid: targetVid, part: null),
       ]);
+
+      // 【修复】检查异步操作完成后，目标视频是否仍然是当前视频
+      if (_currentVid != targetVid) {
+        print('⚠️ [VideoPlayPage] 视频已切换 ($targetVid -> $_currentVid)，丢弃旧数据');
+        return;
+      }
 
       final videoDetail = initialResults[0] as VideoDetail?;
       final progressData = initialResults[1] as PlayProgressData?;
@@ -496,6 +527,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         resourceId: currentResource.id,
         initialPosition: progress,
       );
+
+      // 【修复】setState 前再次检查，避免更新过期数据
+      if (_currentVid != targetVid || !mounted) {
+        print('⚠️ [VideoPlayPage] setState前检测到视频已切换，跳过界面更新');
+        return;
+      }
 
       // 更新界面数据（一次性更新，避免多次 setState）
       setState(() {

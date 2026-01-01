@@ -149,21 +149,23 @@ class HttpClient {
 
   /// 刷新 Token（带锁机制，防止并发刷新）
   Future<String?> refreshToken() async {
-    // 如果已经在刷新中，等待结果
-    if (_isRefreshingToken && _refreshCompleter != null) {
+    // 【修复】先保存当前 Completer 的引用，防止竞态条件
+    final existingCompleter = _refreshCompleter;
+    if (_isRefreshingToken && existingCompleter != null) {
       print('🔄 Token 正在刷新中，等待...');
-      return _refreshCompleter!.future;
+      return existingCompleter.future;
     }
 
     // 开始刷新
     _isRefreshingToken = true;
-    _refreshCompleter = Completer<String?>();
+    final completer = Completer<String?>();
+    _refreshCompleter = completer;
 
     try {
       final refreshToken = _cachedRefreshToken;
       if (refreshToken == null || refreshToken.isEmpty) {
         print('❌ RefreshToken 不存在，需要重新登录');
-        _refreshCompleter!.complete(null);
+        completer.complete(null);
         return null;
       }
 
@@ -185,26 +187,31 @@ class HttpClient {
         final newToken = response.data['data']['token'] as String;
         await updateCachedToken(newToken);
         print('✅ Token 刷新成功');
-        _refreshCompleter!.complete(newToken);
+        completer.complete(newToken);
         return newToken;
       } else if (response.data['code'] == 2000) {
         // RefreshToken 也失效了
         print('❌ RefreshToken 已失效，需要重新登录');
         await clearCachedTokens();
-        _refreshCompleter!.complete(null);
+        completer.complete(null);
         return null;
       } else {
         print('⚠️ Token 刷新失败: ${response.data['msg']}');
-        _refreshCompleter!.complete(null);
+        completer.complete(null);
         return null;
       }
     } catch (e) {
       print('❌ Token 刷新异常: $e');
-      _refreshCompleter!.complete(null);
+      completer.complete(null);
       return null;
     } finally {
       _isRefreshingToken = false;
-      _refreshCompleter = null;
+      // 【修复】延迟清除 Completer，确保等待者能获取结果
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_refreshCompleter == completer) {
+          _refreshCompleter = null;
+        }
+      });
     }
   }
 }

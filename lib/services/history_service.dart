@@ -13,17 +13,37 @@ class HistoryService {
 
   final Dio _dio = HttpClient().dio;
 
+  // 【新增】用于保证进度上报顺序的序列号
+  int _progressSequence = 0;
+  // 【新增】最后成功上报的进度（用于去重）
+  double? _lastSuccessfulProgress;
+  int? _lastSuccessfulVid;
+  int? _lastSuccessfulPart;
+
   /// 添加历史记录
   /// [vid] 视频ID
   /// [part] 分P（默认为1）
   /// [time] 播放进度（秒，-1 表示已看完）
   /// [duration] 视频总时长（秒）
+  ///
+  /// 【修复】使用序列号机制防止乱序上报
   Future<bool> addHistory({
     required int vid,
     int part = 1,
     required double time,
     required int duration,
   }) async {
+    // 【修复】获取当前序列号
+    final currentSequence = ++_progressSequence;
+
+    // 【修复】检查是否是重复上报（相同视频、分P、进度）
+    if (_lastSuccessfulVid == vid &&
+        _lastSuccessfulPart == part &&
+        _lastSuccessfulProgress == time) {
+      print('⏭️ 跳过重复上报: vid=$vid, part=$part, time=${time.toStringAsFixed(1)}s');
+      return true;
+    }
+
     try {
       final response = await _dio.post(
         '/api/v1/history/video/addHistory',
@@ -37,9 +57,20 @@ class HistoryService {
 
       final code = response.data['code'];
 
+      // 【修复】检查是否有更新的请求已经发出
+      if (currentSequence < _progressSequence) {
+        print('⏭️ 进度上报 #$currentSequence 已过期（当前最新 #$_progressSequence），忽略结果');
+        return true; // 返回 true 因为更新的请求会处理
+      }
+
       if (code == 200) {
+        // 【修复】记录成功上报的进度，用于去重
+        _lastSuccessfulVid = vid;
+        _lastSuccessfulPart = part;
+        _lastSuccessfulProgress = time;
+
         print(
-          '✅ 历史记录已保存: '
+          '✅ 历史记录已保存 #$currentSequence: '
           'vid=$vid, part=$part, time=${time.toStringAsFixed(1)}s, duration=${duration}s',
         );
         return true;
@@ -53,6 +84,14 @@ class HistoryService {
       print('❌ 保存历史记录异常: $e');
       return false;
     }
+  }
+
+  /// 重置进度上报状态（切换视频时调用）
+  void resetProgressState() {
+    _lastSuccessfulVid = null;
+    _lastSuccessfulPart = null;
+    _lastSuccessfulProgress = null;
+    print('🔄 进度上报状态已重置');
   }
 
   /// 获取播放进度

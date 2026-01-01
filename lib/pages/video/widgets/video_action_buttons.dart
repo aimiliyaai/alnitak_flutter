@@ -38,6 +38,9 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   bool _isCollecting = false;
   DateTime? _lastErrorTime; // 上次显示错误提示的时间
 
+  // 【新增】用于防止并发点击的操作ID
+  int _likeOperationId = 0;
+
   final VideoService _videoService = VideoService();
   final CollectionService _collectionService = CollectionService();
   late AnimationController _likeAnimationController;
@@ -93,11 +96,15 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   }
 
   /// 处理点赞
+  /// 【修复】使用操作ID防止并发点击导致的状态混乱
   Future<void> _handleLike() async {
     if (_isLiking) return;
 
     // 登录检测
     if (!await LoginGuard.check(context, actionName: '点赞')) return;
+
+    // 【修复】递增操作ID，用于识别当前操作
+    final currentOperationId = ++_likeOperationId;
 
     setState(() {
       _isLiking = true;
@@ -106,35 +113,44 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
     final previousLikeState = _hasLiked;
     final previousCount = _stat.like;
 
-    print('👍 点赞操作: ${_hasLiked ? "取消点赞" : "点赞"} (当前状态: $previousLikeState)');
+    print('👍 点赞操作 #$currentOperationId: ${_hasLiked ? "取消点赞" : "点赞"} (当前状态: $previousLikeState)');
 
-    // 根据当前状态调用不同的API
+    // 【修复】立即更新UI（乐观更新），提升用户体验
+    setState(() {
+      _hasLiked = !previousLikeState;
+      _stat = _stat.copyWith(like: !previousLikeState ? previousCount + 1 : previousCount - 1);
+    });
+
+    // 如果是点赞，立即播放动画
+    if (!previousLikeState) {
+      _likeAnimationController.forward().then((_) {
+        _likeAnimationController.reverse();
+      });
+    }
+
+    // 根据操作前的状态调用API
     bool success;
-    if (_hasLiked) {
-      // 当前是已点赞状态，调用取消点赞API
+    if (previousLikeState) {
+      // 之前是已点赞状态，调用取消点赞API
       success = await _videoService.unlikeVideo(widget.vid);
     } else {
-      // 当前是未点赞状态，调用点赞API
+      // 之前是未点赞状态，调用点赞API
       success = await _videoService.likeVideo(widget.vid);
     }
 
-    if (success) {
-      // API调用成功，切换状态
-      print('👍 API调用成功，切换状态: $previousLikeState -> ${!previousLikeState}');
-      setState(() {
-        _hasLiked = !_hasLiked;
-        _stat = _stat.copyWith(like: _hasLiked ? previousCount + 1 : previousCount - 1);
-      });
+    // 【修复】检查操作ID是否仍然是最新的
+    if (currentOperationId != _likeOperationId) {
+      print('👍 操作 #$currentOperationId 已被新操作覆盖，忽略结果');
+      return;
+    }
 
-      // 如果是点赞，播放动画
-      if (_hasLiked) {
-        _likeAnimationController.forward().then((_) {
-          _likeAnimationController.reverse();
-        });
-      }
-    } else {
-      // API调用失败
-      print('👍 API调用失败');
+    if (!success) {
+      // API调用失败，回滚状态
+      print('👍 API调用失败，回滚状态');
+      setState(() {
+        _hasLiked = previousLikeState;
+        _stat = _stat.copyWith(like: previousCount);
+      });
 
       // 防抖：只有距离上次错误提示超过2秒才显示新的错误提示
       final now = DateTime.now();
@@ -147,6 +163,8 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
           ),
         );
       }
+    } else {
+      print('👍 操作 #$currentOperationId 成功');
     }
 
     setState(() {

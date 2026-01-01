@@ -264,6 +264,9 @@ class VideoPlayerManager extends ChangeNotifier {
       if (expectedEpoch == _currentEpoch && !_isDisposed) {
         playbackState.value = PlaybackState.playing;
         debugPrint('✅ [Manager] 播放已启动');
+      } else {
+        // 【修复】epoch 不匹配时也重置标志，为新资源让路
+        _isStartingPlayback = false;
       }
 
     } catch (e) {
@@ -271,8 +274,8 @@ class VideoPlayerManager extends ChangeNotifier {
       if (expectedEpoch == _currentEpoch && !_isDisposed) {
         playbackState.value = PlaybackState.error;
         errorMessage.value = '播放视频失败: $e';
-        _isStartingPlayback = false; // 失败时重置，允许重试
       }
+      _isStartingPlayback = false; // 【修复】始终重置，允许重试
     }
   }
 

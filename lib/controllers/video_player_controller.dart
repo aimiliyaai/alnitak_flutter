@@ -177,6 +177,9 @@ class VideoPlayerController extends ChangeNotifier {
   /// 使用预加载的数据初始化播放器（避免重复请求HLS资源）
   ///
   /// 由 VideoPlayerManager 调用，资源已经预先加载好
+/// 使用预加载的数据初始化播放器（避免重复请求HLS资源）
+  ///
+  /// 由 VideoPlayerManager 调用，资源已经预先加载好
   Future<void> initializeWithPreloadedData({
     required int resourceId,
     required List<String> qualities,
@@ -184,15 +187,18 @@ class VideoPlayerController extends ChangeNotifier {
     required MediaSource mediaSource,
     double? initialPosition,
   }) async {
+    // 【修改】移除此处不安全的强制重置代码
+    // 原代码：if (_currentResourceId != resourceId) { _isInitializing = false; }
+
     // 防止并发初始化
     if (_isInitializing) {
-      debugPrint('⚠️ [Controller] 已在初始化中，跳过重复调用');
+      debugPrint('⚠️ [Controller] 正在初始化中，跳过资源 $resourceId 的重复调用');
       return;
     }
 
-    // 如果已经初始化过同一个资源，跳过
-    if (isPlayerInitialized.value && _currentResourceId == resourceId) {
-      debugPrint('⚠️ [Controller] 资源 $resourceId 已初始化，跳过');
+    // 如果已经初始化过同一个资源且播放器正常，跳过
+    if (isPlayerInitialized.value && _currentResourceId == resourceId && errorMessage.value == null) {
+      debugPrint('⚠️ [Controller] 资源 $resourceId 已初始化且正常，跳过');
       return;
     }
 
@@ -247,6 +253,9 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> _loadVideo(String quality, {double? initialPosition}) async {
     if (_isDisposed) return;
+    
+    // 记录本次加载的ID，用于后续校验一致性
+    final loadingResourceId = _currentResourceId;
 
     try {
       _hasTriggeredCompletion = false;
@@ -256,7 +265,11 @@ class VideoPlayerController extends ChangeNotifier {
       debugPrint('📹 [Load] 加载视频: quality=$quality, seekTo=${targetPosition.inSeconds}s');
 
       // 1. 获取资源
-      final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, quality);
+      final mediaSource = await _hlsService.getMediaSource(loadingResourceId!, quality);
+      
+      // 【修改】检查一致性：如果ID变了，说明已经切换了视频，终止当前加载
+      if (_currentResourceId != loadingResourceId) return;
+
       if (!mediaSource.isDirectUrl) {
         _qualityCache[quality] = mediaSource;
       }
@@ -266,6 +279,12 @@ class VideoPlayerController extends ChangeNotifier {
       _isSeeking = true;
       await player.open(media, play: false);
       await _waitForDuration();
+      
+      // 【修改】再次检查一致性
+      if (_currentResourceId != loadingResourceId) {
+          _isSeeking = false;
+          return;
+      }
 
       // 3. 恢复历史进度
       if (needSeek) {
@@ -289,11 +308,9 @@ class VideoPlayerController extends ChangeNotifier {
 
       _isSeeking = false;
 
-      // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 7));
+      await Future.delayed(const Duration(milliseconds: 100));
 
-      // 再次检查是否已被销毁
       if (_isDisposed) return;
 
       // 4. 开始播放
@@ -307,8 +324,11 @@ class VideoPlayerController extends ChangeNotifier {
 
     } catch (e) {
       _isSeeking = false;
-      debugPrint('❌ [Load] 失败: $e');
-      rethrow;
+      // 只有当前资源匹配时才抛出异常给上层UI处理，否则忽略旧资源的错误
+      if (_currentResourceId == loadingResourceId) {
+        debugPrint('❌ [Load] 失败: $e');
+        rethrow;
+      }
     }
   }
 
@@ -362,7 +382,7 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 7));
+      await Future.delayed(const Duration(milliseconds: 100));
 
       // 再次检查是否已被销毁
       if (_isDisposed) return;
@@ -572,6 +592,12 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   Future<void> _handleStalled() async {
+    // 【修改】新增卫语句：如果正在初始化或处于Loading状态，严禁触发重载
+    if (_isInitializing || isLoading.value) {
+      debugPrint('⏳ [Stalled] 正在初始化或加载中，忽略卡顿检测');
+      return;
+    }
+    
     if (_currentResourceId == null || currentQuality.value == null) return;
 
     try {

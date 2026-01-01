@@ -25,6 +25,9 @@ class _HomePageState extends State<HomePage> {
   String? _errorMessage;
   static const int _pageSize = 10;
 
+  // 【新增】用于防止并发加载的页码锁
+  int? _loadingPage;
+
   @override
   void initState() {
     super.initState();
@@ -112,20 +115,35 @@ class _HomePageState extends State<HomePage> {
   }
 
   // 加载更多视频
+  /// 【修复】使用页码锁防止并发加载同一页
   Future<void> _loadMoreVideos() async {
     if (_isLoading || !_hasMore) return;
+
+    final nextPage = _currentPage + 1;
+
+    // 【修复】检查是否已经在加载这一页
+    if (_loadingPage == nextPage) {
+      print('⏭️ 页面 $nextPage 正在加载中，跳过重复请求');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
     });
 
-    final nextPage = _currentPage + 1;
-    
+    _loadingPage = nextPage;
+
     try {
       final apiVideos = await VideoApiService.getHotVideoAPI(
         page: nextPage,
         pageSize: _pageSize,
       );
+
+      // 【修复】检查是否仍然是当前请求的页（防止竞态）
+      if (_loadingPage != nextPage) {
+        print('⏭️ 页面 $nextPage 加载完成但已过期，丢弃数据');
+        return;
+      }
 
       final newVideos = apiVideos
           .map((apiVideo) => VideoItem.fromApiModel(apiVideo))
@@ -161,6 +179,11 @@ class _HomePageState extends State<HomePage> {
             content: Text('加载更多失败: $e'),
           ),
         );
+      }
+    } finally {
+      // 【修复】清除加载锁
+      if (_loadingPage == nextPage) {
+        _loadingPage = null;
       }
     }
   }
