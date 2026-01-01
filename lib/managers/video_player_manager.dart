@@ -19,6 +19,7 @@ enum PlaybackState {
 /// 预加载的资源数据
 class PreloadedResource {
   final int resourceId;
+  final int epoch; // 资源版本号，用于防止过期资源被使用
   final List<String> qualities;
   final String selectedQuality;
   final MediaSource mediaSource;
@@ -26,6 +27,7 @@ class PreloadedResource {
 
   const PreloadedResource({
     required this.resourceId,
+    required this.epoch,
     required this.qualities,
     required this.selectedQuality,
     required this.mediaSource,
@@ -44,6 +46,7 @@ class PreloadedResource {
 /// - UI 渲染不等待资源加载
 /// - 资源加载和播放器创建并行进行
 /// - 消除两次加载动作
+/// - 使用 epoch 机制防止竞态条件
 class VideoPlayerManager extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
 
@@ -70,8 +73,11 @@ class VideoPlayerManager extends ChangeNotifier {
   String? _author;
   String? _coverUrl;
 
+  // ============ 竞态条件防护 ============
   bool _isDisposed = false;
-  bool _hasStartedPlayback = false; // 防止重复初始化播放
+  int _currentEpoch = 0; // 资源版本号，每次加载新资源时递增
+  bool _isPreloading = false; // 是否正在预加载
+  bool _isStartingPlayback = false; // 是否正在启动播放
 
   VideoPlayerManager();
 
@@ -87,15 +93,37 @@ class VideoPlayerManager extends ChangeNotifier {
   }) async {
     if (_isDisposed) return;
 
+    // 递增 epoch，使之前的加载任务失效
+    final myEpoch = ++_currentEpoch;
+
+    // 如果正在预加载，取消之前的
+    if (_isPreloading) {
+      debugPrint('⚠️ [Manager] 取消之前的预加载任务');
+    }
+    _isPreloading = true;
+
+    // 重置状态
+    _preloadedResource = null;
+    _isStartingPlayback = false;
+    isResourceReady.value = false;
     playbackState.value = PlaybackState.loading;
     errorMessage.value = null;
+
+    // 创建新的 Completer
     _preloadCompleter = Completer<PreloadedResource>();
 
-    debugPrint('🚀 [Manager] 开始预加载资源: resourceId=$resourceId');
+    debugPrint('🚀 [Manager] 开始预加载资源: resourceId=$resourceId, epoch=$myEpoch');
 
     try {
       // 1. 获取清晰度列表
       final qualities = await _hlsService.getAvailableQualities(resourceId);
+
+      // 检查是否已过期
+      if (_isDisposed || myEpoch != _currentEpoch) {
+        debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
+        return;
+      }
+
       if (qualities.isEmpty) {
         throw Exception('没有可用的清晰度');
       }
@@ -103,14 +131,27 @@ class VideoPlayerManager extends ChangeNotifier {
       // 2. 确定首选清晰度
       final selectedQuality = await _getPreferredQuality(qualities);
 
+      // 再次检查是否过期
+      if (_isDisposed || myEpoch != _currentEpoch) {
+        debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
+        return;
+      }
+
       // 3. 获取媒体源
       final mediaSource = await _hlsService.getMediaSource(resourceId, selectedQuality);
 
-      debugPrint('✅ [Manager] 资源预加载完成: quality=$selectedQuality');
+      // 最终检查
+      if (_isDisposed || myEpoch != _currentEpoch) {
+        debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
+        return;
+      }
 
-      // 4. 缓存预加载结果
+      debugPrint('✅ [Manager] 资源预加载完成: quality=$selectedQuality, epoch=$myEpoch');
+
+      // 4. 缓存预加载结果（带有 epoch）
       _preloadedResource = PreloadedResource(
         resourceId: resourceId,
+        epoch: myEpoch,
         qualities: qualities,
         selectedQuality: selectedQuality,
         mediaSource: mediaSource,
@@ -118,18 +159,26 @@ class VideoPlayerManager extends ChangeNotifier {
       );
 
       isResourceReady.value = true;
+      _isPreloading = false;
 
-      if (!_preloadCompleter!.isCompleted) {
+      if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
         _preloadCompleter!.complete(_preloadedResource!);
       }
 
-      // 5. 如果播放器已创建，立即开始播放
-      if (_controller != null) {
-        await _startPlaybackWithPreloadedResource();
+      // 5. 如果播放器已创建且未开始播放，立即开始播放
+      if (_controller != null && !_isStartingPlayback) {
+        await _startPlaybackWithPreloadedResource(myEpoch);
       }
 
     } catch (e) {
+      // 检查是否过期
+      if (_isDisposed || myEpoch != _currentEpoch) {
+        debugPrint('⚠️ [Manager] 预加载失败但已过期，忽略错误');
+        return;
+      }
+
       debugPrint('❌ [Manager] 预加载失败: $e');
+      _isPreloading = false;
       playbackState.value = PlaybackState.error;
       errorMessage.value = '加载视频失败: $e';
 
@@ -147,6 +196,7 @@ class VideoPlayerManager extends ChangeNotifier {
   /// 3. 如果资源未就绪，等待预加载完成
   Future<VideoPlayerController> createController() async {
     if (_controller != null) {
+      debugPrint('⚠️ [Manager] Controller 已存在，直接返回');
       return _controller!;
     }
 
@@ -169,26 +219,34 @@ class VideoPlayerManager extends ChangeNotifier {
       );
     }
 
-    // 如果资源已就绪，立即开始播放
-    if (_preloadedResource != null) {
-      await _startPlaybackWithPreloadedResource();
+    // 如果资源已就绪且未开始播放，立即开始播放
+    if (_preloadedResource != null && !_isStartingPlayback) {
+      await _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
     }
 
     return _controller!;
   }
 
   /// 使用预加载的资源开始播放
-  Future<void> _startPlaybackWithPreloadedResource() async {
-    // 【关键】防止重复初始化
-    if (_hasStartedPlayback) {
-      debugPrint('⚠️ [Manager] 已经开始播放，跳过重复初始化');
+  Future<void> _startPlaybackWithPreloadedResource(int expectedEpoch) async {
+    // 【关键】多重防护
+    if (_isStartingPlayback) {
+      debugPrint('⚠️ [Manager] 正在启动播放中，跳过重复调用');
       return;
     }
-    if (_controller == null || _preloadedResource == null || _isDisposed) return;
+    if (_controller == null || _preloadedResource == null || _isDisposed) {
+      debugPrint('⚠️ [Manager] 条件不满足，跳过播放');
+      return;
+    }
+    // 检查 epoch 是否匹配
+    if (_preloadedResource!.epoch != expectedEpoch || expectedEpoch != _currentEpoch) {
+      debugPrint('⚠️ [Manager] epoch 不匹配 (resource=${_preloadedResource!.epoch}, expected=$expectedEpoch, current=$_currentEpoch)，跳过播放');
+      return;
+    }
 
-    _hasStartedPlayback = true; // 标记已开始播放
+    _isStartingPlayback = true;
     final resource = _preloadedResource!;
-    debugPrint('▶️ [Manager] 使用预加载资源开始播放');
+    debugPrint('▶️ [Manager] 使用预加载资源开始播放, epoch=$expectedEpoch');
 
     try {
       // 使用预加载的数据初始化播放器
@@ -200,13 +258,19 @@ class VideoPlayerManager extends ChangeNotifier {
         initialPosition: resource.initialPosition,
       );
 
-      playbackState.value = PlaybackState.playing;
+      // 再次检查 epoch，确保播放完成时资源未被切换
+      if (expectedEpoch == _currentEpoch && !_isDisposed) {
+        playbackState.value = PlaybackState.playing;
+        debugPrint('✅ [Manager] 播放已启动');
+      }
 
     } catch (e) {
       debugPrint('❌ [Manager] 播放失败: $e');
-      playbackState.value = PlaybackState.error;
-      errorMessage.value = '播放视频失败: $e';
-      _hasStartedPlayback = false; // 失败时重置，允许重试
+      if (expectedEpoch == _currentEpoch && !_isDisposed) {
+        playbackState.value = PlaybackState.error;
+        errorMessage.value = '播放视频失败: $e';
+        _isStartingPlayback = false; // 失败时重置，允许重试
+      }
     }
   }
 
@@ -219,13 +283,7 @@ class VideoPlayerManager extends ChangeNotifier {
 
     debugPrint('🔄 [Manager] 切换资源: resourceId=$resourceId');
 
-    // 重置状态
-    _preloadedResource = null;
-    _hasStartedPlayback = false; // 重置播放标志，允许新资源播放
-    isResourceReady.value = false;
-    playbackState.value = PlaybackState.loading;
-
-    // 开始预加载新资源
+    // preloadResource 内部会递增 epoch 并重置状态
     await preloadResource(
       resourceId: resourceId,
       initialPosition: initialPosition,
@@ -252,8 +310,6 @@ class VideoPlayerManager extends ChangeNotifier {
 
   /// 获取首选清晰度
   Future<String> _getPreferredQuality(List<String> qualities) async {
-    // 使用 Controller 的逻辑获取首选清晰度
-    // 这里简化处理，选择第二高清晰度
     return HlsService.getDefaultQuality(qualities);
   }
 
@@ -284,6 +340,9 @@ class VideoPlayerManager extends ChangeNotifier {
     _isDisposed = true;
 
     debugPrint('🗑️ [Manager] 销毁');
+
+    // 递增 epoch 使所有正在进行的异步操作失效
+    _currentEpoch++;
 
     playbackState.dispose();
     errorMessage.dispose();

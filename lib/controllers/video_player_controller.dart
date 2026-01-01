@@ -51,6 +51,7 @@ class VideoPlayerController extends ChangeNotifier {
   int? _currentResourceId;
   bool _isDisposed = false;
   bool _hasTriggeredCompletion = false;
+  bool _isInitializing = false; // 防止并发初始化
 
   /// 【核心】用户期望的进度位置
   /// - seek 时更新为目标位置
@@ -128,6 +129,13 @@ class VideoPlayerController extends ChangeNotifier {
     required int resourceId,
     double? initialPosition,
   }) async {
+    // 防止并发初始化
+    if (_isInitializing) {
+      debugPrint('⚠️ [Controller] 已在初始化中，跳过重复调用');
+      return;
+    }
+    _isInitializing = true;
+
     try {
       _currentResourceId = resourceId;
       isLoading.value = true;
@@ -160,6 +168,8 @@ class VideoPlayerController extends ChangeNotifier {
       _logger.logError(message: '初始化失败', error: e, stackTrace: StackTrace.current);
       isLoading.value = false;
       errorMessage.value = ErrorHandler.getErrorMessage(e);
+    } finally {
+      _isInitializing = false;
     }
   }
 
@@ -173,6 +183,20 @@ class VideoPlayerController extends ChangeNotifier {
     required MediaSource mediaSource,
     double? initialPosition,
   }) async {
+    // 防止并发初始化
+    if (_isInitializing) {
+      debugPrint('⚠️ [Controller] 已在初始化中，跳过重复调用');
+      return;
+    }
+
+    // 如果已经初始化过同一个资源，跳过
+    if (isPlayerInitialized.value && _currentResourceId == resourceId) {
+      debugPrint('⚠️ [Controller] 资源 $resourceId 已初始化，跳过');
+      return;
+    }
+
+    _isInitializing = true;
+
     try {
       _currentResourceId = resourceId;
       isLoading.value = true;
@@ -211,6 +235,8 @@ class VideoPlayerController extends ChangeNotifier {
       _logger.logError(message: '预加载初始化失败', error: e, stackTrace: StackTrace.current);
       isLoading.value = false;
       errorMessage.value = ErrorHandler.getErrorMessage(e);
+    } finally {
+      _isInitializing = false;
     }
   }
 
@@ -261,6 +287,13 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       _isSeeking = false;
+
+      // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
+      debugPrint('⏳ [Load] 等待播放器就绪...');
+      await Future.delayed(const Duration(milliseconds: 5));
+
+      // 再次检查是否已被销毁
+      if (_isDisposed) return;
 
       // 4. 开始播放
       if (!isSwitchingQuality.value) {
@@ -325,6 +358,13 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       _isSeeking = false;
+
+      // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
+      debugPrint('⏳ [Load] 等待播放器就绪...');
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // 再次检查是否已被销毁
+      if (_isDisposed) return;
 
       // 开始播放
       if (!isSwitchingQuality.value) {
