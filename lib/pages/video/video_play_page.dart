@@ -5,6 +5,7 @@ import '../../models/history_models.dart';
 import '../../services/video_service.dart';
 import '../../services/hls_service.dart';
 import '../../services/history_service.dart';
+import '../../managers/video_player_manager.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
 import 'widgets/media_player_widget.dart';
@@ -40,6 +41,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 使用 GlobalKey 保持播放器状态（使用固定的key，不随分P变化而重建）
   late final GlobalKey _playerKey;
 
+  // 【新增】播放管理器 - 统一管理 HLS预加载 和 播放器实例化
+  late final VideoPlayerManager _playerManager;
+
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
   UserActionStatus? _actionStatus;
@@ -47,7 +51,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   String? _errorMessage;
 
   late int _currentPart;
-  double? _initialProgress; // 改为 double 类型（秒）
   Duration? _lastReportedPosition; // 最后上报的播放位置（用于切换分P前上报）
   bool _hasReportedCompleted = false; // 是否已上报播放完成(-1)
   int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
@@ -66,6 +69,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _currentPart = widget.initialPart ?? 1;
     // 为播放器创建稳定的 GlobalKey，使用 vid 作为标识（不包含分P，保持全屏状态）
     _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}');
+
+    // 【新增】创建播放管理器
+    _playerManager = VideoPlayerManager();
+
     _loadVideoData();
     // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
@@ -120,6 +127,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _saveProgressOnDispose();
 
     _scrollController.dispose();
+
+    // 【新增】销毁播放管理器
+    _playerManager.dispose();
+
     // 【修复】退出播放页时立即清理HLS流缓存（使用 clearAllCache 确保完整清理）
     _hlsService.clearAllCache();
     super.dispose();
@@ -223,6 +234,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _hasReportedCompleted = false;
       }
 
+      // 获取当前分P的资源ID
+      final currentResource = videoDetail.resources[targetPart - 1];
+
+      // 【关键优化】立即开始预加载 HLS 资源（不阻塞UI渲染）
+      _playerManager.preloadResource(
+        resourceId: currentResource.id,
+        initialPosition: progress,
+      );
+
+      // 设置视频元数据（用于后台播放通知）
+      _playerManager.setMetadata(
+        title: currentResource.title,
+        author: videoDetail.author.name,
+        coverUrl: videoDetail.cover,
+      );
+
       // 【关键优化】先设置基础数据，让UI立即渲染（播放器可以开始加载）
       setState(() {
         _videoDetail = videoDetail;
@@ -233,7 +260,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           hasCollected: false,
           relationStatus: 0,
         );
-        _initialProgress = progress;
         _isLoading = false; // 立即结束加载状态
       });
 
@@ -346,9 +372,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       progress = null;
     }
 
+    // 获取新分P的资源
+    final newResource = _videoDetail!.resources[part - 1];
+
+    // 【关键】使用 Manager 切换资源（预加载新资源）
+    _playerManager.setMetadata(
+      title: newResource.title,
+      author: _videoDetail!.author.name,
+      coverUrl: _videoDetail!.cover,
+    );
+    _playerManager.switchResource(
+      resourceId: newResource.id,
+      initialPosition: progress,
+    );
+
     setState(() {
       _currentPart = part;
-      _initialProgress = progress;
       // 切换分P时清空上次播放位置，准备记录新分P的播放位置
       _lastReportedPosition = null;
       // 切换分P时重置已看完标记
@@ -538,8 +577,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           height: playerHeight,
           child: MediaPlayerWidget(
             key: _playerKey,
-            resourceId: currentResource.id,
-            initialPosition: _initialProgress,
+            // 【优化】使用 Manager 模式，避免两次加载
+            manager: _playerManager,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
             onControllerReady: (controller) => _playerController = controller,

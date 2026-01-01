@@ -523,10 +523,45 @@ class HlsService {
   /// 获取推荐的默认清晰度（选择列表中第二高的）
   static String getDefaultQuality(List<String> qualities) {
     if (qualities.isEmpty) return '';
+    // 先排序，确保按清晰度降序
+    final sorted = sortQualities(qualities);
     // 如果有多个清晰度，选择第二个（通常是720P），否则选第一个
-    if (qualities.length > 1) {
-      return qualities[1];
+    if (sorted.length > 1) {
+      return sorted[1];
     }
-    return qualities[0];
+    return sorted[0];
+  }
+
+  /// 排序清晰度列表（按分辨率降序）
+  static List<String> sortQualities(List<String> qualities) {
+    final sorted = List<String>.from(qualities);
+    sorted.sort((a, b) {
+      final resA = _parseResolution(a);
+      final resB = _parseResolution(b);
+      if (resA != resB) return resB.compareTo(resA);
+      return _parseFrameRate(b).compareTo(_parseFrameRate(a));
+    });
+    return sorted;
+  }
+
+  static int _parseResolution(String quality) {
+    try {
+      final parts = quality.split('_');
+      if (parts.isEmpty) return 0;
+      final dims = parts[0].split('x');
+      if (dims.length != 2) return 0;
+      return (int.tryParse(dims[0]) ?? 0) * (int.tryParse(dims[1]) ?? 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static int _parseFrameRate(String quality) {
+    try {
+      final parts = quality.split('_');
+      return parts.length >= 3 ? (int.tryParse(parts[2]) ?? 30) : 30;
+    } catch (_) {
+      return 30;
+    }
   }
 }

@@ -163,6 +163,57 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 使用预加载的数据初始化播放器（避免重复请求HLS资源）
+  ///
+  /// 由 VideoPlayerManager 调用，资源已经预先加载好
+  Future<void> initializeWithPreloadedData({
+    required int resourceId,
+    required List<String> qualities,
+    required String selectedQuality,
+    required MediaSource mediaSource,
+    double? initialPosition,
+  }) async {
+    try {
+      _currentResourceId = resourceId;
+      isLoading.value = true;
+      errorMessage.value = null;
+      _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
+
+      debugPrint('📹 [Controller] 使用预加载数据初始化: resourceId=$resourceId, quality=$selectedQuality');
+
+      // 并发：配置播放器 + 加载设置
+      await Future.wait([
+        _configurePlayer(),
+        _loadSettings(),
+      ]);
+
+      // 使用预加载的清晰度列表
+      availableQualities.value = _sortQualities(qualities);
+      currentQuality.value = selectedQuality;
+
+      // 后台启动 AudioService
+      if (backgroundPlayEnabled.value) {
+        _ensureAudioServiceReady().catchError((_) {});
+      }
+
+      // 直接使用预加载的媒体源加载视频
+      await _loadVideoWithMediaSource(
+        mediaSource: mediaSource,
+        quality: selectedQuality,
+        initialPosition: initialPosition,
+      );
+
+      isLoading.value = false;
+      isPlayerInitialized.value = true;
+
+      debugPrint('✅ [Controller] 预加载初始化完成');
+    } catch (e) {
+      _logger.logError(message: '预加载初始化失败', error: e, stackTrace: StackTrace.current);
+      isLoading.value = false;
+      errorMessage.value = ErrorHandler.getErrorMessage(e);
+    }
+  }
+
   // ============================================================
   // 核心：加载视频
   // ============================================================
@@ -218,6 +269,70 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       // 5. 预加载相邻清晰度
+      _preloadAdjacentQualities();
+
+    } catch (e) {
+      _isSeeking = false;
+      debugPrint('❌ [Load] 失败: $e');
+      rethrow;
+    }
+  }
+
+  /// 使用已加载的媒体源加载视频（避免重复网络请求）
+  Future<void> _loadVideoWithMediaSource({
+    required MediaSource mediaSource,
+    required String quality,
+    double? initialPosition,
+  }) async {
+    if (_isDisposed) return;
+
+    try {
+      _hasTriggeredCompletion = false;
+      final needSeek = initialPosition != null && initialPosition > 0;
+      final targetPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
+
+      debugPrint('📹 [Load] 使用预加载媒体源: quality=$quality, seekTo=${targetPosition.inSeconds}s');
+
+      // 缓存媒体源
+      if (!mediaSource.isDirectUrl) {
+        _qualityCache[quality] = mediaSource;
+      }
+      final media = await _createMedia(mediaSource);
+
+      // 打开视频
+      _isSeeking = true;
+      await player.open(media, play: false);
+      await _waitForDuration();
+
+      // 恢复历史进度
+      if (needSeek) {
+        debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
+
+        // 先播放一下让播放器真正就绪，然后立即暂停
+        await player.play();
+        await Future.delayed(const Duration(milliseconds: 100));
+        await player.pause();
+
+        // 现在 seek
+        await player.seek(targetPosition);
+        await Future.delayed(const Duration(milliseconds: 200));
+
+        // 验证位置
+        final actualPos = player.state.position;
+        debugPrint('📍 [Load] seek 后位置: ${actualPos.inSeconds}s');
+
+        _userIntendedPosition = targetPosition;
+      }
+
+      _isSeeking = false;
+
+      // 开始播放
+      if (!isSwitchingQuality.value) {
+        await player.play();
+        debugPrint('▶️ [Load] 开始播放');
+      }
+
+      // 预加载相邻清晰度
       _preloadAdjacentQualities();
 
     } catch (e) {

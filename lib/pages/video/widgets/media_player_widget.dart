@@ -2,15 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
+import '../../../managers/video_player_manager.dart';
 import 'custom_player_ui.dart';
 
 /// 视频播放器组件
 ///
 /// 使用 media_kit (基于 AndroidX Media3) 播放 HLS 视频流
-/// 使用 VideoPlayerController 管理业务逻辑
+///
+/// 支持两种模式：
+/// 1. 传统模式：传入 resourceId，组件内部创建 Controller
+/// 2. Manager模式：传入 VideoPlayerManager，使用预加载的资源（推荐）
+///
 /// UI 和手势由 CustomPlayerUI 负责
 class MediaPlayerWidget extends StatefulWidget {
-  final int resourceId;
+  /// 资源ID（传统模式必需）
+  final int? resourceId;
+
+  /// 播放管理器（Manager模式，推荐使用）
+  /// 传入此参数时，resourceId 将被忽略
+  final VideoPlayerManager? manager;
+
   final double? initialPosition;
   final VoidCallback? onVideoEnd;
   // 【关键】参数签名必须匹配 Controller 中的定义 (进度, 总时长)
@@ -27,7 +38,8 @@ class MediaPlayerWidget extends StatefulWidget {
 
   const MediaPlayerWidget({
     super.key,
-    required this.resourceId,
+    this.resourceId,
+    this.manager,
     this.initialPosition,
     this.onVideoEnd,
     this.onProgressUpdate,
@@ -40,57 +52,100 @@ class MediaPlayerWidget extends StatefulWidget {
     this.currentPart,
     this.onPartChange,
     this.onControllerReady,
-  });
+  }) : assert(resourceId != null || manager != null, 'resourceId 或 manager 必须提供其一');
 
   @override
   State<MediaPlayerWidget> createState() => _MediaPlayerWidgetState();
 }
 
 class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindingObserver {
-  late final VideoPlayerController _controller;
+  VideoPlayerController? _controller;
+  bool _isUsingManager = false;
+  bool _ownsController = false; // 是否拥有 Controller 的所有权（需要自己销毁）
 
   @override
   void initState() {
     super.initState();
-    debugPrint('📹 [MediaPlayerWidget] 初始化 - resourceId: ${widget.resourceId}');
 
-    // 1. 【必须】创建 Controller 实例
-    _controller = VideoPlayerController();
+    _isUsingManager = widget.manager != null;
 
-    // 2. 【必须】绑定回调函数
-    _controller.onVideoEnd = widget.onVideoEnd;
+    if (_isUsingManager) {
+      // ============ Manager 模式（推荐）============
+      debugPrint('📹 [MediaPlayerWidget] Manager模式初始化');
 
-    // 绑定进度回调 (注意参数透传)
-    _controller.onProgressUpdate = (pos, total) {
-      widget.onProgressUpdate?.call(pos, total);
-    };
+      // 从 Manager 获取或创建 Controller
+      _initWithManager();
+    } else {
+      // ============ 传统模式（兼容旧代码）============
+      debugPrint('📹 [MediaPlayerWidget] 传统模式初始化 - resourceId: ${widget.resourceId}');
 
-    _controller.onQualityChanged = widget.onQualityChanged;
+      _ownsController = true; // 传统模式下拥有 Controller
+      _controller = VideoPlayerController();
+      _bindCallbacks();
+      _setMetadata();
 
-    // 3. 设置视频元数据（用于后台播放通知）
-    if (widget.title != null) {
-      _controller.setVideoMetadata(
-        title: widget.title!,
-        author: widget.author,
-        coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+      // 初始化播放器
+      _controller!.initialize(
+        resourceId: widget.resourceId!,
+        initialPosition: widget.initialPosition,
       );
+
+      // 在下一帧通知父组件
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller != null) {
+          widget.onControllerReady?.call(_controller!);
+        }
+      });
     }
 
-    // 4. 初始化播放器
-    _controller.initialize(
-      resourceId: widget.resourceId,
-      initialPosition: widget.initialPosition,
-    );
-
-    // 5. 【优化】在下一帧通知父组件，避免构建期间 setState 报错
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        widget.onControllerReady?.call(_controller);
-      }
-    });
-
-    // 6. 添加生命周期监听
+    // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Manager 模式初始化
+  Future<void> _initWithManager() async {
+    final manager = widget.manager!;
+
+    // 绑定回调到 Manager
+    manager.onVideoEnd = widget.onVideoEnd;
+    manager.onProgressUpdate = widget.onProgressUpdate;
+    manager.onQualityChanged = widget.onQualityChanged;
+
+    // 元数据已经在 VideoPlayPage 中设置过了，这里不需要重复设置
+
+    // 创建 Controller（Manager 会处理预加载逻辑）
+    final controller = await manager.createController();
+
+    if (mounted) {
+      setState(() {
+        _controller = controller;
+      });
+
+      // 通知父组件
+      widget.onControllerReady?.call(controller);
+    }
+  }
+
+  /// 绑定回调函数
+  void _bindCallbacks() {
+    if (_controller == null) return;
+
+    _controller!.onVideoEnd = widget.onVideoEnd;
+    _controller!.onProgressUpdate = (pos, total) {
+      widget.onProgressUpdate?.call(pos, total);
+    };
+    _controller!.onQualityChanged = widget.onQualityChanged;
+  }
+
+  /// 设置视频元数据
+  void _setMetadata() {
+    if (_controller == null || widget.title == null) return;
+
+    _controller!.setVideoMetadata(
+      title: widget.title!,
+      author: widget.author,
+      coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+    );
   }
 
   // 【关键】跟踪是否已应用初始进度，避免重复 seek
@@ -100,11 +155,24 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   void didUpdateWidget(MediaPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    // Manager 模式下，资源切换由 Manager 处理
+    if (_isUsingManager) {
+      // 更新回调绑定
+      if (widget.manager != null) {
+        widget.manager!.onVideoEnd = widget.onVideoEnd;
+        widget.manager!.onProgressUpdate = widget.onProgressUpdate;
+        widget.manager!.onQualityChanged = widget.onQualityChanged;
+      }
+      return;
+    }
+
+    // ============ 传统模式逻辑 ============
+    if (_controller == null) return;
+
     // 如果 resourceId 没变，但回调变了，需要重新绑定回调
     if (oldWidget.onProgressUpdate != widget.onProgressUpdate) {
-      _controller.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
+      _controller!.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
     }
-    // ... 其他回调更新同理
 
     if (oldWidget.resourceId != widget.resourceId) {
       debugPrint('📹 [didUpdateWidget] resourceId 改变，重新初始化');
@@ -112,7 +180,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
       // 更新视频元数据
       if (widget.title != null) {
-        _controller.setVideoMetadata(
+        _controller!.setVideoMetadata(
           title: widget.title!,
           author: widget.author,
           coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
@@ -120,8 +188,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       }
 
       // 重新加载视频
-      _controller.initialize(
-        resourceId: widget.resourceId,
+      _controller!.initialize(
+        resourceId: widget.resourceId!,
         initialPosition: widget.initialPosition,
       );
     } else if (!_hasAppliedInitialPosition &&
@@ -131,14 +199,14 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       // 此时播放器已初始化，需要手动 seek 到目标位置
       debugPrint('📹 [didUpdateWidget] 历史进度加载完成: ${widget.initialPosition}s，执行 seek');
       _hasAppliedInitialPosition = true;
-      _controller.seek(Duration(seconds: widget.initialPosition!.toInt()));
+      _controller!.seek(Duration(seconds: widget.initialPosition!.toInt()));
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    _controller.handleAppLifecycleState(state == AppLifecycleState.paused);
+    _controller?.handleAppLifecycleState(state == AppLifecycleState.paused);
   }
 
   @override
@@ -146,9 +214,11 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     debugPrint('📹 [MediaPlayerWidget] 销毁');
     WidgetsBinding.instance.removeObserver(this);
 
-    // 【关键修复】直接调用 controller 的 dispose 方法
-    // Controller 内部已经实现了"同步切断 + 延迟销毁"的逻辑
-    _controller.dispose();
+    // 只有拥有 Controller 所有权时才销毁
+    // Manager 模式下，Controller 由 Manager 管理
+    if (_ownsController && _controller != null) {
+      _controller!.dispose();
+    }
 
     // 退出时恢复系统UI方向
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -161,15 +231,20 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
   @override
   Widget build(BuildContext context) {
+    // Controller 未就绪时显示加载界面
+    if (_controller == null) {
+      return _buildLoadingWidget();
+    }
+
     return ValueListenableBuilder<bool>(
-      valueListenable: _controller.isPlayerInitialized,
+      valueListenable: _controller!.isPlayerInitialized,
       builder: (context, isInitialized, _) {
         if (!isInitialized) {
           return _buildLoadingWidget();
         }
 
         return ValueListenableBuilder<String?>(
-          valueListenable: _controller.errorMessage,
+          valueListenable: _controller!.errorMessage,
           builder: (context, error, _) {
             if (error != null && error.isNotEmpty) {
               return _buildErrorWidget(error);
@@ -183,22 +258,24 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
   /// 构建带手势控制的播放器
   Widget _buildPlayerWithGestures() {
+    if (_controller == null) return _buildLoadingWidget();
+
     return Container(
       color: Colors.black,
       child: Center(
         child: AspectRatio(
           aspectRatio: 16 / 9,
           child: ValueListenableBuilder<bool>(
-            valueListenable: _controller.backgroundPlayEnabled,
+            valueListenable: _controller!.backgroundPlayEnabled,
             builder: (context, bgEnabled, _) {
               return Video(
-                controller: _controller.videoController,
+                controller: _controller!.videoController,
                 // 关键：后台播放开启时，不在进入后台时暂停
                 pauseUponEnteringBackgroundMode: !bgEnabled,
                 controls: (state) {
                   return CustomPlayerUI(
                     controller: state.widget.controller,
-                    logic: _controller,
+                    logic: _controller!,
                     title: widget.title ?? '',
                     onBack: () => Navigator.of(context).maybePop(),
                   );
@@ -258,12 +335,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: () {
-                  _controller.initialize(
-                    resourceId: widget.resourceId,
-                    initialPosition: widget.initialPosition,
-                  );
-                },
+                onPressed: _handleRetry,
                 icon: const Icon(Icons.refresh),
                 label: const Text('重试'),
               ),
@@ -272,5 +344,24 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
         ),
       ),
     );
+  }
+
+  /// 处理重试
+  void _handleRetry() {
+    if (_isUsingManager && widget.manager != null) {
+      // Manager 模式：重新预加载资源
+      widget.manager!.preloadResource(
+        resourceId: widget.manager!.controller != null
+            ? widget.resourceId ?? 0
+            : widget.resourceId ?? 0,
+        initialPosition: widget.initialPosition,
+      );
+    } else if (_controller != null && widget.resourceId != null) {
+      // 传统模式：重新初始化
+      _controller!.initialize(
+        resourceId: widget.resourceId!,
+        initialPosition: widget.initialPosition,
+      );
+    }
   }
 }

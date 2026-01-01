@@ -1,0 +1,300 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import '../services/hls_service.dart';
+import '../controllers/video_player_controller.dart';
+
+/// 播放状态枚举
+enum PlaybackState {
+  idle,       // 初始状态
+  loading,    // 正在加载资源
+  ready,      // 资源就绪，等待播放
+  playing,    // 播放中
+  paused,     // 暂停
+  buffering,  // 缓冲中
+  completed,  // 播放完成
+  error,      // 错误
+}
+
+/// 预加载的资源数据
+class PreloadedResource {
+  final int resourceId;
+  final List<String> qualities;
+  final String selectedQuality;
+  final MediaSource mediaSource;
+  final double? initialPosition;
+
+  const PreloadedResource({
+    required this.resourceId,
+    required this.qualities,
+    required this.selectedQuality,
+    required this.mediaSource,
+    this.initialPosition,
+  });
+}
+
+/// 视频播放业务管理器
+///
+/// 职责：
+/// 1. 协调 HLS资源预加载 和 播放器实例化
+/// 2. 管理播放状态机
+/// 3. 提供统一的播放控制接口
+///
+/// 设计目标：
+/// - UI 渲染不等待资源加载
+/// - 资源加载和播放器创建并行进行
+/// - 消除两次加载动作
+class VideoPlayerManager extends ChangeNotifier {
+  final HlsService _hlsService = HlsService();
+
+  // ============ 状态 ============
+  final ValueNotifier<PlaybackState> playbackState = ValueNotifier(PlaybackState.idle);
+  final ValueNotifier<String?> errorMessage = ValueNotifier(null);
+  final ValueNotifier<bool> isResourceReady = ValueNotifier(false);
+
+  // ============ 预加载的资源 ============
+  PreloadedResource? _preloadedResource;
+  Completer<PreloadedResource>? _preloadCompleter;
+
+  // ============ 播放器控制器 ============
+  VideoPlayerController? _controller;
+  VideoPlayerController? get controller => _controller;
+
+  // ============ 回调 ============
+  VoidCallback? onVideoEnd;
+  Function(Duration position, Duration totalDuration)? onProgressUpdate;
+  Function(String quality)? onQualityChanged;
+
+  // ============ 元数据 ============
+  String? _title;
+  String? _author;
+  String? _coverUrl;
+
+  bool _isDisposed = false;
+  bool _hasStartedPlayback = false; // 防止重复初始化播放
+
+  VideoPlayerManager();
+
+  /// 开始预加载资源（在页面 initState 时调用）
+  ///
+  /// 此方法会：
+  /// 1. 立即返回，不阻塞UI渲染
+  /// 2. 在后台获取清晰度列表和媒体源
+  /// 3. 缓存结果供播放器使用
+  Future<void> preloadResource({
+    required int resourceId,
+    double? initialPosition,
+  }) async {
+    if (_isDisposed) return;
+
+    playbackState.value = PlaybackState.loading;
+    errorMessage.value = null;
+    _preloadCompleter = Completer<PreloadedResource>();
+
+    debugPrint('🚀 [Manager] 开始预加载资源: resourceId=$resourceId');
+
+    try {
+      // 1. 获取清晰度列表
+      final qualities = await _hlsService.getAvailableQualities(resourceId);
+      if (qualities.isEmpty) {
+        throw Exception('没有可用的清晰度');
+      }
+
+      // 2. 确定首选清晰度
+      final selectedQuality = await _getPreferredQuality(qualities);
+
+      // 3. 获取媒体源
+      final mediaSource = await _hlsService.getMediaSource(resourceId, selectedQuality);
+
+      debugPrint('✅ [Manager] 资源预加载完成: quality=$selectedQuality');
+
+      // 4. 缓存预加载结果
+      _preloadedResource = PreloadedResource(
+        resourceId: resourceId,
+        qualities: qualities,
+        selectedQuality: selectedQuality,
+        mediaSource: mediaSource,
+        initialPosition: initialPosition,
+      );
+
+      isResourceReady.value = true;
+
+      if (!_preloadCompleter!.isCompleted) {
+        _preloadCompleter!.complete(_preloadedResource!);
+      }
+
+      // 5. 如果播放器已创建，立即开始播放
+      if (_controller != null) {
+        await _startPlaybackWithPreloadedResource();
+      }
+
+    } catch (e) {
+      debugPrint('❌ [Manager] 预加载失败: $e');
+      playbackState.value = PlaybackState.error;
+      errorMessage.value = '加载视频失败: $e';
+
+      if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
+        _preloadCompleter!.completeError(e);
+      }
+    }
+  }
+
+  /// 创建播放器控制器（在 MediaPlayerWidget initState 时调用）
+  ///
+  /// 此方法会：
+  /// 1. 立即创建 Player 和 VideoController 实例
+  /// 2. 如果资源已预加载完成，立即开始播放
+  /// 3. 如果资源未就绪，等待预加载完成
+  Future<VideoPlayerController> createController() async {
+    if (_controller != null) {
+      return _controller!;
+    }
+
+    debugPrint('🎬 [Manager] 创建播放器控制器');
+
+    // 创建控制器（内部会创建 Player 实例）
+    _controller = VideoPlayerController();
+
+    // 绑定回调
+    _controller!.onVideoEnd = onVideoEnd;
+    _controller!.onProgressUpdate = onProgressUpdate;
+    _controller!.onQualityChanged = onQualityChanged;
+
+    // 设置元数据
+    if (_title != null) {
+      _controller!.setVideoMetadata(
+        title: _title!,
+        author: _author,
+        coverUri: _coverUrl != null ? Uri.tryParse(_coverUrl!) : null,
+      );
+    }
+
+    // 如果资源已就绪，立即开始播放
+    if (_preloadedResource != null) {
+      await _startPlaybackWithPreloadedResource();
+    }
+
+    return _controller!;
+  }
+
+  /// 使用预加载的资源开始播放
+  Future<void> _startPlaybackWithPreloadedResource() async {
+    // 【关键】防止重复初始化
+    if (_hasStartedPlayback) {
+      debugPrint('⚠️ [Manager] 已经开始播放，跳过重复初始化');
+      return;
+    }
+    if (_controller == null || _preloadedResource == null || _isDisposed) return;
+
+    _hasStartedPlayback = true; // 标记已开始播放
+    final resource = _preloadedResource!;
+    debugPrint('▶️ [Manager] 使用预加载资源开始播放');
+
+    try {
+      // 使用预加载的数据初始化播放器
+      await _controller!.initializeWithPreloadedData(
+        resourceId: resource.resourceId,
+        qualities: resource.qualities,
+        selectedQuality: resource.selectedQuality,
+        mediaSource: resource.mediaSource,
+        initialPosition: resource.initialPosition,
+      );
+
+      playbackState.value = PlaybackState.playing;
+
+    } catch (e) {
+      debugPrint('❌ [Manager] 播放失败: $e');
+      playbackState.value = PlaybackState.error;
+      errorMessage.value = '播放视频失败: $e';
+      _hasStartedPlayback = false; // 失败时重置，允许重试
+    }
+  }
+
+  /// 切换到新的资源（分P切换时调用）
+  Future<void> switchResource({
+    required int resourceId,
+    double? initialPosition,
+  }) async {
+    if (_isDisposed) return;
+
+    debugPrint('🔄 [Manager] 切换资源: resourceId=$resourceId');
+
+    // 重置状态
+    _preloadedResource = null;
+    _hasStartedPlayback = false; // 重置播放标志，允许新资源播放
+    isResourceReady.value = false;
+    playbackState.value = PlaybackState.loading;
+
+    // 开始预加载新资源
+    await preloadResource(
+      resourceId: resourceId,
+      initialPosition: initialPosition,
+    );
+  }
+
+  /// 设置视频元数据
+  void setMetadata({
+    required String title,
+    String? author,
+    String? coverUrl,
+  }) {
+    _title = title;
+    _author = author;
+    _coverUrl = coverUrl;
+
+    // 如果控制器已创建，同步更新
+    _controller?.setVideoMetadata(
+      title: title,
+      author: author,
+      coverUri: coverUrl != null ? Uri.tryParse(coverUrl) : null,
+    );
+  }
+
+  /// 获取首选清晰度
+  Future<String> _getPreferredQuality(List<String> qualities) async {
+    // 使用 Controller 的逻辑获取首选清晰度
+    // 这里简化处理，选择第二高清晰度
+    return HlsService.getDefaultQuality(qualities);
+  }
+
+  /// 等待资源就绪
+  Future<PreloadedResource> waitForResource() async {
+    if (_preloadedResource != null) {
+      return _preloadedResource!;
+    }
+
+    if (_preloadCompleter != null) {
+      return _preloadCompleter!.future;
+    }
+
+    throw Exception('资源未开始加载');
+  }
+
+  /// 播放控制
+  Future<void> play() async => _controller?.play();
+  Future<void> pause() async => _controller?.pause();
+  Future<void> seek(Duration position) async => _controller?.seek(position);
+
+  /// 获取 VideoController（用于 Video widget）
+  VideoController? get videoController => _controller?.videoController;
+
+  @override
+  void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
+
+    debugPrint('🗑️ [Manager] 销毁');
+
+    playbackState.dispose();
+    errorMessage.dispose();
+    isResourceReady.dispose();
+
+    _controller?.dispose();
+    _controller = null;
+
+    _preloadedResource = null;
+    _preloadCompleter = null;
+
+    super.dispose();
+  }
+}
