@@ -177,9 +177,6 @@ class VideoPlayerController extends ChangeNotifier {
   /// 使用预加载的数据初始化播放器（避免重复请求HLS资源）
   ///
   /// 由 VideoPlayerManager 调用，资源已经预先加载好
-/// 使用预加载的数据初始化播放器（避免重复请求HLS资源）
-  ///
-  /// 由 VideoPlayerManager 调用，资源已经预先加载好
   Future<void> initializeWithPreloadedData({
     required int resourceId,
     required List<String> qualities,
@@ -187,9 +184,6 @@ class VideoPlayerController extends ChangeNotifier {
     required MediaSource mediaSource,
     double? initialPosition,
   }) async {
-    // 【修改】移除此处不安全的强制重置代码
-    // 原代码：if (_currentResourceId != resourceId) { _isInitializing = false; }
-
     // 防止并发初始化
     if (_isInitializing) {
       debugPrint('⚠️ [Controller] 正在初始化中，跳过资源 $resourceId 的重复调用');
@@ -203,6 +197,7 @@ class VideoPlayerController extends ChangeNotifier {
     }
 
     _isInitializing = true;
+    debugPrint('📹 [Controller] 开始初始化: resourceId=$resourceId, initialPos=$initialPosition');
 
     try {
       _currentResourceId = resourceId;
@@ -251,74 +246,34 @@ class VideoPlayerController extends ChangeNotifier {
   // 核心：加载视频
   // ============================================================
 
+  /// 传统模式：自己获取资源并加载
   Future<void> _loadVideo(String quality, {double? initialPosition}) async {
     if (_isDisposed) return;
-    
-    // 记录本次加载的ID，用于后续校验一致性
+
     final loadingResourceId = _currentResourceId;
 
     try {
-      _hasTriggeredCompletion = false;
-      final needSeek = initialPosition != null && initialPosition > 0;
-      final targetPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
-
-      debugPrint('📹 [Load] 加载视频: quality=$quality, seekTo=${targetPosition.inSeconds}s');
+      debugPrint('📹 [Load] 加载视频: quality=$quality, seekTo=${initialPosition ?? 0}s');
 
       // 1. 获取资源
       final mediaSource = await _hlsService.getMediaSource(loadingResourceId!, quality);
-      
-      // 【修改】检查一致性：如果ID变了，说明已经切换了视频，终止当前加载
+
+      // 检查一致性：如果ID变了，说明已经切换了视频，终止当前加载
       if (_currentResourceId != loadingResourceId) return;
+      //debugPrint('⏳ [Load] 等待播放器就绪...');
+      //await Future.delayed(const Duration(milliseconds: 70));
 
-      if (!mediaSource.isDirectUrl) {
-        _qualityCache[quality] = mediaSource;
-      }
-      final media = await _createMedia(mediaSource);
-
-      // 2. 打开视频
-      _isSeeking = true;
-      await player.open(media, play: false);
-      await _waitForDuration();
-      
-      // 【修改】再次检查一致性
-      if (_currentResourceId != loadingResourceId) {
-          _isSeeking = false;
-          return;
-      }
-
-      // 3. 恢复历史进度
-      if (needSeek) {
-        debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
-
-        // 先播放一下让播放器真正就绪，然后立即暂停
-        await _warmUpDecoderIfNeeded();
-
-        // 现在 seek
-        await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 200));
-
-        // 验证位置
-        final actualPos = player.state.position;
-        debugPrint('📍 [Load] seek 后位置: ${actualPos.inSeconds}s');
-
-        _userIntendedPosition = targetPosition;
-      }
-
-      _isSeeking = false;
-
-      debugPrint('⏳ [Load] 等待播放器就绪...');
-      //await Future.delayed(const Duration(milliseconds: 0));
-
-      if (_isDisposed) return;
-
-
-
-      // 5. 预加载相邻清晰度
-      _preloadAdjacentQualities();
+      // 2. 使用统一的内部加载方法
+      await _loadMediaInternal(
+        mediaSource: mediaSource,
+        quality: quality,
+        initialPosition: initialPosition,
+        autoPlay: false,  // 传统模式不自动播放
+        resourceIdCheck: () => _currentResourceId == loadingResourceId,
+      );
 
     } catch (e) {
-      _isSeeking = false;
-      // 只有当前资源匹配时才抛出异常给上层UI处理，否则忽略旧资源的错误
+      // 只有当前资源匹配时才抛出异常给上层UI处理
       if (_currentResourceId == loadingResourceId) {
         debugPrint('❌ [Load] 失败: $e');
         rethrow;
@@ -326,11 +281,32 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 使用已加载的媒体源加载视频（避免重复网络请求）
+  /// Manager模式：使用预加载的媒体源
   Future<void> _loadVideoWithMediaSource({
     required MediaSource mediaSource,
     required String quality,
     double? initialPosition,
+  }) async {
+    if (_isDisposed) return;
+
+    debugPrint('📹 [Load] 使用预加载媒体源: quality=$quality, seekTo=${initialPosition ?? 0}s');
+
+    await _loadMediaInternal(
+      mediaSource: mediaSource,
+      quality: quality,
+      initialPosition: initialPosition,
+      autoPlay: true,  // Manager模式自动播放
+      resourceIdCheck: null,  // Manager 已处理竞态
+    );
+  }
+
+  /// 【统一】内部加载逻辑，避免代码重复
+  Future<void> _loadMediaInternal({
+    required MediaSource mediaSource,
+    required String quality,
+    double? initialPosition,
+    required bool autoPlay,
+    bool Function()? resourceIdCheck,
   }) async {
     if (_isDisposed) return;
 
@@ -339,7 +315,7 @@ class VideoPlayerController extends ChangeNotifier {
       final needSeek = initialPosition != null && initialPosition > 0;
       final targetPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
 
-      debugPrint('📹 [Load] 使用预加载媒体源: quality=$quality, seekTo=${targetPosition.inSeconds}s');
+      debugPrint('📹 [LoadInternal] 开始: quality=$quality, needSeek=$needSeek, autoPlay=$autoPlay, target=${targetPosition.inSeconds}s');
 
       // 缓存媒体源
       if (!mediaSource.isDirectUrl) {
@@ -352,35 +328,29 @@ class VideoPlayerController extends ChangeNotifier {
       await player.open(media, play: false);
       await _waitForDuration();
 
+      // 竞态检查（如果提供了检查函数）
+      if (resourceIdCheck != null && !resourceIdCheck()) {
+        _isSeeking = false;
+        return;
+      }
+
       // 恢复历史进度
       if (needSeek) {
         debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
-
-        // 先播放一下让播放器真正就绪，然后立即暂停
-        await _warmUpDecoderIfNeeded();
-
-        // 现在 seek
-        await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 200));
-
-        // 验证位置
-        final actualPos = player.state.position;
-        debugPrint('📍 [Load] seek 后位置: ${actualPos.inSeconds}s');
-
+        await _warmUpAndSeek(targetPosition);
         _userIntendedPosition = targetPosition;
       }
 
       _isSeeking = false;
-
-      // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
+   // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 70));
-
-      // 再次检查是否已被销毁
+      await Future.delayed(const Duration(milliseconds: 100));
       if (_isDisposed) return;
 
-      // 开始播放
-      await _startPlaybackIfAllowed();
+      // 自动播放（Manager模式）
+      if (autoPlay) {
+        await _startPlaybackIfAllowed();
+      }
 
       // 预加载相邻清晰度
       _preloadAdjacentQualities();
@@ -648,18 +618,31 @@ class VideoPlayerController extends ChangeNotifier {
   // ============================================================
   final Set<int> _decoderWarmedResourceIds = {};
 
-  Future<void> _warmUpDecoderIfNeeded({int ms = 100}) async {
+  // 【新增】标记当前资源是否已经 warmup+seek 完成，处于 paused 状态等待 resume
+  bool _isWaitingForResume = false;
+
+  /// 【修复】只做 seek，不做 warmup play
+  ///
+  /// 之前的问题：warmup 中的 play 会在位置 0 渲染一帧（因为 seek 还没完成）
+  /// 新策略：只 seek 到目标位置，让后续的 _startPlaybackIfAllowed 来播放
+  Future<void> _warmUpAndSeek(Duration targetPosition) async {
     if (_isDisposed || _currentResourceId == null) return;
-    final id = _currentResourceId!;
-    if (_decoderWarmedResourceIds.contains(id)) return;
+
     try {
-      await player.play();
-      await Future.delayed(Duration(milliseconds: ms));
-      await player.pause();
-      _decoderWarmedResourceIds.add(id);
-      debugPrint('🔧 [Warmup] decoder warmed for resource $id');
+      final targetSeconds = targetPosition.inSeconds;
+      debugPrint('🔧 [WarmupSeek] 开始 seek 到 ${targetSeconds}s');
+
+      // 1. 发送 seek 命令
+      await player.seek(targetPosition);
+
+      // 2. 等待一段时间让 seek 生效（不监听 position，因为视频未播放时 position 不会更新）
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      // 验证位置
+      final actualPos = player.state.position;
+      debugPrint('🔧 [WarmupSeek] 完成: target=${targetSeconds}s, actual=${actualPos.inSeconds}s');
     } catch (e) {
-      debugPrint('⚠️ [Warmup] decoder warmup failed: $e');
+      debugPrint('⚠️ [WarmupSeek] 失败: $e');
     }
   }
 
