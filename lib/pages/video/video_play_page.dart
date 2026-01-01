@@ -4,6 +4,7 @@ import '../../models/comment.dart';
 import '../../models/history_models.dart';
 import '../../services/video_service.dart';
 import '../../services/history_service.dart';
+import '../../services/hls_service.dart';
 import '../../managers/video_player_manager.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
@@ -57,6 +58,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 【关键】播放器控制器引用，用于离开页面时获取实时进度
   dynamic _playerController;
 
+  // 【新增】当前播放的视频ID（用于切换推荐视频时更新）
+  late int _currentVid;
+
   // 评论相关
   int _totalComments = 0;
   Comment? _latestComment;
@@ -64,9 +68,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   @override
   void initState() {
     super.initState();
+    _currentVid = widget.vid; // 初始化当前视频ID
     _currentPart = widget.initialPart ?? 1;
-    // 为播放器创建稳定的 GlobalKey，使用 vid 作为标识（不包含分P，保持全屏状态）
-    _playerKey = GlobalKey(debugLabel: 'player_${widget.vid}');
+    // 为播放器创建稳定的 GlobalKey（不随视频切换而重建）
+    _playerKey = GlobalKey(debugLabel: 'player_stable');
 
     // 【新增】创建播放管理器
     _playerManager = VideoPlayerManager();
@@ -90,7 +95,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     try {
       final actionStatus = await _videoService.getUserActionStatus(
-        widget.vid,
+        _currentVid,
         _videoDetail!.author.uid,
       );
       if (actionStatus != null && mounted) {
@@ -169,7 +174,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     if (_hasReportedCompleted) {
       print('📊 页面关闭前上报进度: -1 (已完播)');
       _historyService.addHistory(
-        vid: widget.vid,
+        vid: _currentVid,
         part: _currentPart,
         time: -1,
         duration: _currentDuration.toInt(),
@@ -177,7 +182,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     } else {
       print('📊 页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒, duration=${_currentDuration.toInt()}秒');
       _historyService.addHistory(
-        vid: widget.vid,
+        vid: _currentVid,
         part: _currentPart,
         time: progressToSave,
         duration: _currentDuration.toInt(),
@@ -186,7 +191,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 加载视频数据
-  Future<void> _loadVideoData() async {
+  Future<void> _loadVideoData({int? part}) async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -195,10 +200,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     try {
       // 【性能优化】并发请求视频详情和历史记录
       final initialResults = await Future.wait([
-        _videoService.getVideoDetail(widget.vid),
+        _videoService.getVideoDetail(_currentVid),
         _historyService.getProgress(
-          vid: widget.vid,
-          part: widget.initialPart, // 如果指定了分P则获取该分P进度，否则获取最后观看的
+          vid: _currentVid,
+          part: part, // 如果指定了分P则获取该分P进度，否则获取最后观看的
         ),
       ]);
 
@@ -214,7 +219,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       }
 
       // 解析历史记录
-      int targetPart = widget.initialPart ?? 1;
+      int targetPart = part ?? 1;
       double? progress;
 
       if (progressData != null) {
@@ -274,17 +279,17 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 【优化】并发请求所有次要数据，每个请求独立处理错误
     final futures = await Future.wait([
       // 1. 视频统计（不需要登录）
-      _videoService.getVideoStat(widget.vid).catchError((e) {
+      _videoService.getVideoStat(_currentVid).catchError((e) {
         print('❌ 获取视频统计失败: $e');
         return null;
       }),
       // 2. 评论预览（不需要登录）
-      _videoService.getComments(vid: widget.vid, page: 1, pageSize: 1).catchError((e) {
+      _videoService.getComments(vid: _currentVid, page: 1, pageSize: 1).catchError((e) {
         print('❌ 获取评论预览失败: $e');
         return null;
       }),
       // 3. 用户操作状态（需要登录）
-      _videoService.getUserActionStatus(widget.vid, authorUid).catchError((e) {
+      _videoService.getUserActionStatus(_currentVid, authorUid).catchError((e) {
         print('❌ 获取用户操作状态失败: $e');
         return null;
       }),
@@ -321,7 +326,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     try {
       // 重新获取视频详情以刷新作者信息
-      final videoDetail = await _videoService.getVideoDetail(widget.vid);
+      final videoDetail = await _videoService.getVideoDetail(_currentVid);
       if (videoDetail != null && mounted) {
         setState(() {
           _videoDetail = videoDetail;
@@ -349,7 +354,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     if (_lastReportedPosition != null) {
       print('📊 切换分集前上报进度: ${_lastReportedPosition!.inSeconds}秒');
       await _historyService.addHistory(
-        vid: widget.vid,
+        vid: _currentVid,
         part: _currentPart,
         time: _lastReportedPosition!.inSeconds.toDouble(),
         duration: _currentDuration.toInt(),
@@ -358,7 +363,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 获取新分P的播放进度
     final progressData = await _historyService.getProgress(
-      vid: widget.vid,
+      vid: _currentVid,
       part: part,
     );
     var progress = progressData?.progress;
@@ -401,14 +406,121 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
   }
 
-  /// 跳转到其他视频
-  void _navigateToVideo(int vid) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => VideoPlayPage(vid: vid),
-      ),
+  /// 切换到其他视频（原地刷新，不重新导航）
+  Future<void> _switchToVideo(int vid) async {
+    if (vid == _currentVid) return; // 同一个视频不需要切换
+
+    print('🔄 [VideoPlayPage] 切换视频: $_currentVid -> $vid');
+
+    // 1. 先上报当前视频的播放进度
+    if (_lastReportedPosition != null && _currentDuration > 0) {
+      print('📊 切换视频前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+      await _historyService.addHistory(
+        vid: _currentVid,
+        part: _currentPart,
+        time: _hasReportedCompleted ? -1 : _lastReportedPosition!.inSeconds.toDouble(),
+        duration: _currentDuration.toInt(),
+      );
+    }
+
+    // 2. 清理旧视频的 HLS 缓存
+    final hlsService = HlsService();
+    hlsService.clearAllCache();
+    print('🧹 [VideoPlayPage] 已清理旧视频缓存');
+
+    // 3. 更新视频ID并重置播放状态（但保留旧的界面数据，避免闪烁）
+    _currentVid = vid;
+    _currentPart = 1;
+    _lastReportedPosition = null;
+    _hasReportedCompleted = false;
+    _lastSavedSeconds = null;
+    _currentDuration = 0;
+
+    // 4. 并行加载新视频数据（不设置 loading 状态，保持界面显示）
+    await _loadVideoDataSeamless();
+
+    // 5. 滚动到顶部
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
     );
+  }
+
+  /// 无缝加载视频数据（不显示 loading，用于切换推荐视频）
+  Future<void> _loadVideoDataSeamless() async {
+    try {
+      // 并发请求视频详情和历史记录
+      final initialResults = await Future.wait([
+        _videoService.getVideoDetail(_currentVid),
+        _historyService.getProgress(vid: _currentVid, part: null),
+      ]);
+
+      final videoDetail = initialResults[0] as VideoDetail?;
+      final progressData = initialResults[1] as PlayProgressData?;
+
+      if (videoDetail == null) {
+        setState(() {
+          _errorMessage = '视频不存在或已被删除';
+        });
+        return;
+      }
+
+      // 解析历史记录
+      int targetPart = 1;
+      double? progress;
+
+      if (progressData != null) {
+        targetPart = progressData.part;
+        progress = progressData.progress;
+        print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
+      }
+
+      // 如果进度为-1，表示已看完，应该从头开始播放
+      if (progress != null && progress == -1) {
+        print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
+        progress = null;
+        _hasReportedCompleted = false;
+      }
+
+      // 获取当前分P的资源ID
+      final currentResource = videoDetail.resources[targetPart - 1];
+
+      // 【关键】使用 Manager 切换资源（无缝切换播放器）
+      _playerManager.setMetadata(
+        title: currentResource.title,
+        author: videoDetail.author.name,
+        coverUrl: videoDetail.cover,
+      );
+      _playerManager.switchResource(
+        resourceId: currentResource.id,
+        initialPosition: progress,
+      );
+
+      // 更新界面数据（一次性更新，避免多次 setState）
+      setState(() {
+        _videoDetail = videoDetail;
+        _currentPart = targetPart;
+        _videoStat = VideoStat(like: 0, collect: 0, share: 0); // 临时默认值
+        _actionStatus = UserActionStatus(
+          hasLiked: false,
+          hasCollected: false,
+          relationStatus: 0,
+        );
+        _totalComments = 0;
+        _latestComment = null;
+        _errorMessage = null;
+      });
+
+      // 后台加载次要数据（统计、评论、用户操作状态）
+      _loadSecondaryData(videoDetail.author.uid);
+
+    } catch (e) {
+      print('❌ 无缝加载视频失败: $e');
+      setState(() {
+        _errorMessage = '加载失败: $e';
+      });
+    }
   }
 
   /// 播放进度更新回调（每秒触发一次）
@@ -431,7 +543,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         '📊 上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})',
       );
       _historyService.addHistory(
-        vid: widget.vid,
+        vid: _currentVid,
         part: _currentPart,
         time: currentSeconds.toDouble(),
         // 【修改点】传入真实总时长
@@ -453,7 +565,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 播放完成后上报进度为 -1，表示已看完
     _historyService.addHistory(
-      vid: widget.vid,
+      vid: _currentVid,
       part: _currentPart,
       time: -1,
       duration: _currentDuration.toInt(),
@@ -603,7 +715,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
               // 操作按钮
               VideoActionButtons(
-                vid: widget.vid,
+                vid: _currentVid,
                 initialStat: _videoStat!,
                 initialHasLiked: _actionStatus!.hasLiked,
                 initialHasCollected: _actionStatus!.hasCollected,
@@ -632,7 +744,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
               // 评论预览卡片（YouTube 风格）
               CommentPreviewCard(
-                vid: widget.vid,
+                vid: _currentVid,
                 totalComments: _totalComments,
                 latestComment: _latestComment,
               ),
@@ -641,8 +753,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               // 推荐视频（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 RecommendList(
-                  vid: widget.vid,
-                  onVideoTap: _navigateToVideo,
+                  vid: _currentVid,
+                  onVideoTap: _switchToVideo,
                 ),
             ],
           ),
@@ -682,8 +794,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
             // 推荐视频
             RecommendList(
-              vid: widget.vid,
-              onVideoTap: _navigateToVideo,
+              vid: _currentVid,
+              onVideoTap: _switchToVideo,
             ),
           ],
         ),
