@@ -291,9 +291,7 @@ class VideoPlayerController extends ChangeNotifier {
         debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
 
         // 先播放一下让播放器真正就绪，然后立即暂停
-        await player.play();
-        await Future.delayed(const Duration(milliseconds: 100));
-        await player.pause();
+        await _warmUpDecoderIfNeeded();
 
         // 现在 seek
         await player.seek(targetPosition);
@@ -309,15 +307,11 @@ class VideoPlayerController extends ChangeNotifier {
       _isSeeking = false;
 
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 100));
+      //await Future.delayed(const Duration(milliseconds: 0));
 
       if (_isDisposed) return;
 
-      // 4. 开始播放
-      if (!isSwitchingQuality.value) {
-        await player.play();
-        debugPrint('▶️ [Load] 开始播放');
-      }
+
 
       // 5. 预加载相邻清晰度
       _preloadAdjacentQualities();
@@ -363,9 +357,7 @@ class VideoPlayerController extends ChangeNotifier {
         debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
 
         // 先播放一下让播放器真正就绪，然后立即暂停
-        await player.play();
-        await Future.delayed(const Duration(milliseconds: 100));
-        await player.pause();
+        await _warmUpDecoderIfNeeded();
 
         // 现在 seek
         await player.seek(targetPosition);
@@ -382,16 +374,13 @@ class VideoPlayerController extends ChangeNotifier {
 
       // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 70));
 
       // 再次检查是否已被销毁
       if (_isDisposed) return;
 
       // 开始播放
-      if (!isSwitchingQuality.value) {
-        await player.play();
-        debugPrint('▶️ [Load] 开始播放');
-      }
+      await _startPlaybackIfAllowed();
 
       // 预加载相邻清晰度
       _preloadAdjacentQualities();
@@ -463,9 +452,10 @@ class VideoPlayerController extends ChangeNotifier {
           debugPrint('🔄 [Quality] seek 到 ${targetPosition.inSeconds}s');
 
             // 先播放一下让播放器真正就绪，然后立即暂停
-            await player.play();
-            await Future.delayed(const Duration(milliseconds: 100));
-            await player.pause();
+            // 【已注释】为调试/测试目的暂时禁用自动 play/pause，避免触发硬解初始化或首帧行为
+            // await player.play();
+            // await Future.delayed(const Duration(milliseconds: 100));
+            // await player.pause();
 
             // 现在 seek
             await player.seek(targetPosition);
@@ -650,6 +640,38 @@ class VideoPlayerController extends ChangeNotifier {
       await completer.future.timeout(timeout, onTimeout: () {});
     } finally {
       await sub.cancel();
+    }
+  }
+
+  // ============================================================
+  // 解码器预热与统一播放入口（避免重复 play/pause 和竞争）
+  // ============================================================
+  final Set<int> _decoderWarmedResourceIds = {};
+
+  Future<void> _warmUpDecoderIfNeeded({int ms = 100}) async {
+    if (_isDisposed || _currentResourceId == null) return;
+    final id = _currentResourceId!;
+    if (_decoderWarmedResourceIds.contains(id)) return;
+    try {
+      await player.play();
+      await Future.delayed(Duration(milliseconds: ms));
+      await player.pause();
+      _decoderWarmedResourceIds.add(id);
+      debugPrint('🔧 [Warmup] decoder warmed for resource $id');
+    } catch (e) {
+      debugPrint('⚠️ [Warmup] decoder warmup failed: $e');
+    }
+  }
+
+  Future<void> _startPlaybackIfAllowed() async {
+    if (_isDisposed) return;
+    if (!isSwitchingQuality.value) {
+      try {
+        await player.play();
+        debugPrint('▶️ [Load] 开始播放');
+      } catch (e) {
+        debugPrint('⚠️ [Play] 播放失败: $e');
+      }
     }
   }
 
