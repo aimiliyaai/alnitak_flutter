@@ -10,6 +10,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:call_state_handler/call_state_handler.dart';
 import 'package:call_state_handler/models/call_state.dart';
 import '../services/hls_service.dart';
+import '../services/history_service.dart';
 import '../services/logger_service.dart';
 import '../services/audio_service_handler.dart';
 import '../models/loop_mode.dart';
@@ -101,6 +102,10 @@ class VideoPlayerController extends ChangeNotifier {
   String? _videoTitle;
   String? _videoAuthor;
   Uri? _videoCoverUri;
+
+  // ============ 视频上下文（进度恢复用）============
+  int? _currentVid;
+  int _currentPart = 1;
 
   VideoPlayerController() {
     player = Player(
@@ -382,6 +387,58 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 从服务端获取并恢复播放进度
+  ///
+  /// 使用内部的 _currentVid 和 _currentPart，无需外部传参
+  /// 典型场景：用户登录后调用此方法同步服务端进度
+  Future<void> fetchAndRestoreProgress() async {
+    if (_isDisposed) return;
+
+    // 检查视频上下文是否已设置
+    if (_currentVid == null) {
+      debugPrint('⚠️ [Progress] 视频上下文未设置，跳过进度恢复');
+      return;
+    }
+
+    // 【关键】记录请求时的 vid/part，用于防止竞态
+    final requestVid = _currentVid!;
+    final requestPart = _currentPart;
+
+    try {
+      debugPrint('🔄 [Progress] 开始获取服务端进度: vid=$requestVid, part=$requestPart');
+      final historyService = HistoryService();
+      final progressData = await historyService.getProgress(vid: requestVid, part: requestPart);
+
+      // 【关键】检查视频是否已切换
+      if (_isDisposed || _currentVid != requestVid || _currentPart != requestPart) {
+        debugPrint('⚠️ [Progress] 视频已切换 (请求: vid=$requestVid/part=$requestPart, 当前: vid=$_currentVid/part=$_currentPart)，丢弃旧数据');
+        return;
+      }
+
+      if (progressData == null) {
+        debugPrint('🔄 [Progress] 无历史进度数据');
+        return;
+      }
+
+      final progress = progressData.progress;
+      debugPrint('🔄 [Progress] 获取到进度: $progress');
+
+
+      final currentPos = player.state.position.inSeconds;
+      final targetPos = progress.toInt();
+
+      // 只有当服务端进度明显不同时才 seek（差异超过3秒）
+      if ((targetPos - currentPos).abs() > 3) {
+        debugPrint('🔄 [Progress] 恢复服务端进度: $currentPos -> $targetPos 秒');
+        await seek(Duration(seconds: targetPos));
+      } else {
+        debugPrint('🔄 [Progress] 进度差异小于3秒，无需 seek');
+      }
+    } catch (e) {
+      debugPrint('❌ 恢复历史进度失败: $e');
+    }
+  }
+
   // ============================================================
   // 核心：切换清晰度
   // ============================================================
@@ -389,12 +446,13 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality) return;
 
-    // 记录当前状态
+    // 记录当前状态（在暂停前获取）
     final wasPlaying = player.state.playing;
     final currentPos = player.state.position;
-    final targetPosition = currentPos.inSeconds > 0 ? currentPos : _userIntendedPosition;
+    // 优先使用当前播放位置，否则使用用户意图位置
+    final targetPosition = currentPos.inMilliseconds > 0 ? currentPos : _userIntendedPosition;
 
-    debugPrint('🔄 [Quality] 切换: $quality, 位置=${targetPosition.inSeconds}s');
+    debugPrint('🔄 [Quality] 切换: $quality, 位置=${targetPosition.inSeconds}s (${targetPosition.inMilliseconds}ms)');
 
     // 暂停
     await player.pause();
@@ -417,23 +475,22 @@ class VideoPlayerController extends ChangeNotifier {
         await player.open(media, play: false);
         await _waitForDuration();
 
-        // 恢复到之前的位置
-        if (targetPosition.inSeconds > 0) {
+        // 恢复到之前的位置（只要有位置就 seek）
+        if (targetPosition.inMilliseconds > 0) {
           debugPrint('🔄 [Quality] seek 到 ${targetPosition.inSeconds}s');
 
-            // 先播放一下让播放器真正就绪，然后立即暂停
-            // 【已注释】为调试/测试目的暂时禁用自动 play/pause，避免触发硬解初始化或首帧行为
-            // await player.play();
-            // await Future.delayed(const Duration(milliseconds: 100));
-            // await player.pause();
+          // 先短暂播放让播放器就绪，否则 seek 可能不生效
+          await player.play();
+          await Future.delayed(const Duration(milliseconds: 50));
+          await player.pause();
 
-            // 现在 seek
-            await player.seek(targetPosition);
-            await Future.delayed(const Duration(milliseconds: 200));
+          // 执行 seek
+          await player.seek(targetPosition);
+          await Future.delayed(const Duration(milliseconds: 200));
 
-            // 验证位置
-            final actualPos = player.state.position;
-            debugPrint('📍 [Quality] seek 后位置: ${actualPos.inSeconds}s');
+          // 验证位置
+          final actualPos = player.state.position;
+          debugPrint('📍 [Quality] seek 后位置: ${actualPos.inSeconds}s');
         }
 
         // 更新状态
@@ -616,10 +673,8 @@ class VideoPlayerController extends ChangeNotifier {
   // ============================================================
   // 解码器预热与统一播放入口（避免重复 play/pause 和竞争）
   // ============================================================
-  final Set<int> _decoderWarmedResourceIds = {};
 
   // 【新增】标记当前资源是否已经 warmup+seek 完成，处于 paused 状态等待 resume
-  bool _isWaitingForResume = false;
 
   /// 【修复】只做 seek，不做 warmup play
   ///
@@ -632,10 +687,16 @@ class VideoPlayerController extends ChangeNotifier {
       final targetSeconds = targetPosition.inSeconds;
       debugPrint('🔧 [WarmupSeek] 开始 seek 到 ${targetSeconds}s');
 
-      // 1. 发送 seek 命令
+      // 【修复】MPV 在未播放状态下 seek 可能不生效
+      // 先短暂播放让播放器激活，再 pause，最后 seek
+      await player.play();
+      await Future.delayed(const Duration(milliseconds: 50));
+      await player.pause();
+
+      // 发送 seek 命令
       await player.seek(targetPosition);
 
-      // 2. 等待一段时间让 seek 生效（不监听 position，因为视频未播放时 position 不会更新）
+      // 等待 seek 生效
       await Future.delayed(const Duration(milliseconds: 200));
 
       // 验证位置
@@ -672,6 +733,12 @@ class VideoPlayerController extends ChangeNotifier {
       await nativePlayer.setProperty('demuxer-max-bytes', '500M');
       await nativePlayer.setProperty('demuxer-max-back-bytes', '50M');
       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+
+      // HLS 分片加载重试配置
+      await nativePlayer.setProperty('stream-lavf-o',
+          'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+          'reconnect_delay_max=30');
+      await nativePlayer.setProperty('network-timeout', '60');
 
       // 精确跳转
       await nativePlayer.setProperty('hr-seek', 'absolute');
@@ -850,6 +917,15 @@ class VideoPlayerController extends ChangeNotifier {
     _videoAuthor = author;
     _videoCoverUri = coverUri;
     _updateAudioServiceMetadata();
+  }
+
+  /// 设置视频上下文（用于进度恢复）
+  ///
+  /// 在切换视频/分P时调用，让 Controller 知道当前播放的是哪个视频
+  void setVideoContext({required int vid, int part = 1}) {
+    _currentVid = vid;
+    _currentPart = part;
+    debugPrint('📹 [Controller] 设置视频上下文: vid=$vid, part=$part');
   }
 
   /// 更新 AudioService 的媒体信息

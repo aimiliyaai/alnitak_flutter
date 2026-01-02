@@ -87,6 +87,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   void _onAuthStateChanged() {
     // 当登录状态变化时，刷新用户操作状态（点赞、收藏、关注）
     _refreshUserActionStatus();
+    // 登录后恢复服务端历史进度（Controller 内部已保存 vid/part 上下文）
+    _playerManager.controller?.fetchAndRestoreProgress();
   }
 
   /// 刷新用户操作状态
@@ -251,6 +253,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         coverUrl: videoDetail.cover,
       );
 
+      // 【新增】设置视频上下文（用于进度恢复）
+      _playerManager.setVideoContext(vid: _currentVid, part: targetPart);
+
       // 【关键优化】先设置基础数据，让UI立即渲染（播放器可以开始加载）
       setState(() {
         _videoDetail = videoDetail;
@@ -386,6 +391,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       resourceId: newResource.id,
       initialPosition: progress,
     );
+
+    // 【新增】更新视频上下文（分P切换）
+    _playerManager.setVideoContext(vid: _currentVid, part: part);
 
     setState(() {
       _currentPart = part;
@@ -527,6 +535,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         resourceId: currentResource.id,
         initialPosition: progress,
       );
+
+      // 【新增】设置视频上下文（用于进度恢复）
+      _playerManager.setVideoContext(vid: targetVid, part: targetPart);
 
       // 【修复】setState 前再次检查，避免更新过期数据
       if (_currentVid != targetVid || !mounted) {

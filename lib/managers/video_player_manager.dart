@@ -75,6 +75,10 @@ class VideoPlayerManager extends ChangeNotifier {
   String? _author;
   String? _coverUrl;
 
+  // ============ 视频上下文（用于进度恢复）============
+  int? _currentVid;
+  int _currentPart = 1;
+
   // ============ 竞态条件防护 ============
   bool _isDisposed = false;
   int _currentEpoch = 0; // 资源版本号，每次加载新资源时递增
@@ -221,6 +225,11 @@ class VideoPlayerManager extends ChangeNotifier {
       );
     }
 
+    // 设置视频上下文（用于进度恢复）
+    if (_currentVid != null) {
+      _controller!.setVideoContext(vid: _currentVid!, part: _currentPart);
+    }
+
     // 如果资源已就绪且未开始播放，立即开始播放
     if (_preloadedResource != null && !_isStartingPlayback) {
       await _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
@@ -311,6 +320,18 @@ class VideoPlayerManager extends ChangeNotifier {
       author: author,
       coverUri: coverUrl != null ? Uri.tryParse(coverUrl) : null,
     );
+  }
+
+  /// 设置视频上下文（用于进度恢复）
+  ///
+  /// 在加载/切换视频时调用，让 Manager 和 Controller 都知道当前视频
+  void setVideoContext({required int vid, int part = 1}) {
+    _currentVid = vid;
+    _currentPart = part;
+
+    // 如果控制器已创建，同步更新
+    _controller?.setVideoContext(vid: vid, part: part);
+    debugPrint('📹 [Manager] 设置视频上下文: vid=$vid, part=$part');
   }
 
   /// 获取首选清晰度
