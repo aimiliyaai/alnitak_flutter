@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -347,9 +347,10 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       _isSeeking = false;
-   // 【关键】等待100ms让底层播放器完全就绪，避免首帧播放两次
+
+      // 【关键】等待100ms让底层播放器完全就绪
       debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 70));
       if (_isDisposed) return;
 
       // 自动播放（Manager模式）
@@ -561,7 +562,7 @@ class VideoPlayerController extends ChangeNotifier {
       if (playing) {
         WakelockManager.enable();
       } else {
-        Future.delayed(const Duration(milliseconds: 500), () {
+        Future.delayed(const Duration(milliseconds: 200), () {
           if (!player.state.playing) {
             WakelockManager.disable();
           }
@@ -642,13 +643,47 @@ class VideoPlayerController extends ChangeNotifier {
   // 辅助方法
   // ============================================================
 
-  Future<Media> _createMedia(MediaSource source) async {
+  /// 临时文件计数器，用于生成唯一文件名
+  int _tempFileCounter = 0;
+
+  /// 临时目录列表，用于退出时清理
+  final List<Directory> _tempDirs = [];
+
+  Future<Media> _createMedia(MediaSource source, {Duration? start}) async {
     if (source.isDirectUrl) {
       return Media(source.content);
     } else {
-      final bytes = Uint8List.fromList(utf8.encode(source.content));
-      return await Media.memory(bytes);
+      // 【关键改进】将 m3u8 内容写入临时文件，这样可以使用支持 start 参数的 Media 构造函数
+      // Media.memory 不支持 start 参数，但普通 Media(filePath) 支持
+      final tempFile = await _writeTempM3u8File(source.content);
+      debugPrint('📁 [Media] 创建临时 m3u8 文件: ${tempFile.path}, start=${start?.inSeconds ?? 0}s');
+      return Media(tempFile.path, start: start);
     }
+  }
+
+  /// 将 m3u8 内容写入临时文件
+  Future<File> _writeTempM3u8File(String content) async {
+    final tempDir = await Directory.systemTemp.createTemp('hls_');
+    _tempDirs.add(tempDir); // 记录临时目录，用于退出时清理
+    final fileName = 'playlist_${_tempFileCounter++}_${DateTime.now().millisecondsSinceEpoch}.m3u8';
+    final file = File('${tempDir.path}/$fileName');
+    await file.writeAsString(content);
+    return file;
+  }
+
+  /// 清理所有临时文件
+  Future<void> _cleanupTempFiles() async {
+    for (final dir in _tempDirs) {
+      try {
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+          debugPrint('🗑️ [Cleanup] 已删除临时目录: ${dir.path}');
+        }
+      } catch (e) {
+        debugPrint('⚠️ [Cleanup] 删除临时目录失败: ${dir.path}, $e');
+      }
+    }
+    _tempDirs.clear();
   }
 
   Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
@@ -697,7 +732,7 @@ class VideoPlayerController extends ChangeNotifier {
       await player.seek(targetPosition);
 
       // 等待 seek 生效
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 100));
 
       // 验证位置
       final actualPos = player.state.position;
@@ -1057,6 +1092,11 @@ class VideoPlayerController extends ChangeNotifier {
     // 【修复】异步清理 HLS 缓存，不等待但捕获异常，避免快速退出时丢失
     _hlsService.cleanupAllTempCache().catchError((e) {
       debugPrint('⚠️ [VideoPlayerController.dispose] HLS 缓存清理失败: $e');
+    });
+
+    // 【新增】清理临时 m3u8 文件
+    _cleanupTempFiles().catchError((e) {
+      debugPrint('⚠️ [VideoPlayerController.dispose] 临时文件清理失败: $e');
     });
 
     // 停止并销毁播放器
