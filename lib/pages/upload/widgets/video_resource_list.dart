@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../../models/upload_video.dart';
 import '../../../services/resource_api_service.dart';
 import '../../../services/upload_api_service.dart';
+import '../../../theme/theme_extensions.dart';
 import 'dart:io';
 
 /// 上传任务状态
@@ -61,8 +62,36 @@ class _VideoResourceListState extends State<VideoResourceList> {
 
   @override
   void dispose() {
+    // 【新增】清理队列临时文件
+    _cleanupQueueFiles().catchError((e) {
+      print('⚠️ dispose 清理队列文件失败: $e');
+    });
+
     _titleEditController.dispose();
     super.dispose();
+  }
+
+  /// 清理上传队列中的临时文件
+  Future<void> _cleanupQueueFiles() async {
+    print('🗑️ 开始清理上传队列临时文件...');
+
+    for (final task in _uploadQueue) {
+      try {
+        if (await task.file.exists()) {
+          await task.file.delete();
+          print('🗑️ 已清理队列临时文件: ${task.fileName}');
+        }
+      } catch (e) {
+        print('⚠️ 清理队列文件失败: ${task.fileName}, $e');
+      }
+    }
+
+    // 清理 FilePicker 临时文件
+    try {
+      await FilePicker.platform.clearTemporaryFiles();
+    } catch (e) {
+      print('⚠️ 清理 FilePicker 临时文件失败: $e');
+    }
   }
 
   /// 获取状态文本
@@ -156,6 +185,16 @@ class _VideoResourceListState extends State<VideoResourceList> {
           duration: (videoInfo['duration'] as num?)?.toDouble(),
           status: videoInfo['status'] as int? ?? 0,
         );
+
+        // 【新增】上传成功后立即清理该任务的临时文件
+        try {
+          if (await task.file.exists()) {
+            await task.file.delete();
+            print('🗑️ 已清理已上传的临时文件: ${task.fileName}');
+          }
+        } catch (e) {
+          print('⚠️ 清理已上传文件失败: $e');
+        }
 
         if (mounted) {
           setState(() {
@@ -275,11 +314,13 @@ class _VideoResourceListState extends State<VideoResourceList> {
       return;
     }
 
+    final colors = context.colors;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: const Text('是否移除该条视频？'),
+        backgroundColor: colors.card,
+        title: Text('确认删除', style: TextStyle(color: colors.textPrimary)),
+        content: Text('是否移除该条视频？', style: TextStyle(color: colors.textSecondary)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

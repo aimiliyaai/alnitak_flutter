@@ -50,6 +50,14 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
   }
 }
 
+/// 安全地将 double 转换为 int，处理 Infinity 和 NaN
+int? _safeToInt(double? value) {
+  if (value == null || value.isNaN || value.isInfinite) {
+    return null;
+  }
+  return value.toInt();
+}
+
 /// 带缓存的网络图片组件
 ///
 /// 自动处理图片加载、缓存、错误和占位符
@@ -111,9 +119,9 @@ class CachedImage extends StatelessWidget {
                 ),
               );
             },
-      // 根据实际显示尺寸缓存
-      memCacheWidth: width?.toInt(),
-      memCacheHeight: height?.toInt(),
+      // 根据实际显示尺寸缓存（防止 Infinity/NaN 导致崩溃）
+      memCacheWidth: _safeToInt(width),
+      memCacheHeight: _safeToInt(height),
       maxHeightDiskCache: 800,
       maxWidthDiskCache: 800,
     );

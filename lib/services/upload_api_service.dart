@@ -114,15 +114,27 @@ class UploadApiService {
 
     print('📹 准备上传视频: $fileName (MD5: $fileMd5)${vid != null ? ' (添加到VID: $vid)' : ''}');
 
-    // 2. 检查已上传分片
-    final uploadedChunks = await _checkUploadedChunks(fileMd5);
-    print('✅ 已上传分片: ${uploadedChunks.length}');
+    // 2. 检查已上传分片和秒传
+    final checkResult = await _checkUploadedChunks(fileMd5);
+    final uploadedChunks = checkResult['chunks'] as List<int>;
+    final instantUpload = checkResult['instantUpload'] as bool;
 
     // 检查是否已取消
     if (onCancel?.call() == true) {
       print('❌ 上传已取消（检查分片后）');
       throw Exception('上传已取消');
     }
+
+    // 【秒传】文件已存在且转码完成，直接获取视频信息
+    if (instantUpload) {
+      print('⚡ 【秒传】文件已存在，跳过上传直接完成');
+      onProgress(1.0);
+      final videoInfo = await _getVideoInfo(fileMd5, title: title, vid: vid);
+      print('✅ 秒传成功，资源ID: ${videoInfo['id']}');
+      return videoInfo;
+    }
+
+    print('✅ 已上传分片: ${uploadedChunks.length}');
 
     // 3. 分片上传
     await _uploadInChunks(
@@ -188,7 +200,8 @@ class UploadApiService {
   }
 
   /// 检查已上传的分片
-  static Future<List<int>> _checkUploadedChunks(String hash) async {
+  /// 返回 { chunks: 已上传分片列表, instantUpload: 是否可秒传 }
+  static Future<Map<String, dynamic>> _checkUploadedChunks(String hash) async {
     final url = Uri.parse('$baseUrl/api/v1/upload/checkVideo');
     final token = await _getAuthToken();
 
@@ -210,7 +223,13 @@ class UploadApiService {
       final data = json.decode(response.body);
       if (data['code'] == 200) {
         final chunks = data['data']['chunks'] as List<dynamic>?;
-        return chunks?.map((e) => e as int).toList() ?? [];
+        final chunkList = chunks?.map((e) => e as int).toList() ?? [];
+
+        // 后端返回 [-1] 表示文件已就绪，可以秒传
+        if (chunkList.length == 1 && chunkList[0] == -1) {
+          return {'chunks': <int>[], 'instantUpload': true};
+        }
+        return {'chunks': chunkList, 'instantUpload': false};
       } else {
         throw Exception(data['msg'] ?? '检查分片失败');
       }

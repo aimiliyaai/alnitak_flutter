@@ -66,8 +66,13 @@ class _VideoManagePageState extends State<VideoManagePage> {
       final response = await _videoService.getUploadVideos(_currentPage, _pageSize);
       if (response != null) {
         if (response['videos'] != null) {
+          final videos = List<Map<String, dynamic>>.from(response['videos']);
+          // 【调试】打印视频状态信息
+          for (final video in videos) {
+            print('📹 视频: ${video['title']}, status=${video['status']} (type: ${video['status'].runtimeType})');
+          }
           setState(() {
-            _videos.addAll(List<Map<String, dynamic>>.from(response['videos']));
+            _videos.addAll(videos);
           });
         } else {
           setState(() {
@@ -165,11 +170,13 @@ class _VideoManagePageState extends State<VideoManagePage> {
       final remark = review['remark'] ?? '暂无原因说明';
 
       if (mounted) {
+        final colors = context.colors;
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('审核不通过原因'),
-            content: Text(remark),
+            backgroundColor: colors.card,
+            title: Text('审核不通过原因', style: TextStyle(color: colors.textPrimary)),
+            content: Text(remark, style: TextStyle(color: colors.textSecondary)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -324,39 +331,47 @@ class _VideoManagePageState extends State<VideoManagePage> {
 
                     // 创建时间和状态
                     Flexible(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              '创建于：${_formatTime(video['createdAt'])}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: colors.textSecondary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (_getStatusText(video['status']) != null) ...[
-                            const SizedBox(width: 8),
-                            _buildStatusChip(video['status']),
-                          ],
-                          // 审核不通过时显示"查看原因"按钮
-                          if (video['status'] == 600) ...[
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () => _showReviewReason(video['vid']),
-                              child: Text(
-                                '查看原因',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.blue[700],
-                                  decoration: TextDecoration.underline,
+                      child: Builder(
+                        builder: (context) {
+                          // 【修复】确保status是int类型
+                          final status = video['status'] is int
+                              ? video['status'] as int
+                              : int.tryParse(video['status']?.toString() ?? '');
+
+                          return Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  '创建于：${_formatTime(video['createdAt'])}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colors.textSecondary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ),
-                          ],
-                        ],
+                              if (_getStatusText(status) != null) ...[
+                                const SizedBox(width: 8),
+                                _buildStatusChip(status),
+                              ],
+                              // 审核不通过时显示"查看原因"按钮
+                              if (status == 2000) ...[
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () => _showReviewReason(video['vid']),
+                                  child: Text(
+                                    '查看原因',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.blue[700],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -417,19 +432,29 @@ class _VideoManagePageState extends State<VideoManagePage> {
     }
   }
 
-  /// 获取状态文本 (参考PC端)
+  /// 获取状态文本
+  /// 视频状态码（参考后端 constant.go）：
+  /// - 0: AUDIT_APPROVED 审核通过（已发布）
+  /// - 100: CREATED_VIDEO 创建视频
+  /// - 200: VIDEO_PROCESSING 视频转码中
+  /// - 300: SUBMIT_REVIEW 提交审核中
+  /// - 500: WAITING_REVIEW 等待审核
+  /// - 2000: REVIEW_FAILED 审核不通过
+  /// - 3000: PROCESSING_FAIL 处理失败
   String? _getStatusText(int? status) {
     if (status == null) return null;
     switch (status) {
+      case 100: // CREATED_VIDEO
       case 200: // VIDEO_PROCESSING
       case 300: // SUBMIT_REVIEW
         return '转码中';
       case 500: // WAITING_REVIEW
         return '待审核';
-      case 600: // REVIEW_FAILED
+      case 2000: // REVIEW_FAILED
         return '审核不通过';
-      case 700: // PROCESSING_FAIL
+      case 3000: // PROCESSING_FAIL
         return '视频处理失败';
+      case 0: // AUDIT_APPROVED - 已发布，不需要显示状态标签
       default:
         return null;
     }
@@ -439,14 +464,16 @@ class _VideoManagePageState extends State<VideoManagePage> {
   Color _getStatusColor(int? status) {
     if (status == null) return Colors.green;
     switch (status) {
+      case 100:
       case 200:
       case 300:
         return Colors.orange;
       case 500:
         return Colors.blue;
-      case 600:
-      case 700:
+      case 2000:
+      case 3000:
         return Colors.red;
+      case 0: // 已发布
       default:
         return Colors.green;
     }
@@ -489,8 +516,10 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     return AlertDialog(
-      title: const Text('删除稿件'),
+      backgroundColor: colors.card,
+      title: Text('删除稿件', style: TextStyle(color: colors.textPrimary)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,7 +527,7 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
           // 提示文本 (参考PC端格式)
           RichText(
             text: TextSpan(
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
+              style: TextStyle(fontSize: 14, color: colors.textPrimary),
               children: [
                 const TextSpan(text: '请输入 '),
                 TextSpan(
@@ -513,7 +542,7 @@ class _DeleteConfirmDialogState extends State<_DeleteConfirmDialog> {
           Text(
             '视频删除后将无法恢复，请谨慎操作',
             style: TextStyle(
-              color: Colors.grey[600],
+              color: colors.textSecondary,
               fontSize: 12,
             ),
           ),

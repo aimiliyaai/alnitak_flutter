@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../controllers/video_player_controller.dart';
+import '../../../controllers/danmaku_controller.dart';
+import '../../../widgets/danmaku_overlay.dart';
 
 /// 自定义播放器 UI (V8 完整版)
 ///
@@ -12,10 +14,12 @@ import '../../../controllers/video_player_controller.dart';
 /// 3. 清晰度 UI 更透明。
 /// 4. 面板右对齐、手势优化等所有累积修复。
 class CustomPlayerUI extends StatefulWidget {
-  final VideoController controller;      
-  final VideoPlayerController logic;     
+  final VideoController controller;
+  final VideoPlayerController logic;
   final String title;
   final VoidCallback? onBack;
+  /// 弹幕控制器（可选，不传则不显示弹幕）
+  final DanmakuController? danmakuController;
 
   const CustomPlayerUI({
     super.key,
@@ -23,6 +27,7 @@ class CustomPlayerUI extends StatefulWidget {
     required this.logic,
     this.title = '',
     this.onBack,
+    this.danmakuController,
   });
 
   @override
@@ -69,6 +74,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   final GlobalKey _qualityButtonKey = GlobalKey();
   double? _panelRight;
   double? _panelBottom;
+
+  // ============ 弹幕设置面板 ============
+  bool _showDanmakuSettings = false;
 
   @override
   void initState() {
@@ -367,6 +375,20 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
               child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // 0. 弹幕层（在手势层下方，不阻挡手势）
+                  if (widget.danmakuController != null)
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        return IgnorePointer(
+                          child: DanmakuOverlay(
+                            controller: widget.danmakuController!,
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                          ),
+                        );
+                      },
+                    ),
+
                   // 1. 手势检测层
                   GestureDetector(
                     behavior: HitTestBehavior.translucent,
@@ -548,6 +570,18 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   // 6. 清晰度面板
                   if (_showQualityPanel && _showControls && _panelRight != null)
                     _buildQualityPanel(),
+
+                  // 7. 弹幕设置面板
+                  if (_showDanmakuSettings && widget.danmakuController != null)
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 60,
+                      child: DanmakuSettingsPanel(
+                        controller: widget.danmakuController!,
+                        onClose: () => setState(() => _showDanmakuSettings = false),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -848,6 +882,71 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   );
                 },
               ),
+
+              // 弹幕控制按钮
+              if (widget.danmakuController != null)
+                ListenableBuilder(
+                  listenable: widget.danmakuController!,
+                  builder: (context, _) {
+                    final isVisible = widget.danmakuController!.isVisible;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 弹幕开关
+                        GestureDetector(
+                          onTap: () {
+                            widget.danmakuController!.toggleVisibility();
+                            _startHideTimer();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isVisible
+                                  ? Colors.blue.withOpacity(0.3)
+                                  : Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: isVisible ? Colors.blue : Colors.white54,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              '弹',
+                              style: TextStyle(
+                                color: isVisible ? Colors.blue : Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // 弹幕设置
+                        IconButton(
+                          icon: Icon(
+                            Icons.tune,
+                            color: _showDanmakuSettings ? Colors.blue : Colors.white,
+                            size: 20,
+                          ),
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            setState(() {
+                              _showDanmakuSettings = !_showDanmakuSettings;
+                              if (_showDanmakuSettings) {
+                                _showQualityPanel = false;
+                              }
+                            });
+                            if (!_showDanmakuSettings) {
+                              _startHideTimer();
+                            } else {
+                              _hideTimer?.cancel();
+                            }
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
 
               // 后台播放按钮
               ValueListenableBuilder<bool>(

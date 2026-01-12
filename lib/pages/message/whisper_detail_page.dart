@@ -35,6 +35,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   bool _isLoading = true;
   bool _isSending = false;
   String _myAvatar = '';
+  int _myUid = 0; // 【新增】当前用户ID，用于头像缓存key
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
     if (mounted && userInfo != null) {
       setState(() {
         _myAvatar = userInfo.userInfo.avatar;
+        _myUid = userInfo.userInfo.uid; // 【新增】保存用户ID
       });
     }
   }
@@ -295,7 +297,7 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
                 ? CachedCircleAvatar(
                     imageUrl: ImageUtils.getFullImageUrl(_myAvatar),
                     radius: 18,
-                    cacheKey: 'my_avatar',
+                    cacheKey: 'user_avatar_$_myUid', // 【修复】使用用户ID作为缓存key，避免切换账号后显示旧头像
                   )
                 : CircleAvatar(
                     radius: 18,

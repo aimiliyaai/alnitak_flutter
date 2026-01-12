@@ -69,6 +69,8 @@ class VideoPlayerManager extends ChangeNotifier {
   VoidCallback? onVideoEnd;
   Function(Duration position, Duration totalDuration)? onProgressUpdate;
   Function(String quality)? onQualityChanged;
+  /// 播放状态变化回调
+  Function(bool playing)? onPlayingStateChanged;
 
   // ============ 元数据 ============
   String? _title;
@@ -215,6 +217,7 @@ class VideoPlayerManager extends ChangeNotifier {
     _controller!.onVideoEnd = onVideoEnd;
     _controller!.onProgressUpdate = onProgressUpdate;
     _controller!.onQualityChanged = onQualityChanged;
+    _controller!.onPlayingStateChanged = onPlayingStateChanged;
 
     // 设置元数据
     if (_title != null) {

@@ -101,10 +101,54 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       print('🚫 用户离开上传页面，设置取消标志');
     }
 
+    // 【新增】清理临时文件
+    _cleanupTempFiles().catchError((e) {
+      print('⚠️ dispose 清理临时文件失败: $e');
+    });
+
     _titleController.dispose();
     _descController.dispose();
     _tagInputController.dispose();
     super.dispose();
+  }
+
+  /// 清理投稿过程中产生的临时文件
+  Future<void> _cleanupTempFiles() async {
+    print('🗑️ 开始清理投稿临时文件...');
+
+    // 1. 清理 FilePicker 临时文件（视频）
+    try {
+      await FilePicker.platform.clearTemporaryFiles();
+      print('🗑️ FilePicker 临时文件已清理');
+    } catch (e) {
+      print('⚠️ 清理 FilePicker 临时文件失败: $e');
+    }
+
+    // 2. 清理封面临时文件（ImagePicker 产生）
+    if (_coverFile != null) {
+      try {
+        if (await _coverFile!.exists()) {
+          await _coverFile!.delete();
+          print('🗑️ 已清理封面临时文件: ${_coverFile!.path}');
+        }
+      } catch (e) {
+        print('⚠️ 清理封面文件失败: $e');
+      }
+      _coverFile = null;
+    }
+
+    // 3. 清理视频临时文件
+    if (_videoFile != null) {
+      try {
+        if (await _videoFile!.exists()) {
+          await _videoFile!.delete();
+          print('🗑️ 已清理视频临时文件: ${_videoFile!.path}');
+        }
+      } catch (e) {
+        print('⚠️ 清理视频文件失败: $e');
+      }
+      _videoFile = null;
+    }
   }
 
   Future<void> _loadPartitions() async {
@@ -341,6 +385,26 @@ Future<void> _uploadVideo({String? title}) async {
       print('  - VID: $vid');
       print('  - 标题: $videoTitle');
 
+      // 【新增】上传成功后清理当前视频临时文件
+      if (_videoFile != null) {
+        try {
+          if (await _videoFile!.exists()) {
+            await _videoFile!.delete();
+            print('🗑️ 已清理已上传的视频临时文件');
+          }
+        } catch (e) {
+          print('⚠️ 清理视频文件失败: $e');
+        }
+        _videoFile = null;
+      }
+
+      // 清理 FilePicker 临时文件
+      try {
+        await FilePicker.platform.clearTemporaryFiles();
+      } catch (e) {
+        print('⚠️ 清理 FilePicker 临时文件失败: $e');
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('上传完成')),
       );
@@ -363,6 +427,11 @@ Future<void> _uploadVideo({String? title}) async {
         // 其他错误才显示错误提示
         _showError('视频上传失败: $e');
       }
+
+      // 【新增】上传失败/取消后也清理临时文件
+      try {
+        await FilePicker.platform.clearTemporaryFiles();
+      } catch (_) {}
 
       if (mounted) {
         setState(() {
@@ -484,6 +553,9 @@ Future<void> _uploadVideo({String? title}) async {
       print('🎬 ========== 视频投稿完成 ==========\n');
 
       if (mounted) {
+        // 【新增】投稿成功后清理临时文件
+        await _cleanupTempFiles();
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(currentPartitionId == 0 ? '稿件发布成功，请等待审核' : '稿件更新成功，请等待审核')),
         );
@@ -492,6 +564,10 @@ Future<void> _uploadVideo({String? title}) async {
     } catch (e) {
       print('❌ 提交失败: $e');
       print('🎬 ========== 视频投稿失败 ==========\n');
+
+      // 【新增】投稿失败后也清理临时文件
+      await _cleanupTempFiles();
+
       _showError('提交失败: $e');
     } finally {
       if (mounted) {

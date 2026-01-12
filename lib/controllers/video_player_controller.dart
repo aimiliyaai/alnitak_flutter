@@ -97,6 +97,8 @@ class VideoPlayerController extends ChangeNotifier {
   VoidCallback? onVideoEnd;
   Function(Duration position, Duration totalDuration)? onProgressUpdate;
   Function(String quality)? onQualityChanged;
+  /// 播放状态变化回调（true=播放中, false=暂停）
+  Function(bool playing)? onPlayingStateChanged;
 
   // ============ 视频元数据（后台播放通知用）============
   String? _videoTitle;
@@ -451,9 +453,14 @@ class VideoPlayerController extends ChangeNotifier {
     final wasPlaying = player.state.playing;
     final currentPos = player.state.position;
     // 优先使用当前播放位置，否则使用用户意图位置
-    final targetPosition = currentPos.inMilliseconds > 0 ? currentPos : _userIntendedPosition;
+    final rawTargetPosition = currentPos.inMilliseconds > 0 ? currentPos : _userIntendedPosition;
 
-    debugPrint('🔄 [Quality] 切换: $quality, 位置=${targetPosition.inSeconds}s (${targetPosition.inMilliseconds}ms)');
+    // 【关键】回退2秒避免HLS分片边界问题
+    final targetPosition = rawTargetPosition.inSeconds > 2
+        ? Duration(seconds: rawTargetPosition.inSeconds - 2)
+        : rawTargetPosition;
+
+    debugPrint('🔄 [Quality] 切换: $quality, 原位置=${rawTargetPosition.inSeconds}s, 目标位置=${targetPosition.inSeconds}s (回退2秒)');
 
     // 暂停
     await player.pause();
@@ -476,22 +483,9 @@ class VideoPlayerController extends ChangeNotifier {
         await player.open(media, play: false);
         await _waitForDuration();
 
-        // 恢复到之前的位置（只要有位置就 seek）
+        // 【关键改进】确保恢复进度，使用多次重试机制
         if (targetPosition.inMilliseconds > 0) {
-          debugPrint('🔄 [Quality] seek 到 ${targetPosition.inSeconds}s');
-
-          // 先短暂播放让播放器就绪，否则 seek 可能不生效
-          await player.play();
-          await Future.delayed(const Duration(milliseconds: 50));
-          await player.pause();
-
-          // 执行 seek
-          await player.seek(targetPosition);
-          await Future.delayed(const Duration(milliseconds: 200));
-
-          // 验证位置
-          final actualPos = player.state.position;
-          debugPrint('📍 [Quality] seek 后位置: ${actualPos.inSeconds}s');
+          await _seekWithRetry(targetPosition, maxRetries: 3);
         }
 
         // 更新状态
@@ -499,12 +493,22 @@ class VideoPlayerController extends ChangeNotifier {
         await _savePreferredQuality(quality);
         _userIntendedPosition = targetPosition;
 
-        // 恢复播放
+        // 恢复播放并再次验证位置
         if (wasPlaying) {
           await player.play();
+
+          // 【关键】播放后再次检查位置，防止 MPV 重置
+          await Future.delayed(const Duration(milliseconds: 150));
+          final afterPlayPos = player.state.position;
+          final diff = (afterPlayPos.inSeconds - targetPosition.inSeconds).abs();
+
+          if (diff > 3 && targetPosition.inSeconds > 3) {
+            debugPrint('⚠️ [Quality] 播放后位置被重置 (${afterPlayPos.inSeconds}s vs ${targetPosition.inSeconds}s)，重新 seek');
+            await player.seek(targetPosition);
+          }
         }
 
-        debugPrint('✅ [Quality] 切换完成');
+        debugPrint('✅ [Quality] 切换完成，最终位置=${player.state.position.inSeconds}s');
         onQualityChanged?.call(quality);
         _preloadAdjacentQualities();
 
@@ -515,6 +519,48 @@ class VideoPlayerController extends ChangeNotifier {
         isSwitchingQuality.value = false;
       }
     });
+  }
+
+  /// 【新增】带重试的 seek 方法，确保切换清晰度时进度恢复成功
+  Future<void> _seekWithRetry(Duration targetPosition, {int maxRetries = 3}) async {
+    final targetSeconds = targetPosition.inSeconds;
+    debugPrint('🔄 [SeekRetry] 开始 seek 到 ${targetSeconds}s，最多重试 $maxRetries 次');
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // 先短暂播放让播放器就绪（HLS 流在暂停状态下 seek 可能不生效）
+        await player.play();
+        await Future.delayed(const Duration(milliseconds: 80));
+        await player.pause();
+
+        // 执行 seek
+        await player.seek(targetPosition);
+        await Future.delayed(const Duration(milliseconds: 200));
+
+        // 验证位置
+        final actualPos = player.state.position;
+        final diff = (actualPos.inSeconds - targetSeconds).abs();
+
+        if (diff <= 3) {
+          debugPrint('✅ [SeekRetry] 第 $attempt 次 seek 成功: 目标=${targetSeconds}s, 实际=${actualPos.inSeconds}s');
+          return;
+        }
+
+        debugPrint('⚠️ [SeekRetry] 第 $attempt 次 seek 偏差过大: 目标=${targetSeconds}s, 实际=${actualPos.inSeconds}s');
+
+        // 如果还有重试机会，等待一下再试
+        if (attempt < maxRetries) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      } catch (e) {
+        debugPrint('⚠️ [SeekRetry] 第 $attempt 次 seek 异常: $e');
+        if (attempt == maxRetries) rethrow;
+      }
+    }
+
+    // 最后一次尝试：直接 seek 不验证
+    debugPrint('⚠️ [SeekRetry] 所有重试失败，执行最终 seek');
+    await player.seek(targetPosition);
   }
 
   // ============================================================
@@ -558,6 +604,9 @@ class VideoPlayerController extends ChangeNotifier {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
       }
+
+      // 通知播放状态变化
+      onPlayingStateChanged?.call(playing);
 
       if (playing) {
         WakelockManager.enable();
@@ -723,20 +772,31 @@ class VideoPlayerController extends ChangeNotifier {
       debugPrint('🔧 [WarmupSeek] 开始 seek 到 ${targetSeconds}s');
 
       // 【修复】MPV 在未播放状态下 seek 可能不生效
-      // 先短暂播放让播放器激活，再 pause，最后 seek
+      // 先短暂播放让播放器激活
       await player.play();
-      await Future.delayed(const Duration(milliseconds: 50));
-      await player.pause();
+      await Future.delayed(const Duration(milliseconds: 80));
 
-      // 发送 seek 命令
+      // 发送 seek 命令（在播放状态下 seek 更可靠）
       await player.seek(targetPosition);
 
       // 等待 seek 生效
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 150));
 
-      // 验证位置
+      // 【关键】验证 seek 是否成功，如果失败则重试一次
       final actualPos = player.state.position;
-      debugPrint('🔧 [WarmupSeek] 完成: target=${targetSeconds}s, actual=${actualPos.inSeconds}s');
+      final diff = (actualPos.inSeconds - targetSeconds).abs();
+      if (diff > 3) {
+        debugPrint('⚠️ [WarmupSeek] 位置偏差过大(${actualPos.inSeconds}s vs ${targetSeconds}s)，重试 seek');
+        await player.seek(targetPosition);
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // 暂停，等待后续 _startPlaybackIfAllowed 恢复播放
+      await player.pause();
+
+      // 最终验证
+      final finalPos = player.state.position;
+      debugPrint('🔧 [WarmupSeek] 完成: target=${targetSeconds}s, actual=${finalPos.inSeconds}s');
     } catch (e) {
       debugPrint('⚠️ [WarmupSeek] 失败: $e');
     }
@@ -746,8 +806,23 @@ class VideoPlayerController extends ChangeNotifier {
     if (_isDisposed) return;
     if (!isSwitchingQuality.value) {
       try {
+        // 记录播放前的位置
+        final expectedPos = _userIntendedPosition;
+
         await player.play();
         debugPrint('▶️ [Load] 开始播放');
+
+        // 【关键】检查播放后位置是否被重置
+        if (expectedPos.inSeconds > 3) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          final actualPos = player.state.position;
+          final diff = (actualPos.inSeconds - expectedPos.inSeconds).abs();
+
+          if (diff > 3) {
+            debugPrint('⚠️ [Play] 检测到位置被重置 (期望=${expectedPos.inSeconds}s, 实际=${actualPos.inSeconds}s)，重新 seek');
+            await player.seek(expectedPos);
+          }
+        }
       } catch (e) {
         debugPrint('⚠️ [Play] 播放失败: $e');
       }

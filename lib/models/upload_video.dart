@@ -182,20 +182,29 @@ class ManuscriptVideo {
   }
 
   /// 获取状态文本
+  /// 视频状态码（参考后端 constant.go）：
+  /// - 0: AUDIT_APPROVED 审核通过（已发布）
+  /// - 100: CREATED_VIDEO 创建视频
+  /// - 200: VIDEO_PROCESSING 视频转码中
+  /// - 300: SUBMIT_REVIEW 提交审核中
+  /// - 500: WAITING_REVIEW 等待审核
+  /// - 2000: REVIEW_FAILED 审核不通过
+  /// - 3000: PROCESSING_FAIL 处理失败
   String getStatusText() {
     switch (status) {
-      case 0:
+      case 100:
+      case 200:
+      case 300:
         return '转码中';
-      case 1:
+      case 500:
         return '待审核';
-      case 2:
+      case 2000:
         return '审核不通过';
-      case 3:
-        return '已发布';
-      case 4:
+      case 3000:
         return '处理失败';
+      case 0:
       default:
-        return '未知状态';
+        return '已发布'; // 正常状态
     }
   }
 }

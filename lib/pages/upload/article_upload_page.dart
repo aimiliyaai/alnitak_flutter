@@ -47,10 +47,30 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
 
   @override
   void dispose() {
+    // 【新增】清理临时文件
+    _cleanupTempFiles().catchError((e) {
+      print('⚠️ dispose 清理临时文件失败: $e');
+    });
+
     _titleController.dispose();
     _contentController.dispose();
     _tagsController.dispose();
     super.dispose();
+  }
+
+  /// 清理投稿过程中产生的临时文件
+  Future<void> _cleanupTempFiles() async {
+    if (_coverFile != null) {
+      try {
+        if (await _coverFile!.exists()) {
+          await _coverFile!.delete();
+          print('🗑️ 已清理文章封面临时文件');
+        }
+      } catch (e) {
+        print('⚠️ 清理封面文件失败: $e');
+      }
+      _coverFile = null;
+    }
   }
 
   Future<void> _loadPartitions() async {
@@ -167,6 +187,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
         await ArticleSubmitApiService.editArticle(editArticle);
 
         if (mounted) {
+          // 【新增】成功后清理临时文件
+          await _cleanupTempFiles();
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('文章编辑成功')),
           );
@@ -186,6 +209,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
         await ArticleSubmitApiService.uploadArticle(uploadArticle);
 
         if (mounted) {
+          // 【新增】成功后清理临时文件
+          await _cleanupTempFiles();
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('文章投稿成功')),
           );
@@ -193,6 +219,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
         }
       }
     } catch (e) {
+      // 【新增】失败后也清理临时文件
+      await _cleanupTempFiles();
+
       _showError('提交失败: $e');
     } finally {
       if (mounted) {

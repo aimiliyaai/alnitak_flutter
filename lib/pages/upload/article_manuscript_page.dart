@@ -107,11 +107,16 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
   }
 
   Future<void> _deleteArticle(ManuscriptArticle article) async {
+    final colors = context.colors;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定要删除文章"${article.title}"吗?'),
+        backgroundColor: colors.card,
+        title: Text('确认删除', style: TextStyle(color: colors.textPrimary)),
+        content: Text(
+          '确定要删除文章"${article.title}"吗?',
+          style: TextStyle(color: colors.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

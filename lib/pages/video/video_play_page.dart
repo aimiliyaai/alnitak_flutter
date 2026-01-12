@@ -6,6 +6,7 @@ import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/hls_service.dart';
 import '../../managers/video_player_manager.dart';
+import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
 import 'widgets/media_player_widget.dart';
@@ -43,6 +44,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 【新增】播放管理器 - 统一管理 HLS预加载 和 播放器实例化
   late final VideoPlayerManager _playerManager;
 
+  // 【新增】弹幕控制器
+  late final DanmakuController _danmakuController;
+
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
   UserActionStatus? _actionStatus;
@@ -75,6 +79,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【新增】创建播放管理器
     _playerManager = VideoPlayerManager();
+
+    // 【新增】创建弹幕控制器
+    _danmakuController = DanmakuController();
 
     _loadVideoData();
     // 添加生命周期监听
@@ -135,6 +142,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【新增】销毁播放管理器（会自动清理HLS缓存）
     _playerManager.dispose();
+
+    // 【新增】销毁弹幕控制器
+    _danmakuController.dispose();
 
     super.dispose();
   }
@@ -237,6 +247,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _hasReportedCompleted = false;
       }
 
+      // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
+      if (progress != null && progress > 2) {
+        progress = progress - 2;
+        print('📺 进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s');
+      }
+
       // 获取当前分P的资源ID
       final currentResource = videoDetail.resources[targetPart - 1];
 
@@ -268,6 +284,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         );
         _isLoading = false; // 立即结束加载状态
       });
+
+      // 【新增】加载弹幕数据
+      _danmakuController.loadDanmaku(vid: _currentVid, part: targetPart);
 
       // 【后台加载】并发请求次要数据（不阻塞主UI）
       _loadSecondaryData(videoDetail.author.uid);
@@ -378,6 +397,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       progress = null;
     }
 
+    // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
+    if (progress != null && progress > 2) {
+      progress = progress - 2;
+    }
+
     // 获取新分P的资源
     final newResource = _videoDetail!.resources[part - 1];
 
@@ -405,6 +429,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       _lastSavedSeconds = null;
       // 不再重新创建 GlobalKey，保持播放器实例以维持全屏状态
     });
+
+    // 【新增】切换分P时重新加载弹幕
+    _danmakuController.loadDanmaku(vid: _currentVid, part: part);
 
     // 滚动到顶部
     _scrollController.animateTo(
@@ -522,6 +549,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _hasReportedCompleted = false;
       }
 
+      // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
+      if (progress != null && progress > 2) {
+        progress = progress - 2;
+        print('📺 进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s');
+      }
+
       // 获取当前分P的资源ID
       final currentResource = videoDetail.resources[targetPart - 1];
 
@@ -560,6 +593,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _errorMessage = null;
       });
 
+      // 【新增】切换视频时重新加载弹幕
+      _danmakuController.loadDanmaku(vid: targetVid, part: targetPart);
+
       // 后台加载次要数据（统计、评论、用户操作状态）
       _loadSecondaryData(videoDetail.author.uid);
 
@@ -571,11 +607,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
+  /// 播放状态变化回调（控制弹幕播放/暂停）
+  void _onPlayingStateChanged(bool playing) {
+    if (playing) {
+      _danmakuController.play();
+    } else {
+      _danmakuController.pause();
+    }
+  }
+
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position, Duration totalDuration) {
     _currentDuration = totalDuration.inSeconds.toDouble();
     // 记录最后播放位置（用于切换分P前上报）
     _lastReportedPosition = position;
+
+    // 【新增】同步弹幕进度
+    _danmakuController.updateTime(position.inSeconds.toDouble());
 
     // 使用节流机制：只有当播放进度与上次保存相差5秒以上时才上报
     final currentSeconds = position.inSeconds;
@@ -744,6 +792,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             totalParts: _videoDetail!.resources.length,
             currentPart: _currentPart,
             onPartChange: _changePart,
+            danmakuController: _danmakuController, // 【新增】传递弹幕控制器
+            onPlayingStateChanged: _onPlayingStateChanged, // 【新增】播放状态变化
           ),
         ),
 

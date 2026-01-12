@@ -111,11 +111,16 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
   }
 
   Future<void> _deleteVideo(ManuscriptVideo video) async {
+    final colors = context.colors;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定要删除视频"${video.title}"吗?'),
+        backgroundColor: colors.card,
+        title: Text('确认删除', style: TextStyle(color: colors.textPrimary)),
+        content: Text(
+          '确定要删除视频"${video.title}"吗?',
+          style: TextStyle(color: colors.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -392,20 +397,29 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     );
   }
 
+  /// 获取状态颜色
+  /// 视频状态码（参考后端 constant.go）：
+  /// - 0: AUDIT_APPROVED 审核通过（已发布）
+  /// - 100: CREATED_VIDEO 创建视频
+  /// - 200: VIDEO_PROCESSING 视频转码中
+  /// - 300: SUBMIT_REVIEW 提交审核中
+  /// - 500: WAITING_REVIEW 等待审核
+  /// - 2000: REVIEW_FAILED 审核不通过
+  /// - 3000: PROCESSING_FAIL 处理失败
   Color _getStatusColor(int status) {
     switch (status) {
-      case 0: // 转码中
+      case 100: // 创建视频
+      case 200: // 转码中
+      case 300: // 提交审核中
         return Colors.orange;
-      case 1: // 待审核
+      case 500: // 待审核
         return Colors.blue;
-      case 2: // 审核不通过
+      case 2000: // 审核不通过
+      case 3000: // 处理失败
         return Colors.red;
-      case 3: // 已发布
-        return Colors.green;
-      case 4: // 处理失败
-        return Colors.red;
+      case 0: // 已发布
       default:
-        return Colors.grey;
+        return Colors.green;
     }
   }
 }

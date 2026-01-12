@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
+import '../../../controllers/danmaku_controller.dart';
 import '../../../managers/video_player_manager.dart';
 import 'custom_player_ui.dart';
 
@@ -35,6 +36,10 @@ class MediaPlayerWidget extends StatefulWidget {
   final int? currentPart;
   final Function(int part)? onPartChange;
   final Function(VideoPlayerController)? onControllerReady;
+  /// 弹幕控制器（可选）
+  final DanmakuController? danmakuController;
+  /// 播放状态变化回调
+  final Function(bool playing)? onPlayingStateChanged;
 
   const MediaPlayerWidget({
     super.key,
@@ -52,6 +57,8 @@ class MediaPlayerWidget extends StatefulWidget {
     this.currentPart,
     this.onPartChange,
     this.onControllerReady,
+    this.danmakuController,
+    this.onPlayingStateChanged,
   }) : assert(resourceId != null || manager != null, 'resourceId 或 manager 必须提供其一');
 
   @override
@@ -110,6 +117,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     manager.onVideoEnd = widget.onVideoEnd;
     manager.onProgressUpdate = widget.onProgressUpdate;
     manager.onQualityChanged = widget.onQualityChanged;
+    manager.onPlayingStateChanged = widget.onPlayingStateChanged;
 
     // 元数据已经在 VideoPlayPage 中设置过了，这里不需要重复设置
 
@@ -135,6 +143,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       widget.onProgressUpdate?.call(pos, total);
     };
     _controller!.onQualityChanged = widget.onQualityChanged;
+    _controller!.onPlayingStateChanged = widget.onPlayingStateChanged;
   }
 
   /// 设置视频元数据
@@ -278,6 +287,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
                     logic: _controller!,
                     title: widget.title ?? '',
                     onBack: () => Navigator.of(context).maybePop(),
+                    danmakuController: widget.danmakuController,
                   );
                 },
               );
