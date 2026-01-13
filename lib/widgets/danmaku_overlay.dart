@@ -757,6 +757,20 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
                     ),
             ),
           ),
+
+          const SizedBox(width: 4),
+
+          // Close Button
+          IconButton(
+            onPressed: () => widget.onSendEnd?.call(),
+            icon: const Icon(
+              Icons.close,
+              color: Colors.white70,
+              size: 20,
+            ),
+            padding: const EdgeInsets.all(4),
+            constraints: const BoxConstraints(),
+          ),
         ],
       ),
     );

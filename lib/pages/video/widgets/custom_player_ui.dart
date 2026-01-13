@@ -849,10 +849,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       left: 0,
       right: 0,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        // 进度条和控制按钮的容器
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 13),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+            // 从透明到黑色渐变
+            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.3)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -864,7 +866,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
             children: [
               // 第一行：进度条
               _buildProgressRow(),
-              const SizedBox(height: 4),
+              //进度条间距
+              const SizedBox(height: 2),
               // 第二行：控制按钮
               _buildControlButtonsRow(),
             ],
