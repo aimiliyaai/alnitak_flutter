@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/danmaku.dart';
 import '../services/danmaku_service.dart';
 
@@ -10,6 +11,8 @@ class DanmakuItem {
   int trackIndex;
   /// 弹幕动画开始时间（毫秒时间戳）
   int startTime;
+  /// 暂停时累计的已播放时间（毫秒）
+  int elapsedWhenPaused;
   /// 弹幕宽度（像素）
   double width;
   /// 是否已经显示完毕
@@ -19,9 +22,60 @@ class DanmakuItem {
     required this.danmaku,
     this.trackIndex = 0,
     this.startTime = 0,
+    this.elapsedWhenPaused = 0,
     this.width = 0,
     this.isExpired = false,
   });
+}
+
+/// 弹幕屏蔽类型
+class DanmakuFilter {
+  /// 屏蔽的弹幕类型：0-滚动, 1-顶部, 2-底部, 3-彩色
+  final Set<int> disabledTypes;
+  /// 弹幕屏蔽等级 (0-10)，随机过滤一定比例的弹幕
+  final int disableLevel;
+
+  const DanmakuFilter({
+    this.disabledTypes = const {},
+    this.disableLevel = 0,
+  });
+
+  DanmakuFilter copyWith({
+    Set<int>? disabledTypes,
+    int? disableLevel,
+  }) {
+    return DanmakuFilter(
+      disabledTypes: disabledTypes ?? this.disabledTypes,
+      disableLevel: disableLevel ?? this.disableLevel,
+    );
+  }
+
+  /// 检查弹幕是否应该被屏蔽
+  bool shouldFilter(Danmaku danmaku) {
+    // 按类型屏蔽
+    if (disabledTypes.contains(danmaku.type)) {
+      return true;
+    }
+
+    // 彩色弹幕屏蔽（类型3）
+    if (disabledTypes.contains(3)) {
+      final color = danmaku.color.toLowerCase().replaceAll('#', '');
+      // 非白色弹幕被视为彩色弹幕
+      if (color != 'fff' && color != 'ffffff' && color != 'white') {
+        return true;
+      }
+    }
+
+    // 按等级随机屏蔽
+    if (disableLevel > 0) {
+      final random = (danmaku.id % 10) + 1;
+      if (random <= disableLevel) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 }
 
 /// 弹幕控制器
@@ -30,6 +84,8 @@ class DanmakuItem {
 /// - 轨道管理：防止弹幕重叠
 /// - 碰撞检测：确保弹幕不会追尾
 /// - 时间同步：与视频播放进度精确同步
+/// - 暂停支持：暂停时弹幕静止
+/// - 类型屏蔽：支持按类型屏蔽弹幕
 /// - 性能优化：弹幕池复用、过期清理
 class DanmakuController extends ChangeNotifier {
   /// 弹幕服务
@@ -37,6 +93,9 @@ class DanmakuController extends ChangeNotifier {
 
   /// 原始弹幕数据（按时间排序）
   List<Danmaku> _danmakuList = [];
+
+  /// 过滤后的弹幕数据
+  List<Danmaku> _filteredDanmakuList = [];
 
   /// 当前显示的弹幕
   final List<DanmakuItem> _activeDanmakus = [];
@@ -48,6 +107,9 @@ class DanmakuController extends ChangeNotifier {
 
   /// 弹幕配置
   DanmakuConfig _config = const DanmakuConfig();
+
+  /// 弹幕屏蔽设置
+  DanmakuFilter _filter = const DanmakuFilter();
 
   /// 当前播放进度（秒）
   double _currentTime = 0;
@@ -61,6 +123,9 @@ class DanmakuController extends ChangeNotifier {
   /// 是否显示弹幕
   bool _isVisible = true;
 
+  /// 暂停时的时间戳
+  int _pauseTime = 0;
+
   /// 轨道占用状态：记录每个轨道最后一个弹幕的离开时间
   /// key: 轨道索引, value: 轨道空闲时间点（毫秒时间戳）
   final Map<int, int> _scrollTrackEndTimes = {};
@@ -73,11 +138,95 @@ class DanmakuController extends ChangeNotifier {
   /// 获取弹幕配置
   DanmakuConfig get config => _config;
 
+  /// 获取弹幕屏蔽设置
+  DanmakuFilter get filter => _filter;
+
   /// 是否显示弹幕
   bool get isVisible => _isVisible;
 
-  /// 弹幕总数
-  int get totalCount => _danmakuList.length;
+  /// 是否正在播放
+  bool get isPlaying => _isPlaying;
+
+  /// 弹幕总数（过滤后）
+  int get totalCount => _filteredDanmakuList.length;
+
+  /// 原始弹幕总数
+  int get rawTotalCount => _danmakuList.length;
+
+  DanmakuController() {
+    _loadSettings();
+  }
+
+  /// 加载保存的设置
+  Future<void> _loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 加载屏蔽类型
+      final disabledTypesStr = prefs.getString('danmaku_disabled_types');
+      Set<int> disabledTypes = {};
+      if (disabledTypesStr != null && disabledTypesStr.isNotEmpty) {
+        disabledTypes = disabledTypesStr.split(',').map((e) => int.tryParse(e) ?? -1).where((e) => e >= 0).toSet();
+      }
+
+      // 加载屏蔽等级
+      final disableLevel = prefs.getInt('danmaku_disable_level') ?? 0;
+
+      // 加载透明度
+      final opacity = prefs.getDouble('danmaku_opacity') ?? 1.0;
+
+      // 加载字体大小
+      final fontSize = prefs.getDouble('danmaku_font_size') ?? 18.0;
+
+      // 加载显示区域
+      final displayArea = prefs.getDouble('danmaku_display_area') ?? 0.75;
+
+      // 加载速度
+      final speedMultiplier = prefs.getDouble('danmaku_speed') ?? 1.0;
+
+      _filter = DanmakuFilter(
+        disabledTypes: disabledTypes,
+        disableLevel: disableLevel,
+      );
+
+      _config = _config.copyWith(
+        opacity: opacity,
+        fontSize: fontSize,
+        displayArea: displayArea,
+        speedMultiplier: speedMultiplier,
+        scrollDuration: Duration(milliseconds: (8000 / speedMultiplier).toInt()),
+      );
+    } catch (e) {
+      debugPrint('加载弹幕设置失败: $e');
+    }
+  }
+
+  /// 保存设置
+  Future<void> _saveSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 保存屏蔽类型
+      await prefs.setString('danmaku_disabled_types', _filter.disabledTypes.join(','));
+
+      // 保存屏蔽等级
+      await prefs.setInt('danmaku_disable_level', _filter.disableLevel);
+
+      // 保存透明度
+      await prefs.setDouble('danmaku_opacity', _config.opacity);
+
+      // 保存字体大小
+      await prefs.setDouble('danmaku_font_size', _config.fontSize);
+
+      // 保存显示区域
+      await prefs.setDouble('danmaku_display_area', _config.displayArea);
+
+      // 保存速度
+      await prefs.setDouble('danmaku_speed', _config.speedMultiplier);
+    } catch (e) {
+      debugPrint('保存弹幕设置失败: $e');
+    }
+  }
 
   /// 加载弹幕数据
   Future<void> loadDanmaku({
@@ -97,14 +246,22 @@ class DanmakuController extends ChangeNotifier {
       list.sort((a, b) => a.time.compareTo(b.time));
       _danmakuList = list;
 
+      // 应用过滤
+      _applyFilter();
+
       // 重置状态
       _reset();
 
-      print('📝 弹幕加载完成: ${list.length}条');
+      debugPrint('📝 弹幕加载完成: ${_filteredDanmakuList.length}/${list.length}条');
       notifyListeners();
     } catch (e) {
-      print('📝 弹幕加载失败: $e');
+      debugPrint('📝 弹幕加载失败: $e');
     }
+  }
+
+  /// 应用弹幕过滤
+  void _applyFilter() {
+    _filteredDanmakuList = _danmakuList.where((d) => !_filter.shouldFilter(d)).toList();
   }
 
   /// 重置弹幕状态
@@ -112,6 +269,7 @@ class DanmakuController extends ChangeNotifier {
     _activeDanmakus.clear();
     _lastProcessedIndex = 0;
     _currentTime = 0;
+    _pauseTime = 0;
     _scrollTrackEndTimes.clear();
     _topTrackEndTimes.clear();
     _bottomTrackEndTimes.clear();
@@ -141,7 +299,7 @@ class DanmakuController extends ChangeNotifier {
 
   /// 处理进度跳跃
   void _onSeek(double newTime) {
-    print('📝 弹幕 seek: ${_currentTime.toStringAsFixed(1)}s -> ${newTime.toStringAsFixed(1)}s');
+    debugPrint('📝 弹幕 seek: ${_currentTime.toStringAsFixed(1)}s -> ${newTime.toStringAsFixed(1)}s');
 
     // 清空当前显示的弹幕
     _activeDanmakus.clear();
@@ -155,14 +313,14 @@ class DanmakuController extends ChangeNotifier {
 
   /// 二分查找起始索引
   int _findStartIndex(double time) {
-    if (_danmakuList.isEmpty) return 0;
+    if (_filteredDanmakuList.isEmpty) return 0;
 
     int left = 0;
-    int right = _danmakuList.length - 1;
+    int right = _filteredDanmakuList.length - 1;
 
     while (left < right) {
       final mid = (left + right) ~/ 2;
-      if (_danmakuList[mid].time < time) {
+      if (_filteredDanmakuList[mid].time < time) {
         left = mid + 1;
       } else {
         right = mid;
@@ -177,8 +335,8 @@ class DanmakuController extends ChangeNotifier {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // 扫描即将出现的弹幕（当前时间前后0.5秒内）
-    while (_lastProcessedIndex < _danmakuList.length) {
-      final danmaku = _danmakuList[_lastProcessedIndex];
+    while (_lastProcessedIndex < _filteredDanmakuList.length) {
+      final danmaku = _filteredDanmakuList[_lastProcessedIndex];
 
       // 弹幕时间还没到
       if (danmaku.time > _currentTime + 0.1) break;
@@ -268,19 +426,47 @@ class DanmakuController extends ChangeNotifier {
           ? _config.scrollDuration.inMilliseconds
           : _config.fixedDuration.inMilliseconds;
 
-      return now - item.startTime > duration;
+      // 计算实际经过的时间（考虑暂停）
+      final elapsed = item.elapsedWhenPaused + (now - item.startTime);
+      return elapsed > duration;
     });
   }
 
   /// 开始播放
   void play() {
+    if (_isPlaying) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 恢复播放时，调整弹幕的开始时间
+    if (_pauseTime > 0) {
+      final pauseDuration = now - _pauseTime;
+      for (final item in _activeDanmakus) {
+        item.startTime += pauseDuration;
+      }
+      // 同时调整轨道占用时间
+      for (final key in _scrollTrackEndTimes.keys.toList()) {
+        _scrollTrackEndTimes[key] = (_scrollTrackEndTimes[key] ?? 0) + pauseDuration;
+      }
+      for (final key in _topTrackEndTimes.keys.toList()) {
+        _topTrackEndTimes[key] = (_topTrackEndTimes[key] ?? 0) + pauseDuration;
+      }
+      for (final key in _bottomTrackEndTimes.keys.toList()) {
+        _bottomTrackEndTimes[key] = (_bottomTrackEndTimes[key] ?? 0) + pauseDuration;
+      }
+    }
+
     _isPlaying = true;
+    _pauseTime = 0;
     notifyListeners();
   }
 
   /// 暂停播放
   void pause() {
+    if (!_isPlaying) return;
+
     _isPlaying = false;
+    _pauseTime = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
   }
 
@@ -306,7 +492,35 @@ class DanmakuController extends ChangeNotifier {
   /// 更新弹幕配置
   void updateConfig(DanmakuConfig config) {
     _config = config;
+    _saveSettings();
     notifyListeners();
+  }
+
+  /// 更新弹幕屏蔽设置
+  void updateFilter(DanmakuFilter filter) {
+    _filter = filter;
+    _applyFilter();
+    // 重置弹幕状态
+    _activeDanmakus.clear();
+    _lastProcessedIndex = _findStartIndex(_currentTime);
+    _saveSettings();
+    notifyListeners();
+  }
+
+  /// 切换弹幕类型屏蔽
+  void toggleTypeFilter(int type) {
+    final newDisabledTypes = Set<int>.from(_filter.disabledTypes);
+    if (newDisabledTypes.contains(type)) {
+      newDisabledTypes.remove(type);
+    } else {
+      newDisabledTypes.add(type);
+    }
+    updateFilter(_filter.copyWith(disabledTypes: newDisabledTypes));
+  }
+
+  /// 设置屏蔽等级
+  void setDisableLevel(int level) {
+    updateFilter(_filter.copyWith(disableLevel: level.clamp(0, 10)));
   }
 
   /// 发送弹幕
@@ -316,6 +530,11 @@ class DanmakuController extends ChangeNotifier {
     String color = '#ffffff',
   }) async {
     if (_currentVid == null) return false;
+
+    // 确保颜色有 # 前缀
+    if (!color.startsWith('#')) {
+      color = '#$color';
+    }
 
     final request = SendDanmakuRequest(
       vid: _currentVid!,
@@ -360,6 +579,7 @@ class DanmakuController extends ChangeNotifier {
   /// 清空弹幕
   void clear() {
     _danmakuList.clear();
+    _filteredDanmakuList.clear();
     _activeDanmakus.clear();
     _reset();
     notifyListeners();
@@ -369,6 +589,7 @@ class DanmakuController extends ChangeNotifier {
   void dispose() {
     _activeDanmakus.clear();
     _danmakuList.clear();
+    _filteredDanmakuList.clear();
     super.dispose();
   }
 }

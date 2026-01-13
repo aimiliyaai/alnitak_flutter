@@ -9,6 +9,7 @@ import '../controllers/danmaku_controller.dart';
 /// - 轨道布局：滚动弹幕、顶部固定、底部固定分离渲染
 /// - 描边文字：使用 Stack + 描边实现高可读性
 /// - 平滑动画：使用 Tween 动画确保弹幕流畅移动
+/// - 暂停支持：暂停时弹幕静止
 class DanmakuOverlay extends StatelessWidget {
   final DanmakuController controller;
   final double width;
@@ -33,6 +34,7 @@ class DanmakuOverlay extends StatelessWidget {
         final config = controller.config;
         final displayHeight = height * config.displayArea;
         final activeDanmakus = controller.activeDanmakus;
+        final isPlaying = controller.isPlaying;
 
         return ClipRect(
           child: SizedBox(
@@ -46,6 +48,7 @@ class DanmakuOverlay extends StatelessWidget {
                   config: config,
                   screenWidth: width,
                   screenHeight: displayHeight,
+                  isPlaying: isPlaying,
                 );
               }).toList(),
             ),
@@ -62,6 +65,7 @@ class _DanmakuItemWidget extends StatefulWidget {
   final DanmakuConfig config;
   final double screenWidth;
   final double screenHeight;
+  final bool isPlaying;
 
   const _DanmakuItemWidget({
     super.key,
@@ -69,6 +73,7 @@ class _DanmakuItemWidget extends StatefulWidget {
     required this.config,
     required this.screenWidth,
     required this.screenHeight,
+    required this.isPlaying,
   });
 
   @override
@@ -83,7 +88,10 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
   @override
   void initState() {
     super.initState();
+    _setupAnimation();
+  }
 
+  void _setupAnimation() {
     final type = widget.item.danmaku.danmakuType;
     final duration = type == DanmakuType.scroll
         ? widget.config.scrollDuration
@@ -99,12 +107,12 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
     );
 
     // 计算初始进度
-    final initialProgress = elapsed / duration.inMilliseconds;
+    final initialProgress = (elapsed / duration.inMilliseconds).clamp(0.0, 1.0);
 
     if (type == DanmakuType.scroll) {
       // 滚动弹幕：从右向左移动
       _animation = Tween<double>(
-        begin: initialProgress.clamp(0.0, 1.0),
+        begin: initialProgress,
         end: 1.0,
       ).animate(CurvedAnimation(
         parent: _animationController,
@@ -118,7 +126,24 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
       ).animate(_animationController);
     }
 
-    _animationController.forward();
+    // 根据播放状态决定是否启动动画
+    if (widget.isPlaying) {
+      _animationController.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_DanmakuItemWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // 播放状态变化时控制动画
+    if (oldWidget.isPlaying != widget.isPlaying) {
+      if (widget.isPlaying) {
+        _animationController.forward();
+      } else {
+        _animationController.stop();
+      }
+    }
   }
 
   @override
@@ -190,22 +215,14 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
     final danmaku = widget.item.danmaku;
     final config = widget.config;
 
-    // 解析颜色
-    Color textColor;
-    try {
-      final colorStr = danmaku.color.replaceAll('#', '');
-      textColor = Color(int.parse('FF$colorStr', radix: 16));
-    } catch (e) {
-      textColor = Colors.white;
-    }
+    // 解析颜色 - 支持多种格式：#fff, #ffffff, fff, ffffff
+    Color textColor = _parseColor(danmaku.color);
 
     // 应用透明度
-    textColor = textColor.withOpacity(config.opacity);
+    textColor = textColor.withValues(alpha: config.opacity);
 
-    // 描边颜色（深色背景用白色描边，浅色用黑色）
-    final strokeColor = _isLightColor(textColor)
-        ? Colors.black.withOpacity(config.opacity * 0.8)
-        : Colors.black.withOpacity(config.opacity * 0.8);
+    // 描边颜色（始终使用黑色描边，确保可读性）
+    final strokeColor = Colors.black.withValues(alpha: config.opacity * 0.8);
 
     return Stack(
       children: [
@@ -227,10 +244,31 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
     );
   }
 
-  /// 判断是否为浅色
-  bool _isLightColor(Color color) {
-    final luminance = color.computeLuminance();
-    return luminance > 0.5;
+  /// 解析颜色字符串
+  /// 支持格式：#fff, #ffffff, fff, ffffff, #RRGGBB, RRGGBB
+  Color _parseColor(String colorStr) {
+    try {
+      // 移除 # 前缀
+      String hex = colorStr.replaceAll('#', '').trim();
+
+      // 处理简写格式 (fff -> ffffff)
+      if (hex.length == 3) {
+        hex = hex.split('').map((c) => '$c$c').join();
+      }
+
+      // 确保是6位
+      if (hex.length == 6) {
+        return Color(int.parse('FF$hex', radix: 16));
+      }
+
+      // 如果是8位（包含透明度）
+      if (hex.length == 8) {
+        return Color(int.parse(hex, radix: 16));
+      }
+    } catch (e) {
+      // 解析失败，返回白色
+    }
+    return Colors.white;
   }
 
   /// 构建描边文字
@@ -261,7 +299,7 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
   }
 }
 
-/// 弹幕设置面板
+/// 弹幕设置面板 - B站风格紧凑设计
 class DanmakuSettingsPanel extends StatelessWidget {
   final DanmakuController controller;
   final VoidCallback? onClose;
@@ -278,11 +316,12 @@ class DanmakuSettingsPanel extends StatelessWidget {
       listenable: controller,
       builder: (context, child) {
         final config = controller.config;
+        final filter = controller.filter;
 
         return Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.85),
+            color: Colors.black.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(8),
           ),
           child: SingleChildScrollView(
@@ -294,44 +333,64 @@ class DanmakuSettingsPanel extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      '弹幕设置',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        const Text(
+                          '弹幕设置',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${controller.totalCount}条',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                     if (onClose != null)
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: onClose,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                      GestureDetector(
+                        onTap: onClose,
+                        child: const Icon(Icons.close, color: Colors.white54, size: 18),
                       ),
                   ],
                 ),
-                const SizedBox(height: 16),
-
-                // 弹幕开关
-                _buildSwitchRow(
-                  '显示弹幕',
-                  controller.isVisible,
-                  (value) => controller.setVisibility(value),
-                ),
                 const SizedBox(height: 12),
+
+                // 弹幕类型屏蔽
+                _buildSectionTitle('屏蔽类型'),
+                const SizedBox(height: 6),
+                _buildTypeFilterRow(controller, filter),
+                const SizedBox(height: 10),
+
+                // 屏蔽等级
+                _buildSliderRow(
+                  '屏蔽等级',
+                  filter.disableLevel.toDouble(),
+                  0,
+                  10,
+                  (value) => controller.setDisableLevel(value.toInt()),
+                  showValue: true,
+                  valueFormat: (v) => v.toInt().toString(),
+                ),
+                const SizedBox(height: 8),
 
                 // 透明度
                 _buildSliderRow(
-                  '透明度',
+                  '不透明度',
                   config.opacity,
                   0.2,
                   1.0,
-                  (value) => controller.updateConfig(
-                    config.copyWith(opacity: value),
-                  ),
+                  (value) => controller.updateConfig(config.copyWith(opacity: value)),
+                  showValue: true,
+                  valueFormat: (v) => '${(v * 100).toInt()}%',
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
 
                 // 字体大小
                 _buildSliderRow(
@@ -339,13 +398,11 @@ class DanmakuSettingsPanel extends StatelessWidget {
                   config.fontSize,
                   12,
                   28,
-                  (value) => controller.updateConfig(
-                    config.copyWith(fontSize: value),
-                  ),
+                  (value) => controller.updateConfig(config.copyWith(fontSize: value)),
                   showValue: true,
                   valueFormat: (v) => '${v.toInt()}',
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
 
                 // 显示区域
                 _buildSliderRow(
@@ -353,13 +410,11 @@ class DanmakuSettingsPanel extends StatelessWidget {
                   config.displayArea,
                   0.25,
                   1.0,
-                  (value) => controller.updateConfig(
-                    config.copyWith(displayArea: value),
-                  ),
+                  (value) => controller.updateConfig(config.copyWith(displayArea: value)),
                   showValue: true,
-                  valueFormat: (v) => '${(v * 100).toInt()}%',
+                  valueFormat: (v) => _getDisplayAreaText(v),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
 
                 // 弹幕速度
                 _buildSliderRow(
@@ -368,15 +423,11 @@ class DanmakuSettingsPanel extends StatelessWidget {
                   0.5,
                   2.0,
                   (value) {
-                    final duration = Duration(
-                      milliseconds: (8000 / value).toInt(),
-                    );
-                    controller.updateConfig(
-                      config.copyWith(
-                        scrollDuration: duration,
-                        speedMultiplier: value,
-                      ),
-                    );
+                    final duration = Duration(milliseconds: (8000 / value).toInt());
+                    controller.updateConfig(config.copyWith(
+                      scrollDuration: duration,
+                      speedMultiplier: value,
+                    ));
                   },
                   showValue: true,
                   valueFormat: (v) => '${v.toStringAsFixed(1)}x',
@@ -389,20 +440,67 @@ class DanmakuSettingsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildSwitchRow(String label, bool value, ValueChanged<bool> onChanged) {
+  String _getDisplayAreaText(double value) {
+    if (value >= 1.0) return '全屏';
+    if (value >= 0.75) return '3/4屏';
+    if (value >= 0.5) return '半屏';
+    if (value >= 0.25) return '1/4屏';
+    return '${(value * 100).toInt()}%';
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.7),
+        fontSize: 12,
+      ),
+    );
+  }
+
+  Widget _buildTypeFilterRow(DanmakuController controller, DanmakuFilter filter) {
+    const types = [
+      {'type': 0, 'label': '滚动'},
+      {'type': 1, 'label': '顶部'},
+      {'type': 2, 'label': '底部'},
+      {'type': 3, 'label': '彩色'},
+    ];
+
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: Colors.blue,
-        ),
-      ],
+      children: types.map((item) {
+        final type = item['type'] as int;
+        final label = item['label'] as String;
+        final isDisabled = filter.disabledTypes.contains(type);
+
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => controller.toggleTypeFilter(type),
+            child: Container(
+              margin: EdgeInsets.only(right: type < 3 ? 6 : 0),
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              decoration: BoxDecoration(
+                color: isDisabled
+                    ? Colors.blue.withValues(alpha: 0.3)
+                    : Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isDisabled ? Colors.blue : Colors.white24,
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDisabled ? Colors.blue : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: isDisabled ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -415,39 +513,49 @@ class DanmakuSettingsPanel extends StatelessWidget {
     bool showValue = false,
     String Function(double)? valueFormat,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 14),
+        SizedBox(
+          width: 56,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
             ),
-            if (showValue && valueFormat != null)
-              Text(
-                valueFormat(value),
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: Colors.blue,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: Colors.white,
+              overlayColor: Colors.blue.withValues(alpha: 0.2),
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        if (showValue && valueFormat != null)
+          SizedBox(
+            width: 40,
+            child: Text(
+              valueFormat(value),
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
               ),
-          ],
-        ),
-        SliderTheme(
-          data: SliderThemeData(
-            activeTrackColor: Colors.blue,
-            inactiveTrackColor: Colors.white24,
-            thumbColor: Colors.white,
-            overlayColor: Colors.blue.withOpacity(0.2),
-            trackHeight: 2,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            ),
           ),
-          child: Slider(
-            value: value.clamp(min, max),
-            min: min,
-            max: max,
-            onChanged: onChanged,
-          ),
-        ),
       ],
     );
   }
