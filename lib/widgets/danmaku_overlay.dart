@@ -285,102 +285,104 @@ class DanmakuSettingsPanel extends StatelessWidget {
             color: Colors.black.withOpacity(0.85),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 标题栏
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '弹幕设置',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 标题栏
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '弹幕设置',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
+                    if (onClose != null)
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: onClose,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // 弹幕开关
+                _buildSwitchRow(
+                  '显示弹幕',
+                  controller.isVisible,
+                  (value) => controller.setVisibility(value),
+                ),
+                const SizedBox(height: 12),
+
+                // 透明度
+                _buildSliderRow(
+                  '透明度',
+                  config.opacity,
+                  0.2,
+                  1.0,
+                  (value) => controller.updateConfig(
+                    config.copyWith(opacity: value),
                   ),
-                  if (onClose != null)
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: onClose,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 弹幕开关
-              _buildSwitchRow(
-                '显示弹幕',
-                controller.isVisible,
-                (value) => controller.setVisibility(value),
-              ),
-              const SizedBox(height: 12),
-
-              // 透明度
-              _buildSliderRow(
-                '透明度',
-                config.opacity,
-                0.2,
-                1.0,
-                (value) => controller.updateConfig(
-                  config.copyWith(opacity: value),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
 
-              // 字体大小
-              _buildSliderRow(
-                '字体大小',
-                config.fontSize,
-                12,
-                28,
-                (value) => controller.updateConfig(
-                  config.copyWith(fontSize: value),
+                // 字体大小
+                _buildSliderRow(
+                  '字体大小',
+                  config.fontSize,
+                  12,
+                  28,
+                  (value) => controller.updateConfig(
+                    config.copyWith(fontSize: value),
+                  ),
+                  showValue: true,
+                  valueFormat: (v) => '${v.toInt()}',
                 ),
-                showValue: true,
-                valueFormat: (v) => '${v.toInt()}',
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
 
-              // 显示区域
-              _buildSliderRow(
-                '显示区域',
-                config.displayArea,
-                0.25,
-                1.0,
-                (value) => controller.updateConfig(
-                  config.copyWith(displayArea: value),
+                // 显示区域
+                _buildSliderRow(
+                  '显示区域',
+                  config.displayArea,
+                  0.25,
+                  1.0,
+                  (value) => controller.updateConfig(
+                    config.copyWith(displayArea: value),
+                  ),
+                  showValue: true,
+                  valueFormat: (v) => '${(v * 100).toInt()}%',
                 ),
-                showValue: true,
-                valueFormat: (v) => '${(v * 100).toInt()}%',
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
 
-              // 弹幕速度
-              _buildSliderRow(
-                '弹幕速度',
-                config.speedMultiplier,
-                0.5,
-                2.0,
-                (value) {
-                  final duration = Duration(
-                    milliseconds: (8000 / value).toInt(),
-                  );
-                  controller.updateConfig(
-                    config.copyWith(
-                      scrollDuration: duration,
-                      speedMultiplier: value,
-                    ),
-                  );
-                },
-                showValue: true,
-                valueFormat: (v) => '${v.toStringAsFixed(1)}x',
-              ),
-            ],
+                // 弹幕速度
+                _buildSliderRow(
+                  '弹幕速度',
+                  config.speedMultiplier,
+                  0.5,
+                  2.0,
+                  (value) {
+                    final duration = Duration(
+                      milliseconds: (8000 / value).toInt(),
+                    );
+                    controller.updateConfig(
+                      config.copyWith(
+                        scrollDuration: duration,
+                        speedMultiplier: value,
+                      ),
+                    );
+                  },
+                  showValue: true,
+                  valueFormat: (v) => '${v.toStringAsFixed(1)}x',
+                ),
+              ],
+            ),
           ),
         );
       },

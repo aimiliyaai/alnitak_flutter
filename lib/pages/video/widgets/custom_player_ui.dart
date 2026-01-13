@@ -574,12 +574,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   // 7. 弹幕设置面板
                   if (_showDanmakuSettings && widget.danmakuController != null)
                     Positioned(
-                      left: 16,
                       right: 16,
+                      top: 60,
                       bottom: 60,
-                      child: DanmakuSettingsPanel(
-                        controller: widget.danmakuController!,
-                        onClose: () => setState(() => _showDanmakuSettings = false),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 300), // 限制最大宽度
+                        child: DanmakuSettingsPanel(
+                          controller: widget.danmakuController!,
+                          onClose: () => setState(() => _showDanmakuSettings = false),
+                        ),
                       ),
                     ),
                 ],
