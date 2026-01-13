@@ -78,6 +78,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   // ============ 弹幕设置面板 ============
   bool _showDanmakuSettings = false;
 
+  // ============ 弹幕发送输入框 ============
+  bool _showDanmakuInput = false;
+
   @override
   void initState() {
     super.initState();
@@ -585,6 +588,27 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                         ),
                       ),
                     ),
+
+                  // 8. 弹幕发送输入框（全屏模式下显示）
+                  if (_showDanmakuInput && widget.danmakuController != null)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: SafeArea(
+                        top: false,
+                        child: DanmakuSendBar(
+                          controller: widget.danmakuController!,
+                          onSendStart: () {
+                            _hideTimer?.cancel();
+                          },
+                          onSendEnd: () {
+                            setState(() => _showDanmakuInput = false);
+                            _startHideTimer();
+                          },
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -975,6 +999,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     onPressed: () {
                       setState(() {
                         _showDanmakuSettings = !_showDanmakuSettings;
+                        _showDanmakuInput = false;
                         if (_showDanmakuSettings) {
                           _showQualityPanel = false;
                         }
@@ -987,6 +1012,51 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     },
                   ),
                 ],
+              );
+            },
+          ),
+
+        // 弹幕发送按钮（全屏时显示）
+        if (widget.danmakuController != null)
+          Builder(
+            builder: (context) {
+              final fullscreen = isFullscreen(context);
+              if (!fullscreen) return const SizedBox.shrink();
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _showDanmakuInput = !_showDanmakuInput;
+                    _showDanmakuSettings = false;
+                    _showQualityPanel = false;
+                    _showControls = false;
+                  });
+                  if (_showDanmakuInput) {
+                    _hideTimer?.cancel();
+                  } else {
+                    _startHideTimer();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  margin: const EdgeInsets.only(left: 4),
+                  decoration: BoxDecoration(
+                    color: _showDanmakuInput
+                        ? Colors.blue.withValues(alpha: 0.3)
+                        : Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: _showDanmakuInput ? Colors.blue : Colors.white54,
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    '发弹幕',
+                    style: TextStyle(
+                      color: _showDanmakuInput ? Colors.blue : Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
               );
             },
           ),

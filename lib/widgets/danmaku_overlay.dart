@@ -560,3 +560,320 @@ class DanmakuSettingsPanel extends StatelessWidget {
     );
   }
 }
+
+/// 弹幕发送输入框组件
+class DanmakuSendBar extends StatefulWidget {
+  final DanmakuController controller;
+  final VoidCallback? onSendStart;
+  final VoidCallback? onSendEnd;
+
+  const DanmakuSendBar({
+    super.key,
+    required this.controller,
+    this.onSendStart,
+    this.onSendEnd,
+  });
+
+  @override
+  State<DanmakuSendBar> createState() => _DanmakuSendBarState();
+}
+
+class _DanmakuSendBarState extends State<DanmakuSendBar> {
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+
+  // 弹幕发送设置
+  int _danmakuType = 0; // 0滚动 1顶部 2底部
+  String _danmakuColor = 'fff';
+  bool _showStylePanel = false;
+  bool _isSending = false;
+
+  // 预设颜色
+  static const List<String> _presetColors = [
+    'fff', 'e54256', 'ffe133', 'ff7204', 'a0ee00',
+    '64dd17', '39ccff', 'd500f9', 'fb7299', '9b9b9b',
+  ];
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendDanmaku() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty || _isSending) return;
+
+    setState(() => _isSending = true);
+    widget.onSendStart?.call();
+
+    try {
+      final success = await widget.controller.sendDanmaku(
+        text: text,
+        type: _danmakuType,
+        color: _danmakuColor,
+      );
+
+      if (success) {
+        _textController.clear();
+        _focusNode.unfocus();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('弹幕发送成功'),
+              duration: Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('弹幕发送失败，请稍后重试'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+      widget.onSendEnd?.call();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 弹幕样式设置面板
+        if (_showStylePanel) _buildStylePanel(),
+        // 输入栏
+        _buildInputBar(),
+      ],
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+      ),
+      child: Row(
+        children: [
+          // 弹幕数量
+          ListenableBuilder(
+            listenable: widget.controller,
+            builder: (context, _) {
+              return Text(
+                '${widget.controller.totalCount}条弹幕',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 12,
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+
+          // 样式设置按钮
+          GestureDetector(
+            onTap: () => setState(() => _showStylePanel = !_showStylePanel),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              child: Icon(
+                Icons.text_fields,
+                color: _showStylePanel ? Colors.blue : Colors.white70,
+                size: 20,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // 输入框
+          Expanded(
+            child: Container(
+              height: 28,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: TextField(
+                controller: _textController,
+                focusNode: _focusNode,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: '发个弹幕呗~',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontSize: 13,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                  border: InputBorder.none,
+                  isDense: true,
+                ),
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _sendDanmaku(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // 发送按钮
+          GestureDetector(
+            onTap: _isSending ? null : _sendDanmaku,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: _isSending ? Colors.grey : Colors.blue,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: _isSending
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text(
+                      '发送',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStylePanel() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.9),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 弹幕颜色
+          Row(
+            children: [
+              Text(
+                '弹幕颜色',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 12,
+                ),
+              ),
+              const Spacer(),
+              // 当前颜色预览
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: Color(int.parse('FF$_danmakuColor', radix: 16)),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white30),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // 颜色选择
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _presetColors.map((color) {
+              final isSelected = color == _danmakuColor;
+              return GestureDetector(
+                onTap: () => setState(() => _danmakuColor = color),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Color(int.parse('FF$color', radix: 16)),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? Colors.blue : Colors.white30,
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, color: Colors.white, size: 16)
+                      : null,
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+
+          // 弹幕类型
+          Text(
+            '弹幕类型',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildTypeButton(0, '滚动'),
+              const SizedBox(width: 8),
+              _buildTypeButton(1, '顶部'),
+              const SizedBox(width: 8),
+              _buildTypeButton(2, '底部'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeButton(int type, String label) {
+    final isSelected = _danmakuType == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _danmakuType = type),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.blue.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: isSelected ? Colors.blue : Colors.white24,
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isSelected ? Colors.blue : Colors.white70,
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
