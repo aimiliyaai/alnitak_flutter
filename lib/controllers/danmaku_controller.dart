@@ -121,7 +121,7 @@ class DanmakuController extends ChangeNotifier {
   bool _isPlaying = false;
 
   /// 是否显示弹幕
-  bool _isVisible = true;
+  bool _isVisible = false;
 
   /// 暂停时的时间戳
   int _pauseTime = 0;
