@@ -548,32 +548,35 @@ class DanmakuController extends ChangeNotifier {
     final success = await _danmakuService.sendDanmaku(request);
 
     if (success) {
-      // 立即显示自己发送的弹幕
-      final danmaku = Danmaku(
-        id: DateTime.now().millisecondsSinceEpoch,
-        time: _currentTime,
-        type: type,
-        color: color,
-        text: text,
-      );
-
-      final trackIndex = _allocateTrack(
-        danmaku,
-        DateTime.now().millisecondsSinceEpoch,
-        0,
-      );
-
-      if (trackIndex != -1) {
-        _activeDanmakus.add(DanmakuItem(
-          danmaku: danmaku,
-          trackIndex: trackIndex,
-          startTime: DateTime.now().millisecondsSinceEpoch,
-        ));
-        notifyListeners();
-      }
+      // 发送成功后，刷新弹幕列表获取最新状态（包含自己发送的弹幕）
+      await _refreshDanmakuList();
     }
 
     return success;
+  }
+
+  /// 刷新弹幕列表（发送弹幕后调用）
+  Future<void> _refreshDanmakuList() async {
+    if (_currentVid == null) return;
+
+    try {
+      final list = await _danmakuService.getDanmakuList(
+        vid: _currentVid!,
+        part: _currentPart,
+      );
+
+      // 按时间排序
+      list.sort((a, b) => a.time.compareTo(b.time));
+      _danmakuList = list;
+
+      // 应用过滤
+      _applyFilter();
+
+      debugPrint('📝 弹幕刷新完成: ${_filteredDanmakuList.length}/${list.length}条');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('📝 弹幕刷新失败: $e');
+    }
   }
 
   /// 清空弹幕

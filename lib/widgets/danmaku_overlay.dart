@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/danmaku.dart';
 import '../controllers/danmaku_controller.dart';
+import '../utils/auth_state_manager.dart';
 
 /// 弹幕渲染覆盖层
 ///
@@ -584,13 +585,13 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
 
   // 弹幕发送设置
   int _danmakuType = 0; // 0滚动 1顶部 2底部
-  String _danmakuColor = 'fff';
+  String _danmakuColor = 'ffffff';
   bool _showStylePanel = false;
   bool _isSending = false;
 
-  // 预设颜色
+  // 预设颜色（统一使用6位颜色值）
   static const List<String> _presetColors = [
-    'fff', 'e54256', 'ffe133', 'ff7204', 'a0ee00',
+    'ffffff', 'e54256', 'ffe133', 'ff7204', 'a0ee00',
     '64dd17', '39ccff', 'd500f9', 'fb7299', '9b9b9b',
   ];
 
@@ -604,6 +605,20 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
   Future<void> _sendDanmaku() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _isSending) return;
+
+    // 登录检查
+    if (!AuthStateManager().isLoggedIn) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('请先登录后再发送弹幕'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() => _isSending = true);
     widget.onSendStart?.call();
@@ -818,6 +833,8 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
             runSpacing: 8,
             children: _presetColors.map((color) {
               final isSelected = color == _danmakuColor;
+              // 白色或浅色需要用深色勾选图标
+              final isLightColor = color == 'ffffff' || color == 'ffe133' || color == 'a0ee00';
               return GestureDetector(
                 onTap: () => setState(() => _danmakuColor = color),
                 child: Container(
@@ -832,7 +849,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
                     ),
                   ),
                   child: isSelected
-                      ? const Icon(Icons.check, color: Colors.white, size: 16)
+                      ? Icon(Icons.check, color: isLightColor ? Colors.blue : Colors.white, size: 16)
                       : null,
                 ),
               );
