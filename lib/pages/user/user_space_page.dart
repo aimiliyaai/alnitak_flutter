@@ -570,7 +570,7 @@ class _UserVideosTabState extends State<_UserVideosTab>
         padding: const EdgeInsets.all(12),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          childAspectRatio: 0.75,
+          childAspectRatio: 1.2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
         ),
@@ -655,18 +655,16 @@ class _UserVideosTabState extends State<_UserVideosTab>
               ),
             ),
             // 标题
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Text(
-                  video.title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: colors.textPrimary,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                video.title,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textPrimary,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
