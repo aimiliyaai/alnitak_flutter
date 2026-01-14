@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/video_item.dart';
 import '../theme/theme_extensions.dart';
+import '../pages/user/user_space_page.dart';
 import 'cached_image_widget.dart';
 
 class VideoCard extends StatelessWidget {
@@ -96,28 +97,40 @@ class VideoCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // 用户名
-                    Row(
-                      children: [
-                        if (video.authorAvatar != null)
-                          CachedCircleAvatar(
-                            imageUrl: video.authorAvatar!,
-                            radius: 8,
-                            cacheKey: video.authorUid != null ? 'author_avatar_${video.authorUid}' : null,
-                          ),
-                        if (video.authorAvatar != null) const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            video.authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: colors.textSecondary,
+                    // 用户名（可点击跳转到UP主页面）
+                    GestureDetector(
+                      onTap: video.authorUid != null
+                          ? () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => UserSpacePage(userId: video.authorUid!),
+                                ),
+                              );
+                            }
+                          : null,
+                      child: Row(
+                        children: [
+                          if (video.authorAvatar != null)
+                            CachedCircleAvatar(
+                              imageUrl: video.authorAvatar!,
+                              radius: 8,
+                              cacheKey: video.authorUid != null ? 'user_avatar_${video.authorUid}' : null,
+                            ),
+                          if (video.authorAvatar != null) const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              video.authorName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colors.textSecondary,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 2),
                     // 播放次数和弹幕数量

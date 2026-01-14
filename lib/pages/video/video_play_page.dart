@@ -9,6 +9,7 @@ import '../../managers/video_player_manager.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
+import '../user/user_space_page.dart';
 import 'widgets/media_player_widget.dart';
 import 'widgets/author_card.dart';
 import 'widgets/video_info_card.dart';
@@ -825,7 +826,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 author: _videoDetail!.author,
                 initialRelationStatus: _actionStatus!.relationStatus,
                 onAvatarTap: () {
-                  // TODO: 跳转到用户主页
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
+                    ),
+                  );
                 },
               ),
               const SizedBox(height: 16),
@@ -875,7 +881,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               author: _videoDetail!.author,
               initialRelationStatus: _actionStatus!.relationStatus,
               onAvatarTap: () {
-                // TODO: 跳转到用户主页
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
+                  ),
+                );
               },
             ),
             const SizedBox(height: 16),

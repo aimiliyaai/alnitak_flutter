@@ -4,6 +4,7 @@ import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
 import '../../../theme/theme_extensions.dart';
+import '../../user/user_space_page.dart';
 
 /// 评论列表组件 - 优化输入体验
 class CommentList extends StatefulWidget {
@@ -589,6 +590,15 @@ class _CommentItem extends StatelessWidget {
 
   bool get isOwnComment => currentUserId != null && comment.uid == currentUserId;
 
+  void _navigateToUserSpace(BuildContext context, int uid) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserSpacePage(userId: uid),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -600,17 +610,21 @@ class _CommentItem extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 用户头像
-              comment.avatar.isNotEmpty
-                  ? CachedCircleAvatar(
-                      imageUrl: comment.avatar,
-                      radius: 20,
-                    )
-                  : CircleAvatar(
-                      radius: 20,
-                      backgroundColor: colors.surfaceVariant,
-                      child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
-                    ),
+              // 用户头像（可点击跳转到UP主页面）
+              GestureDetector(
+                onTap: () => _navigateToUserSpace(context, comment.uid),
+                child: comment.avatar.isNotEmpty
+                    ? CachedCircleAvatar(
+                        imageUrl: comment.avatar,
+                        radius: 20,
+                        cacheKey: 'user_avatar_${comment.uid}',
+                      )
+                    : CircleAvatar(
+                        radius: 20,
+                        backgroundColor: colors.surfaceVariant,
+                        child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
+                      ),
+              ),
               const SizedBox(width: 12),
 
               // 评论内容
@@ -621,12 +635,15 @@ class _CommentItem extends StatelessWidget {
                     // 用户名和时间
                     Row(
                       children: [
-                        Text(
-                          comment.username,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: colors.textPrimary,
+                        GestureDetector(
+                          onTap: () => _navigateToUserSpace(context, comment.uid),
+                          child: Text(
+                            comment.username,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              color: colors.textPrimary,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -809,6 +826,15 @@ class _ReplyItem extends StatelessWidget {
 
   bool get isOwnReply => currentUserId != null && reply.uid == currentUserId;
 
+  void _navigateToUserSpace(BuildContext context, int uid) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UserSpacePage(userId: uid),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -817,16 +843,20 @@ class _ReplyItem extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          reply.avatar.isNotEmpty
-              ? CachedCircleAvatar(
-                  imageUrl: reply.avatar,
-                  radius: 16,
-                )
-              : CircleAvatar(
-                  radius: 16,
-                  backgroundColor: colors.surfaceVariant,
-                  child: Icon(Icons.person, size: 16, color: colors.iconSecondary),
-                ),
+          GestureDetector(
+            onTap: () => _navigateToUserSpace(context, reply.uid),
+            child: reply.avatar.isNotEmpty
+                ? CachedCircleAvatar(
+                    imageUrl: reply.avatar,
+                    radius: 16,
+                    cacheKey: 'user_avatar_${reply.uid}',
+                  )
+                : CircleAvatar(
+                    radius: 16,
+                    backgroundColor: colors.surfaceVariant,
+                    child: Icon(Icons.person, size: 16, color: colors.iconSecondary),
+                  ),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -834,12 +864,15 @@ class _ReplyItem extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      reply.username,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        color: colors.textPrimary,
+                    GestureDetector(
+                      onTap: () => _navigateToUserSpace(context, reply.uid),
+                      child: Text(
+                        reply.username,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          color: colors.textPrimary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),

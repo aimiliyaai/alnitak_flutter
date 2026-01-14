@@ -30,17 +30,19 @@ class UserBaseInfo {
 
   factory UserBaseInfo.fromJson(Map<String, dynamic> json) {
     return UserBaseInfo(
-      uid: json['uid'] as int,
-      name: json['name'] as String,
-      sign: json['sign'] as String? ?? '',
-      email: json['email'] as String? ?? '',
-      phone: json['phone'] as String? ?? '',
-      status: json['status'] as int,
-      avatar: json['avatar'] as String? ?? '',
-      gender: json['gender'] as int? ?? 0,
-      spaceCover: json['spaceCover'] as String? ?? '',
-      birthday: json['birthday'] as String? ?? '',
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      uid: json['uid'] ?? 0,
+      name: json['name'] ?? '',
+      sign: json['sign'] ?? '',
+      email: json['email'] ?? '',
+      phone: json['phone'] ?? '',
+      status: json['status'] ?? 0,
+      avatar: json['avatar'] ?? '',
+      gender: json['gender'] ?? 0,
+      spaceCover: json['spaceCover'] ?? '',
+      birthday: json['birthday'] ?? '',
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : DateTime.now(),
     );
   }
 
@@ -146,5 +148,142 @@ class EditUserInfoRequest {
       data['sign'] = sign!;
     }
     return data;
+  }
+}
+
+/// 关注/粉丝统计
+class FollowCount {
+  final int followingCount;
+  final int followerCount;
+
+  FollowCount({
+    required this.followingCount,
+    required this.followerCount,
+  });
+
+  factory FollowCount.fromJson(Map<String, dynamic> json) {
+    return FollowCount(
+      followingCount: json['followingCount'] ?? 0,
+      followerCount: json['followerCount'] ?? 0,
+    );
+  }
+}
+
+/// 用户视频列表响应
+class UserVideoListResponse {
+  final List<UserVideo> videos;
+  final int total;
+
+  UserVideoListResponse({
+    required this.videos,
+    required this.total,
+  });
+
+  factory UserVideoListResponse.fromJson(Map<String, dynamic> json) {
+    return UserVideoListResponse(
+      videos: (json['videos'] as List<dynamic>?)
+              ?.map((e) => UserVideo.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      total: json['total'] ?? 0,
+    );
+  }
+}
+
+/// 用户视频
+class UserVideo {
+  final int vid;
+  final String title;
+  final String cover;
+  final String desc;
+  final int clicks;
+  final int status;
+  final DateTime createdAt;
+
+  UserVideo({
+    required this.vid,
+    required this.title,
+    required this.cover,
+    required this.desc,
+    required this.clicks,
+    required this.status,
+    required this.createdAt,
+  });
+
+  factory UserVideo.fromJson(Map<String, dynamic> json) {
+    return UserVideo(
+      vid: json['vid'] ?? 0,
+      title: json['title'] ?? '',
+      cover: json['cover'] ?? '',
+      desc: json['desc'] ?? '',
+      clicks: json['clicks'] ?? 0,
+      status: json['status'] ?? 0,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'])
+          : DateTime.now(),
+    );
+  }
+}
+
+/// 关注/粉丝列表响应
+class FollowListResponse {
+  final List<FollowUser> list;
+  final int total;
+
+  FollowListResponse({
+    required this.list,
+    required this.total,
+  });
+
+  factory FollowListResponse.fromJson(Map<String, dynamic> json) {
+    return FollowListResponse(
+      list: (json['list'] as List<dynamic>?)
+              ?.map((e) => FollowUser.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      total: json['total'] ?? 0,
+    );
+  }
+}
+
+/// 关注/粉丝用户信息
+class FollowUser {
+  final FollowUserInfo user;
+  final int relation; // 0未关注 1已关注 2互粉
+
+  FollowUser({
+    required this.user,
+    required this.relation,
+  });
+
+  factory FollowUser.fromJson(Map<String, dynamic> json) {
+    return FollowUser(
+      user: FollowUserInfo.fromJson(json['user'] as Map<String, dynamic>),
+      relation: json['relation'] ?? 0,
+    );
+  }
+}
+
+/// 关注/粉丝用户基本信息
+class FollowUserInfo {
+  final int uid;
+  final String name;
+  final String avatar;
+  final String sign;
+
+  FollowUserInfo({
+    required this.uid,
+    required this.name,
+    required this.avatar,
+    required this.sign,
+  });
+
+  factory FollowUserInfo.fromJson(Map<String, dynamic> json) {
+    return FollowUserInfo(
+      uid: json['uid'] ?? 0,
+      name: json['name'] ?? '',
+      avatar: json['avatar'] ?? '',
+      sign: json['sign'] ?? '',
+    );
   }
 }

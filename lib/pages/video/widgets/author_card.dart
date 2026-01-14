@@ -188,7 +188,7 @@ class _AuthorCardState extends State<AuthorCard> {
                   ? CachedCircleAvatar(
                       imageUrl: widget.author.avatar,
                       radius: 28,
-                      cacheKey: 'author_avatar_${widget.author.uid}', // 使用作者ID作为缓存key
+                      cacheKey: 'user_avatar_${widget.author.uid}', // 使用用户ID作为缓存key，全局统一
                     )
                   : CircleAvatar(
                       radius: 28,
@@ -203,16 +203,19 @@ class _AuthorCardState extends State<AuthorCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 用户名
-                  Text(
-                    widget.author.name,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
+                  // 用户名（可点击跳转到UP主页面）
+                  GestureDetector(
+                    onTap: widget.onAvatarTap,
+                    child: Text(
+                      widget.author.name,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
 
