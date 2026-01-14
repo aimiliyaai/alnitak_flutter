@@ -153,18 +153,18 @@ class EditUserInfoRequest {
 
 /// 关注/粉丝统计
 class FollowCount {
-  final int followingCount;
-  final int followerCount;
+  final int following;
+  final int follower;
 
   FollowCount({
-    required this.followingCount,
-    required this.followerCount,
+    required this.following,
+    required this.follower,
   });
 
   factory FollowCount.fromJson(Map<String, dynamic> json) {
     return FollowCount(
-      followingCount: json['followingCount'] ?? 0,
-      followerCount: json['followerCount'] ?? 0,
+      following: json['following'] ?? 0,
+      follower: json['follower'] ?? 0,
     );
   }
 }
@@ -237,7 +237,7 @@ class FollowListResponse {
 
   factory FollowListResponse.fromJson(Map<String, dynamic> json) {
     return FollowListResponse(
-      list: (json['list'] as List<dynamic>?)
+      list: (json['users'] as List<dynamic>?)
               ?.map((e) => FollowUser.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],

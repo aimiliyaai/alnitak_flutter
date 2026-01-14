@@ -385,9 +385,9 @@ class _UserSpacePageState extends State<UserSpacePage>
               // 统计数据
               Row(
                 children: [
-                  _buildStatItem('关注', _formatCount(_followCount?.followingCount ?? 0)),
+                  _buildStatItem('关注', _formatCount(_followCount?.following ?? 0)),
                   const SizedBox(width: 24),
-                  _buildStatItem('粉丝', _formatCount(_followCount?.followerCount ?? 0)),
+                  _buildStatItem('粉丝', _formatCount(_followCount?.follower ?? 0)),
                 ],
               ),
             ],
