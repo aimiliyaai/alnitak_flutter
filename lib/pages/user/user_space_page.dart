@@ -54,15 +54,37 @@ class _UserSpacePageState extends State<UserSpacePage>
         _userService.getUserRelation(widget.userId),
       ]);
 
-      setState(() {
-        _userInfo = results[0] as UserBaseInfo?;
-        _followCount = results[1] as FollowCount?;
-        _relationStatus = results[2] as int;
-        _isLoading = false;
-      });
+      if (mounted) {
+        final userInfo = results[0] as UserBaseInfo?;
+        _preloadImages(userInfo);
+        setState(() {
+          _userInfo = userInfo;
+          _followCount = results[1] as FollowCount?;
+          _relationStatus = results[2] as int;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('加载用户数据失败: $e');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _preloadImages(UserBaseInfo? user) {
+    if (user == null) return;
+    if (user.avatar.isNotEmpty) {
+      SmartCacheManager.preloadImage(
+        ImageUtils.getFullImageUrl(user.avatar),
+        cacheKey: 'user_avatar_${user.uid}',
+      );
+    }
+    if (user.spaceCover.isNotEmpty) {
+      SmartCacheManager.preloadImage(
+        ImageUtils.getFullImageUrl(user.spaceCover),
+        cacheKey: 'user_space_cover_${user.uid}',
+      );
     }
   }
 
@@ -538,20 +560,38 @@ class _UserVideosTabState extends State<_UserVideosTab>
       );
 
       if (response != null) {
-        setState(() {
-          // 只显示审核通过的视频 (status == 0 表示审核通过)
-          final approvedVideos =
-              response.videos.where((v) => v.status == 0).toList();
-          _videos.addAll(approvedVideos);
-          _hasMore = response.videos.length >= _pageSize;
-          _isLoading = false;
-        });
+        // 只显示审核通过的视频 (status == 0 表示审核通过)
+        final approvedVideos =
+            response.videos.where((v) => v.status == 0).toList();
+        _preloadImages(approvedVideos);
+        if (mounted) {
+          setState(() {
+            _videos.addAll(approvedVideos);
+            _hasMore = response.videos.length >= _pageSize;
+            _isLoading = false;
+          });
+        }
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       print('加载视频失败: $e');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _preloadImages(List<UserVideo> videos) {
+    for (final video in videos) {
+      if (video.cover.isNotEmpty) {
+        SmartCacheManager.preloadImage(
+          ImageUtils.getFullImageUrl(video.cover),
+          cacheKey: 'video_cover_${video.vid}',
+        );
+      }
     }
   }
 
@@ -765,17 +805,35 @@ class _FollowListTabState extends State<_FollowListTab>
           : await _userService.getFollowers(widget.userId, _currentPage, _pageSize);
 
       if (response != null) {
-        setState(() {
-          _users.addAll(response.list);
-          _hasMore = response.list.length >= _pageSize;
-          _isLoading = false;
-        });
+        _preloadImages(response.list);
+        if (mounted) {
+          setState(() {
+            _users.addAll(response.list);
+            _hasMore = response.list.length >= _pageSize;
+            _isLoading = false;
+          });
+        }
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       print('加载用户列表失败: $e');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _preloadImages(List<FollowUser> users) {
+    for (final followUser in users) {
+      if (followUser.user.avatar.isNotEmpty) {
+        SmartCacheManager.preloadImage(
+          ImageUtils.getFullImageUrl(followUser.user.avatar),
+          cacheKey: 'user_avatar_${followUser.user.uid}',
+        );
+      }
     }
   }
 

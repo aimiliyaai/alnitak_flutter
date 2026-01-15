@@ -8,6 +8,7 @@ import '../widgets/carousel_widget.dart';
 import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 import 'search_page.dart';
+import '../widgets/cached_image_widget.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -78,6 +79,7 @@ class _HomePageState extends State<HomePage> {
       if (videos.isNotEmpty) {
         ///print('🖼️ 转换后的封面URL: ${videos[0].coverUrl}');
       }
+      _preloadImages(videos);
 
       setState(() {
         _videos = videos;
@@ -149,6 +151,7 @@ class _HomePageState extends State<HomePage> {
       final newVideos = apiVideos
           .map((apiVideo) => VideoItem.fromApiModel(apiVideo))
           .toList();
+      _preloadImages(newVideos);
 
       setState(() {
         _videos.addAll(newVideos);
@@ -185,6 +188,21 @@ class _HomePageState extends State<HomePage> {
       // 【修复】清除加载锁
       if (_loadingPage == nextPage) {
         _loadingPage = null;
+      }
+    }
+  }
+
+  void _preloadImages(List<VideoItem> videos) {
+    for (final video in videos) {
+      SmartCacheManager.preloadImage(
+        video.coverUrl,
+        cacheKey: 'video_cover_${video.id}',
+      );
+      if (video.authorAvatar != null && video.authorUid != null) {
+        SmartCacheManager.preloadImage(
+          video.authorAvatar!,
+          cacheKey: 'user_avatar_${video.authorUid}',
+        );
       }
     }
   }

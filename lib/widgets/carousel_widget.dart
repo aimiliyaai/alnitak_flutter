@@ -47,6 +47,7 @@ class _CarouselWidgetState extends State<CarouselWidget> {
   Future<void> _loadCarousel() async {
     final list = await _carouselService.getCarousel(partitionId: widget.partitionId);
     if (mounted) {
+      _preloadImages(list);
       setState(() {
         _carouselList = list;
         _isLoading = false;
@@ -61,6 +62,15 @@ class _CarouselWidgetState extends State<CarouselWidget> {
       } else {
         _pageController = PageController();
       }
+    }
+  }
+
+  void _preloadImages(List<CarouselItem> items) {
+    for (final item in items) {
+      SmartCacheManager.preloadImage(
+        ImageUtils.getFullImageUrl(item.img),
+        cacheKey: 'carousel_${item.id}',
+      );
     }
   }
 
