@@ -3,6 +3,7 @@ import '../../models/message_models.dart';
 import '../../services/message_api_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
+import '../../utils/whisper_read_status.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import 'whisper_detail_page.dart';
@@ -19,6 +20,7 @@ class _WhisperPageState extends State<WhisperPage> {
   final MessageApiService _apiService = MessageApiService();
 
   List<WhisperListItem> _whispers = [];
+  Map<int, bool> _unreadStatus = {}; // 本地未读状态缓存
   bool _isLoading = true;
 
   @override
@@ -32,9 +34,20 @@ class _WhisperPageState extends State<WhisperPage> {
 
     final data = await _apiService.getWhisperList();
 
+    // 检查每个会话的本地已读状态
+    final unreadMap = <int, bool>{};
+    for (final whisper in data) {
+      final hasUnread = await WhisperReadStatus.hasUnread(
+        whisper.user.uid,
+        whisper.createdAt,
+      );
+      unreadMap[whisper.user.uid] = hasUnread;
+    }
+
     if (mounted) {
       setState(() {
         _whispers = data;
+        _unreadStatus = unreadMap;
         _isLoading = false;
       });
     }
@@ -104,6 +117,9 @@ class _WhisperPageState extends State<WhisperPage> {
 
   Widget _buildWhisperItem(WhisperListItem whisper) {
     final colors = context.colors;
+    // 使用本地已读状态判断是否有未读消息
+    final hasUnread = _unreadStatus[whisper.user.uid] ?? false;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -131,8 +147,8 @@ class _WhisperPageState extends State<WhisperPage> {
                           backgroundColor: colors.surfaceVariant,
                           child: Icon(Icons.person, size: 28, color: colors.iconSecondary),
                         ),
-                  // 未读红点
-                  if (!whisper.status)
+                  // 未读红点（使用本地状态）
+                  if (hasUnread)
                     Positioned(
                       right: 0,
                       top: 0,
@@ -161,7 +177,7 @@ class _WhisperPageState extends State<WhisperPage> {
                             whisper.user.name,
                             style: TextStyle(
                               fontSize: 15,
-                              fontWeight: whisper.status ? FontWeight.normal : FontWeight.w600,
+                              fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
                               color: colors.textPrimary,
                             ),
                             maxLines: 1,
@@ -179,10 +195,10 @@ class _WhisperPageState extends State<WhisperPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      whisper.status ? '点击查看消息' : '有新消息',
+                      hasUnread ? '有新消息' : '点击查看消息',
                       style: TextStyle(
                         fontSize: 13,
-                        color: whisper.status ? colors.textSecondary : Colors.blue[600],
+                        color: hasUnread ? Colors.blue[600] : colors.textSecondary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

@@ -92,6 +92,7 @@ class VideoPlayerController extends ChangeNotifier {
   static const String _loopModeKey = 'video_loop_mode';
   static const String _backgroundPlayKey = 'background_play_enabled';
   static const String _decodeModeKey = 'video_decode_mode';
+  static const String _volumeKey = 'player_volume';
 
   // ============ 回调 ============
   VoidCallback? onVideoEnd;
@@ -868,6 +869,11 @@ class VideoPlayerController extends ChangeNotifier {
     loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
     backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
     _currentDecodeMode = prefs.getString(_decodeModeKey) ?? 'no';
+
+    // 在视频播放前预先设置音量，避免初始化时音量过大
+    final savedVolume = prefs.getDouble(_volumeKey) ?? 100.0;
+    await player.setVolume(savedVolume);
+    debugPrint('✅ 预设音量: ${savedVolume.toInt()}%');
   }
 
   void _preloadAdjacentQualities() {

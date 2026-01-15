@@ -207,6 +207,7 @@ class _UserSpacePageState extends State<UserSpacePage>
                   labelColor: colors.accentColor,
                   unselectedLabelColor: colors.textSecondary,
                   indicatorColor: colors.accentColor,
+                  dividerColor: Colors.transparent, // 禁用默认分隔线，使用自定义的
                   tabs: const [
                     Tab(text: '投稿'),
                     Tab(text: '关注'),
@@ -214,6 +215,7 @@ class _UserSpacePageState extends State<UserSpacePage>
                   ],
                 ),
                 colors.card,
+                colors.divider, // 使用主题适配的分隔线颜色
               ),
             ),
           ];
@@ -289,17 +291,7 @@ class _UserSpacePageState extends State<UserSpacePage>
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 3),
                     ),
-                    child: user.avatar.isNotEmpty
-                        ? CachedCircleAvatar(
-                            imageUrl: ImageUtils.getFullImageUrl(user.avatar),
-                            radius: 40,
-                            cacheKey: 'user_avatar_${user.uid}',
-                          )
-                        : CircleAvatar(
-                            radius: 40,
-                            backgroundColor: colors.surfaceVariant,
-                            child: Icon(Icons.person, size: 40, color: colors.iconSecondary),
-                          ),
+                    child: _buildUserAvatar(user.avatar, user.uid, 40),
                   ),
                   const SizedBox(width: 16),
                   // 用户名和性别
@@ -419,14 +411,36 @@ class _UserSpacePageState extends State<UserSpacePage>
       ],
     );
   }
+
+  /// 统一的头像构建方法
+  Widget _buildUserAvatar(String avatar, int uid, double radius) {
+    final colors = context.colors;
+    final defaultAvatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colors.surfaceVariant,
+      child: Icon(Icons.person, size: radius, color: colors.iconSecondary),
+    );
+
+    if (avatar.isEmpty) {
+      return defaultAvatar;
+    }
+
+    return CachedCircleAvatar(
+      imageUrl: ImageUtils.getFullImageUrl(avatar),
+      radius: radius,
+      cacheKey: 'user_avatar_$uid',
+      errorWidget: Icon(Icons.person, size: radius, color: colors.iconSecondary),
+    );
+  }
 }
 
 /// Tab栏代理
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar tabBar;
   final Color backgroundColor;
+  final Color dividerColor;
 
-  _SliverAppBarDelegate(this.tabBar, this.backgroundColor);
+  _SliverAppBarDelegate(this.tabBar, this.backgroundColor, this.dividerColor);
 
   @override
   double get minExtent => tabBar.preferredSize.height;
@@ -438,14 +452,23 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
-      color: backgroundColor,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        border: Border(
+          bottom: BorderSide(
+            color: dividerColor,
+            width: 0.5,
+          ),
+        ),
+      ),
       child: tabBar,
     );
   }
 
   @override
   bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
-    return false;
+    return backgroundColor != oldDelegate.backgroundColor ||
+        dividerColor != oldDelegate.dividerColor;
   }
 }
 
@@ -821,17 +844,7 @@ class _FollowListTabState extends State<_FollowListTab>
           ),
         );
       },
-      leading: user.avatar.isNotEmpty
-          ? CachedCircleAvatar(
-              imageUrl: ImageUtils.getFullImageUrl(user.avatar),
-              radius: 24,
-              cacheKey: 'user_avatar_${user.uid}',
-            )
-          : CircleAvatar(
-              radius: 24,
-              backgroundColor: colors.surfaceVariant,
-              child: Icon(Icons.person, color: colors.iconSecondary),
-            ),
+      leading: _buildUserAvatar(user.avatar, user.uid, 24),
       title: Text(
         user.name,
         style: TextStyle(
@@ -874,6 +887,27 @@ class _FollowListTabState extends State<_FollowListTab>
           color: relation == 2 ? colors.accentColor : colors.textSecondary,
         ),
       ),
+    );
+  }
+
+  /// 统一的头像构建方法
+  Widget _buildUserAvatar(String avatar, int uid, double radius) {
+    final colors = context.colors;
+    final defaultAvatar = CircleAvatar(
+      radius: radius,
+      backgroundColor: colors.surfaceVariant,
+      child: Icon(Icons.person, size: radius, color: colors.iconSecondary),
+    );
+
+    if (avatar.isEmpty) {
+      return defaultAvatar;
+    }
+
+    return CachedCircleAvatar(
+      imageUrl: ImageUtils.getFullImageUrl(avatar),
+      radius: radius,
+      cacheKey: 'user_avatar_$uid',
+      errorWidget: Icon(Icons.person, size: radius, color: colors.iconSecondary),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_page.dart';
 import 'profile_page.dart';
 import '../services/hls_service.dart';
@@ -19,15 +20,30 @@ class _MainPageState extends State<MainPage> {
   int _currentIndex = 0;
   final HlsService _hlsService = HlsService();
   bool _hasCleaned = false; // 是否已清理过缓存
+  bool _clearCacheOnExit = false; // 退出即清设置
   DateTime? _lastBackPressTime;
+
+  static const String _clearCacheOnExitKey = 'clear_cache_on_exit';
 
   final List<Widget> _pages = [
     const HomePage(),
     const ProfilePage(),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  /// 加载退出即清设置
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    _clearCacheOnExit = prefs.getBool(_clearCacheOnExitKey) ?? false;
+  }
+
   /// 处理返回键按下事件
-  /// 第一次返回：清理缓存并提示
+  /// 第一次返回：根据设置决定是否清理缓存并提示
   /// 第二次返回（2秒内）：退出应用
   Future<void> _onWillPop() async {
     final now = DateTime.now();
@@ -43,8 +59,8 @@ class _MainPageState extends State<MainPage> {
     // 第一次按返回或超过2秒后再按
     _lastBackPressTime = now;
 
-    // 如果还没清理过缓存，执行清理
-    if (!_hasCleaned) {
+    // 如果开启了"退出即清"且还没清理过缓存，执行清理
+    if (_clearCacheOnExit && !_hasCleaned) {
       _hasCleaned = true;
 
       // 显示清理提示
@@ -61,7 +77,7 @@ class _MainPageState extends State<MainPage> {
       // 异步执行缓存清理（不阻塞）
       _cleanupCache();
     } else {
-      // 已清理过，只显示退出提示
+      // 未开启退出即清或已清理过，只显示退出提示
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

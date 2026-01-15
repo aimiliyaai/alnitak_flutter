@@ -16,12 +16,41 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
   SmartCacheManager._() : super(
     Config(
       key,
-      stalePeriod: const Duration(days: 14), // 14天后过期
-      maxNrOfCacheObjects: 1000, // 缓存1000个文件
+      stalePeriod: const Duration(days: 30), // 【优化】30天后过期，减少重复下载
+      maxNrOfCacheObjects: 2000, // 【优化】缓存2000个文件
       repo: JsonCacheInfoRepository(databaseName: key),
       fileService: RedirectAwareHttpFileService(), // 使用支持重定向的服务
     ),
   );
+
+  /// 预加载图片到缓存
+  /// 用于提前加载即将显示的图片
+  static Future<void> preloadImage(String url, {String? cacheKey}) async {
+    try {
+      final effectiveKey = cacheKey ?? getStableCacheKey(url);
+      await _instance.getSingleFile(url, key: effectiveKey);
+    } catch (e) {
+      // 预加载失败不影响主流程
+      debugPrint('预加载图片失败: $e');
+    }
+  }
+
+  /// 批量预加载图片
+  static Future<void> preloadImages(List<String> urls) async {
+    // 并发预加载，但限制并发数为5
+    final futures = <Future>[];
+    for (int i = 0; i < urls.length; i++) {
+      futures.add(preloadImage(urls[i]));
+      // 每5个并发一组
+      if (futures.length >= 5) {
+        await Future.wait(futures);
+        futures.clear();
+      }
+    }
+    if (futures.isNotEmpty) {
+      await Future.wait(futures);
+    }
+  }
 
   /// 从 URL 提取稳定的缓存 key
   /// 移除时间戳、随机数等变化参数
@@ -98,8 +127,9 @@ class CachedImage extends StatelessWidget {
       fit: fit ?? BoxFit.cover,
       width: width,
       height: height,
-      fadeInDuration: const Duration(milliseconds: 200),
-      fadeOutDuration: const Duration(milliseconds: 100),
+      // 【优化】极短的淡入时间，几乎立即显示
+      fadeInDuration: const Duration(milliseconds: 50),
+      fadeOutDuration: Duration.zero,
       // 加载中：带闪烁动画的骨架屏
       placeholder: placeholder != null
           ? (context, url) => placeholder!
@@ -193,9 +223,9 @@ class CachedCircleAvatar extends StatelessWidget {
           fit: BoxFit.cover,
           width: radius * 2,
           height: radius * 2,
-          // 【性能优化】快速淡入
-          fadeInDuration: const Duration(milliseconds: 150),
-          fadeOutDuration: const Duration(milliseconds: 150),
+          // 【优化】极短的淡入时间，几乎立即显示
+          fadeInDuration: const Duration(milliseconds: 50),
+          fadeOutDuration: Duration.zero,
           // 【性能优化】使用空容器占位，头像背景色已由 CircleAvatar 提供
           placeholder: placeholder != null
               ? (context, url) => placeholder!
@@ -205,7 +235,7 @@ class CachedCircleAvatar extends StatelessWidget {
               : (context, url, error) => Icon(
                     Icons.person,
                     size: radius,
-                    color: Colors.grey,
+                    color: isDark ? const Color(0xFF808080) : Colors.grey,
                   ),
           memCacheWidth: (radius * 2 * 2).toInt(), // 2x for retina
           memCacheHeight: (radius * 2 * 2).toInt(),

@@ -37,7 +37,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String _cacheSize = '计算中...';
   bool _isCleaningCache = false;
   int _maxCacheSizeMB = 500; // 默认最大缓存 500MB
+  bool _clearCacheOnExit = false; // 退出即清选项
   static const String _maxCacheSizeKey = 'max_cache_size_mb';
+  static const String _clearCacheOnExitKey = 'clear_cache_on_exit';
 
   // 解码模式：'no' = 软解码，'auto-copy' = 硬解码
   String _decodeMode = 'no';
@@ -112,8 +114,18 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() {
         _maxCacheSizeMB = prefs.getInt(_maxCacheSizeKey) ?? 500;
+        _clearCacheOnExit = prefs.getBool(_clearCacheOnExitKey) ?? false;
       });
     }
+  }
+
+  /// 保存退出即清设置
+  Future<void> _saveClearCacheOnExitSetting(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_clearCacheOnExitKey, value);
+    setState(() {
+      _clearCacheOnExit = value;
+    });
   }
 
   /// 加载解码模式设置
@@ -563,6 +575,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   ? '${_maxCacheSizeMB ~/ 1000} GB'
                   : '$_maxCacheSizeMB MB',
               onTap: _showMaxCacheDialog,
+              colors: colors,
+            ),
+            _buildDivider(colors),
+            _buildSwitchTile(
+              icon: Icons.exit_to_app_outlined,
+              title: '退出即清',
+              subtitle: '退出应用时自动清理缓存',
+              value: _clearCacheOnExit,
+              onChanged: _saveClearCacheOnExitSetting,
               colors: colors,
             ),
           ], colors),

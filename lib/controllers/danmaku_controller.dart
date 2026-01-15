@@ -162,6 +162,9 @@ class DanmakuController extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
+      // 加载弹幕显示开关（默认关闭）
+      _isVisible = prefs.getBool('danmaku_visible') ?? false;
+
       // 加载屏蔽类型
       final disabledTypesStr = prefs.getString('danmaku_disabled_types');
       Set<int> disabledTypes = {};
@@ -196,6 +199,8 @@ class DanmakuController extends ChangeNotifier {
         speedMultiplier: speedMultiplier,
         scrollDuration: Duration(milliseconds: (8000 / speedMultiplier).toInt()),
       );
+
+      notifyListeners();
     } catch (e) {
       debugPrint('加载弹幕设置失败: $e');
     }
@@ -205,6 +210,9 @@ class DanmakuController extends ChangeNotifier {
   Future<void> _saveSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+
+      // 保存弹幕显示开关
+      await prefs.setBool('danmaku_visible', _isVisible);
 
       // 保存屏蔽类型
       await prefs.setString('danmaku_disabled_types', _filter.disabledTypes.join(','));
@@ -476,6 +484,7 @@ class DanmakuController extends ChangeNotifier {
     if (!_isVisible) {
       _activeDanmakus.clear();
     }
+    _saveSettings();
     notifyListeners();
   }
 
@@ -486,6 +495,7 @@ class DanmakuController extends ChangeNotifier {
     if (!_isVisible) {
       _activeDanmakus.clear();
     }
+    _saveSettings();
     notifyListeners();
   }
 

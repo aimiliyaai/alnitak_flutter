@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/video_item.dart';
-///import '../models/video_api_model.dart';
+import '../models/carousel_model.dart';
 import '../services/video_api_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/video_card.dart';
+import '../widgets/carousel_widget.dart';
 import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 import 'search_page.dart';
@@ -263,6 +264,12 @@ class _HomePageState extends State<HomePage> {
       child: CustomScrollView(
         controller: _scrollController,
         slivers: [
+          // 轮播图
+          SliverToBoxAdapter(
+            child: CarouselWidget(
+              onTap: _onCarouselTap,
+            ),
+          ),
           // 双列网格布局
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -329,5 +336,27 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+  }
+
+  /// 轮播图点击处理
+  void _onCarouselTap(CarouselItem item) {
+    // 如果有url，解析并跳转
+    if (item.url != null && item.url!.isNotEmpty) {
+      // 尝试解析视频ID（格式如：/video/123）
+      final videoMatch = RegExp(r'/video/(\d+)').firstMatch(item.url!);
+      if (videoMatch != null) {
+        final vid = int.tryParse(videoMatch.group(1)!);
+        if (vid != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VideoPlayPage(vid: vid),
+            ),
+          );
+          return;
+        }
+      }
+      // 其他链接暂不处理，后续可以添加WebView或外部浏览器打开
+    }
   }
 }

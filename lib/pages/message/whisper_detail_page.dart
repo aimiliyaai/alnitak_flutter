@@ -4,6 +4,7 @@ import '../../services/message_api_service.dart';
 import '../../services/user_service.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
+import '../../utils/whisper_read_status.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 
@@ -42,6 +43,12 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
     super.initState();
     _loadMyInfo();
     _loadMessages();
+    _markAsRead(); // 进入详情页时标记已读（本地）
+  }
+
+  /// 标记私信为已读（本地存储）
+  Future<void> _markAsRead() async {
+    await WhisperReadStatus.markAsRead(widget.userId);
   }
 
   Future<void> _loadMyInfo() async {

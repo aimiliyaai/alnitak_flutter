@@ -180,13 +180,15 @@ class MessageApiService {
   }
 
   /// 标记私信为已读
-  Future<bool> readWhisper(int id) async {
+  /// [fid] 对方用户ID
+  Future<bool> readWhisper(int fid) async {
     try {
       final response = await _httpClient.dio.post(
         '/api/v1/message/readWhisper',
-        data: {'id': id},
+        data: {'fid': fid},
       );
 
+      print('标记私信已读: fid=$fid, 结果: ${response.data}');
       return response.data['code'] == 200;
     } catch (e) {
       print('标记已读失败: $e');
