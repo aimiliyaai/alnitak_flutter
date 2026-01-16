@@ -1,3 +1,5 @@
+import 'package:alnitak_flutter/models/partition.dart';
+import 'package:alnitak_flutter/services/partition_api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/video_item.dart';
@@ -18,7 +20,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
 
   List<VideoItem> _videos = [];
@@ -33,25 +35,88 @@ class _HomePageState extends State<HomePage> {
 
   // ============ 顶部导航状态 ============
   int _contentType = 0; // 0: 视频, 1: 专栏
-  int _selectedCategory = 0; // 当前选中的分类
+  int _selectedPartitionId = 0; // 当前选中的分区ID，0表示推荐
   bool _isSearchCollapsed = false; // 搜索栏是否收缩
 
-  // 分类标签
-  static const List<String> _categories = ['推荐', '生活', '影视', '游戏', '科技', '音乐', '舞蹈', '美食'];
+  // ============ 分区（分类）状态 ============
+  List<Partition> _videoPartitions = [];
+  List<Partition> _articlePartitions = [];
+  bool _isFetchingPartitions = false;
+  bool _isVideoTagsExpanded = false;
+  bool _isArticleTagsExpanded = false;
+
+  // ============ 动画控制器 ============
+  late AnimationController _headerAnimController;
+  late Animation<double> _headerAnimation;
 
   @override
   void initState() {
     super.initState();
+
+    // 初始化动画控制器
+    _headerAnimController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _headerAnimation = CurvedAnimation(
+      parent: _headerAnimController,
+      curve: Curves.easeInOut,
+    );
+
     _scrollController.addListener(_onScroll);
     // 初始化日志服务
     LoggerService.instance.initialize();
-    // 初始加载使用 asyncGetHotVideoAPI
-    _loadInitialVideos();
+    // 并发加载初始数据
+    _loadInitialData();
+  }
+
+  // 并发加载初始视频和分区
+  Future<void> _loadInitialData() async {
+    // 同时开始视频加载和分区加载
+    await Future.wait([
+      _loadInitialVideos(),
+      _fetchPartitions(),
+    ]);
+  }
+
+  // 获取分区（分类）
+  Future<void> _fetchPartitions() async {
+    if (_isFetchingPartitions) return;
+    setState(() {
+      _isFetchingPartitions = true;
+    });
+
+    try {
+      // 并发获取视频和文章分区
+      final results = await Future.wait([
+        PartitionApiService.getVideoPartitions(),
+        PartitionApiService.getArticlePartitions(),
+      ]);
+
+      final videoPartitions = results[0];
+      final articlePartitions = results[1];
+
+      if (mounted) {
+        setState(() {
+          _videoPartitions = videoPartitions;
+          _articlePartitions = articlePartitions;
+        });
+      }
+    } catch (e) {
+      // 静默失败，使用空列表
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingPartitions = false;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _headerAnimController.dispose();
     super.dispose();
   }
 
@@ -62,8 +127,10 @@ class _HomePageState extends State<HomePage> {
     // 搜索栏收缩逻辑：向下滑动超过100px时收缩，回到顶部时展开
     if (currentOffset > 100 && !_isSearchCollapsed) {
       setState(() => _isSearchCollapsed = true);
+      _headerAnimController.forward(); // 播放收缩动画
     } else if (currentOffset <= 50 && _isSearchCollapsed) {
       setState(() => _isSearchCollapsed = false);
+      _headerAnimController.reverse(); // 播放展开动画
     }
 
     // 加载更多
@@ -291,7 +358,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    // 视频列表 - 使用 Stack 实现固定搜索图标
+    // 视频列表 - 使用 Stack 实现固定顶部导航
     return Stack(
       children: [
         // 主内容区域
@@ -300,7 +367,7 @@ class _HomePageState extends State<HomePage> {
           child: CustomScrollView(
             controller: _scrollController,
             slivers: [
-              // 顶部区域：搜索栏 + 视频/专栏切换 + 分类标签
+              // 顶部区域：搜索栏 + 视频/专栏切换 + 分类标签（未收缩时）
               SliverToBoxAdapter(
                 child: _buildHeader(statusBarHeight),
               ),
@@ -363,31 +430,64 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
-        // 右上角固定搜索图标（滚动时显示）
+        // 固定顶部导航栏（滚动时显示）
         if (_isSearchCollapsed)
-          Positioned(
-            top: statusBarHeight + 8,
-            right: 12,
-            child: _buildCollapsedSearchButton(),
-          ),
+          _buildFixedHeader(statusBarHeight),
       ],
     );
   }
 
-  /// 构建顶部区域：搜索栏 + 视频/专栏切换 + 分类标签
+  /// 构建顶部区域：搜索栏 + 视频/专栏切换 + 分类标签（未收缩时）
   Widget _buildHeader(double statusBarHeight) {
     return Container(
       padding: EdgeInsets.only(top: statusBarHeight),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 搜索栏（未收缩时显示）
           if (!_isSearchCollapsed) _buildSearchBar(),
-          // 视频/专栏切换
-          _buildContentTypeSwitch(),
-          // 分类标签
-          _buildCategoryTabs(),
+          // 视频/专栏切换 + 分类标签展开
+          _buildContentTypeSwitchWithTags(),
         ],
       ),
+    );
+  }
+
+  /// 构建固定顶部导航（滚动后显示）
+  Widget _buildFixedHeader(double statusBarHeight) {
+    final colors = context.colors;
+
+    return AnimatedBuilder(
+      animation: _headerAnimation,
+      builder: (context, child) {
+        return Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            padding: EdgeInsets.only(top: statusBarHeight),
+            decoration: BoxDecoration(
+              color: colors.background,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // 视频/专栏切换
+                Expanded(child: _buildContentTypeSwitchCompact()),
+                // 搜索按钮
+                _buildCollapsedSearchButton(),
+                const SizedBox(width: 12),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -421,88 +521,192 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 构建视频/专栏切换
-  Widget _buildContentTypeSwitch() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          _buildSwitchItem('视频', 0),
-          const SizedBox(width: 24),
-          _buildSwitchItem('专栏', 1),
-        ],
-      ),
+  /// 构建视频/专栏切换 + 分类标签展开
+  Widget _buildContentTypeSwitchWithTags() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 视频/专栏切换
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              _buildSwitchItemWithExpand('视频', 0, _isVideoTagsExpanded, () {
+                setState(() => _isVideoTagsExpanded = !_isVideoTagsExpanded);
+              }),
+              const SizedBox(width: 32),
+              _buildSwitchItemWithExpand('专栏', 1, _isArticleTagsExpanded, () {
+                setState(() => _isArticleTagsExpanded = !_isArticleTagsExpanded);
+              }),
+            ],
+          ),
+        ),
+        // 视频分类标签（展开时显示）
+        if (_contentType == 0 && _isVideoTagsExpanded)
+          _buildExpandedTags(_videoPartitions),
+        // 专栏分类标签（展开时显示）
+        if (_contentType == 1 && _isArticleTagsExpanded)
+          _buildExpandedTags(_articlePartitions),
+      ],
     );
   }
 
-  Widget _buildSwitchItem(String title, int index) {
+  /// 构建带展开箭头的切换项
+  Widget _buildSwitchItemWithExpand(
+    String title,
+    int index,
+    bool isExpanded,
+    VoidCallback onExpandTap,
+  ) {
     final colors = context.colors;
     final isSelected = _contentType == index;
 
     return GestureDetector(
       onTap: () {
         if (_contentType != index) {
-          setState(() => _contentType = index);
-          // TODO: 切换内容类型时重新加载数据
+          setState(() {
+            _contentType = index;
+            _selectedPartitionId = 0; // 切换时重置分区选择
+          });
         }
       },
-      child: Column(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: isSelected ? 18 : 15,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected ? colors.textPrimary : colors.textSecondary,
-            ),
+          Column(
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: isSelected ? 18 : 15,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? colors.textPrimary : colors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                width: 20,
+                height: 3,
+                decoration: BoxDecoration(
+                  color: isSelected ? colors.accentColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Container(
-            width: 20,
-            height: 3,
-            decoration: BoxDecoration(
-              color: isSelected ? colors.accentColor : Colors.transparent,
-              borderRadius: BorderRadius.circular(1.5),
+          // 展开/收起箭头（仅选中时显示）
+          if (isSelected)
+            GestureDetector(
+              onTap: onExpandTap,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: AnimatedRotation(
+                  turns: isExpanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(
+                    Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 
-  /// 构建分类标签
-  Widget _buildCategoryTabs() {
+  /// 构建展开的分类标签
+  Widget _buildExpandedTags(List<Partition> partitions) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            // 推荐标签（始终显示）
+            _buildTagChip('推荐', 0, _selectedPartitionId == 0),
+            // 动态分区标签
+            ...partitions.map((partition) {
+              return _buildTagChip(
+                partition.name,
+                partition.id,
+                _selectedPartitionId == partition.id,
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建标签 Chip
+  Widget _buildTagChip(String name, int partitionId, bool isSelected) {
     final colors = context.colors;
 
-    return SizedBox(
-      height: 40,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _categories.length,
-        itemBuilder: (context, index) {
-          final isSelected = _selectedCategory == index;
-          return GestureDetector(
-            onTap: () {
-              if (_selectedCategory != index) {
-                setState(() => _selectedCategory = index);
-                // TODO: 切换分类时重新加载数据
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              alignment: Alignment.center,
-              child: Text(
-                _categories[index],
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isSelected ? colors.accentColor : colors.textSecondary,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-              ),
-            ),
-          );
-        },
+    return GestureDetector(
+      onTap: () {
+        if (_selectedPartitionId != partitionId) {
+          setState(() => _selectedPartitionId = partitionId);
+          // TODO: 根据分区重新加载数据
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.accentColor : colors.inputBackground,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          name,
+          style: TextStyle(
+            fontSize: 13,
+            color: isSelected ? Colors.white : colors.textSecondary,
+            fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建紧凑版视频/专栏切换（固定顶栏用）
+  Widget _buildContentTypeSwitchCompact() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          _buildCompactSwitchItem('视频', 0),
+          const SizedBox(width: 24),
+          _buildCompactSwitchItem('专栏', 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactSwitchItem(String title, int index) {
+    final colors = context.colors;
+    final isSelected = _contentType == index;
+
+    return GestureDetector(
+      onTap: () {
+        if (_contentType != index) {
+          setState(() {
+            _contentType = index;
+            _selectedPartitionId = 0;
+          });
+        }
+      },
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: isSelected ? 16 : 14,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? colors.textPrimary : colors.textSecondary,
+        ),
       ),
     );
   }
@@ -514,20 +718,13 @@ class _HomePageState extends State<HomePage> {
     return GestureDetector(
       onTap: _navigateToSearch,
       child: Container(
-        width: 40,
-        height: 40,
+        width: 36,
+        height: 36,
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: colors.inputBackground,
           shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
-        child: Icon(Icons.search, size: 22, color: colors.textSecondary),
+        child: Icon(Icons.search, size: 20, color: colors.textSecondary),
       ),
     );
   }

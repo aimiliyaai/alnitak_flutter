@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/danmaku.dart';
 import '../controllers/danmaku_controller.dart';
-import '../utils/auth_state_manager.dart';
+import '../services/auth_service.dart';
 
 /// 弹幕渲染覆盖层
 ///
@@ -606,8 +606,9 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
     final text = _textController.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    // 登录检查
-    if (!AuthStateManager().isLoggedIn) {
+    // 登录检查（使用 AuthService 实时检查 token 状态）
+    final isLoggedIn = await AuthService().isLoggedIn();
+    if (!isLoggedIn) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
