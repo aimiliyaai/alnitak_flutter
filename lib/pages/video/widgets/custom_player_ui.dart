@@ -81,6 +81,13 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   // ============ 弹幕发送输入框 ============
   bool _showDanmakuInput = false;
 
+  // ============ 倍速选择 ============
+  bool _showSpeedPanel = false;
+  double _currentSpeed = 1.0;
+  static const List<double> _speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+  final GlobalKey _speedButtonKey = GlobalKey();
+  double? _speedPanelRight;
+
   @override
   void initState() {
     super.initState();
@@ -96,6 +103,17 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     _titleScrollAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _titleScrollController, curve: Curves.easeInOut),
     );
+
+    // 【新增】监听播放完成事件，播放结束后显示UI
+    widget.logic.player.stream.completed.listen((completed) {
+      if (completed && mounted) {
+        setState(() {
+          _showControls = true;
+        });
+        // 取消隐藏计时器，确保控件在播放结束时保持可见
+        _hideTimer?.cancel();
+      }
+    });
   }
 
   /// 加载保存的音量和亮度设置
@@ -304,7 +322,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     _isLongPressing = true;
     _normalSpeed = widget.controller.player.state.rate;
     widget.controller.player.setRate(2.0);
-    _showFeedbackUI(Icons.fast_forward, '2.0x 倍速播放', null);
+    // 长按倍速不使用大的反馈UI，而是使用顶部小标签
+    setState(() {});
   }
 
   void _onLongPressEnd() {
@@ -479,6 +498,38 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       ),
                     ),
 
+                  // 3.5 长按倍速小标签（顶部居中）
+                  if (_isLongPressing)
+                    Positioned(
+                      top: 50,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.fast_forward, color: Colors.white, size: 16),
+                              SizedBox(width: 4),
+                              Text(
+                                '2.0x',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
                   // 4. 控制 UI
                   IgnorePointer(
                     ignoring: !_showControls, 
@@ -573,6 +624,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   // 6. 清晰度面板
                   if (_showQualityPanel && _showControls && _panelRight != null)
                     _buildQualityPanel(),
+
+                  // 6.5 倍速选择面板
+                  if (_showSpeedPanel && _showControls)
+                    _buildSpeedPanel(),
 
                   // 7. 弹幕设置面板
                   if (_showDanmakuSettings && widget.danmakuController != null)
@@ -1066,6 +1121,22 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
         const Spacer(),
 
+        // 倍速选择
+        TextButton(
+          key: _speedButtonKey,
+          onPressed: _toggleSpeedPanel,
+          style: TextButton.styleFrom(
+            foregroundColor: _currentSpeed != 1.0 ? Colors.blue : Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Text(
+            _currentSpeed == 1.0 ? '倍速' : '${_currentSpeed}x',
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+
         // 清晰度选择
         ValueListenableBuilder<List<String>>(
           valueListenable: widget.logic.availableQualities,
@@ -1198,6 +1269,80 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       style: TextStyle(
                         color: isSelected ? Colors.blue : Colors.white,
                         fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toggleSpeedPanel() {
+    // 计算按钮位置
+    if (!_showSpeedPanel) {
+      final RenderBox? renderBox = _speedButtonKey.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final buttonPosition = renderBox.localToGlobal(Offset.zero);
+        final screenWidth = MediaQuery.of(context).size.width;
+        // 面板右边缘对齐按钮右边缘
+        _speedPanelRight = screenWidth - buttonPosition.dx - renderBox.size.width;
+      }
+    }
+
+    setState(() {
+      _showSpeedPanel = !_showSpeedPanel;
+      if (_showSpeedPanel) {
+        _showQualityPanel = false;
+        _showDanmakuSettings = false;
+        _hideTimer?.cancel();
+      } else {
+        _startHideTimer();
+      }
+    });
+  }
+
+  Widget _buildSpeedPanel() {
+    return Positioned(
+      right: _speedPanelRight ?? 100,
+      bottom: 50, // 对齐底部控制栏上方
+      child: GestureDetector(
+        onTap: () {}, // 拦截点击穿透
+        child: Container(
+          width: 64,
+          constraints: const BoxConstraints(maxHeight: 180), // 降低最大高度
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: _speedOptions.map((speed) {
+                final isSelected = speed == _currentSpeed;
+
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      _currentSpeed = speed;
+                      _showSpeedPanel = false;
+                    });
+                    widget.controller.player.setRate(speed);
+                    _startHideTimer();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    alignment: Alignment.center,
+                    child: Text(
+                      speed == 1.0 ? '正常' : '${speed}x',
+                      style: TextStyle(
+                        color: isSelected ? Colors.blue : Colors.white,
+                        fontSize: 12,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                       ),
                       textAlign: TextAlign.center,

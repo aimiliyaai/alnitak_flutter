@@ -1170,14 +1170,17 @@ class VideoPlayerController extends ChangeNotifier {
     WakelockManager.disable();
     _audioHandler?.stop();
     
-    // 【修复】异步清理 HLS 缓存，不等待但捕获异常，避免快速退出时丢失
-    _hlsService.cleanupAllTempCache().catchError((e) {
-      debugPrint('⚠️ [VideoPlayerController.dispose] HLS 缓存清理失败: $e');
-    });
-
-    // 【新增】清理临时 m3u8 文件
-    _cleanupTempFiles().catchError((e) {
-      debugPrint('⚠️ [VideoPlayerController.dispose] 临时文件清理失败: $e');
+    // 【修复】使用 Future.microtask 确保清理任务被调度，即使在 dispose 同步链之外
+    // 这增加了在应用挂起前完成清理的可能性
+    Future.microtask(() async {
+      try {
+        debugPrint('🗑️ [Async Cleanup] 开始异步清理播放器缓存...');
+        await _hlsService.cleanupAllTempCache();
+        await _cleanupTempFiles();
+        debugPrint('✅ [Async Cleanup] 播放器缓存清理完成。');
+      } catch (e) {
+        debugPrint('⚠️ [Async Cleanup] 播放器缓存清理失败: $e');
+      }
     });
 
     // 停止并销毁播放器
