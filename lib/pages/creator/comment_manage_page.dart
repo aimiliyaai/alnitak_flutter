@@ -58,7 +58,7 @@ class _CommentManagePageState extends State<CommentManagePage>
 
   /// 检查登录状态
   Future<void> _checkLoginAndLoad() async {
-    final isLoggedIn = await LoginGuard.isLoggedIn();
+    final isLoggedIn = await LoginGuard.isLoggedInAsync();
     if (!isLoggedIn && mounted) {
       final result = await LoginGuard.navigateToLogin(context);
       if (result != true && mounted) {

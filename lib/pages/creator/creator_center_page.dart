@@ -24,7 +24,7 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
 
   /// 检查登录状态
   Future<void> _checkLogin() async {
-    final isLoggedIn = await LoginGuard.isLoggedIn();
+    final isLoggedIn = await LoginGuard.isLoggedInAsync();
 
     if (!isLoggedIn && mounted) {
       // 未登录，显示提示并跳转登录

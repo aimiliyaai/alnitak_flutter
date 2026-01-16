@@ -7,6 +7,8 @@ import 'theme/app_theme.dart';
 import 'services/theme_service.dart';
 import 'config/api_config.dart';
 import 'utils/http_client.dart';
+import 'utils/token_manager.dart';
+import 'utils/auth_state_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,8 +18,12 @@ void main() async {
   await ThemeService().init();
   // 初始化 API 配置（必须在 HttpClient 之前）
   await ApiConfig.init();
-  // 初始化 HTTP 客户端（确保使用正确的 API 配置）
+  // 初始化 Token 管理器（安全存储）
+  await TokenManager().initialize();
+  // 初始化 HTTP 客户端
   await HttpClient().init();
+  // 初始化登录状态管理器
+  await AuthStateManager().initialize();
   print('🌐 API 基础地址: ${ApiConfig.baseUrl}');
   runApp(const MyApp());
 }

@@ -116,7 +116,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
             child: Container(
               height: 32,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.15),
+                color: Colors.white.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: TextField(
@@ -129,7 +129,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
                 decoration: InputDecoration(
                   hintText: '发个弹幕...',
                   hintStyle: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
+                    color: Colors.white.withValues(alpha: 0.5),
                     fontSize: 13,
                   ),
                   border: InputBorder.none,
@@ -168,7 +168,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
             color: Theme.of(context).cardColor,
             border: Border(
               top: BorderSide(
-                color: Theme.of(context).dividerColor.withOpacity(0.5),
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
               ),
             ),
           ),
@@ -184,8 +184,8 @@ class _DanmakuInputState extends State<DanmakuInput> {
                   height: 36,
                   decoration: BoxDecoration(
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withOpacity(0.1)
-                        : Colors.grey.withOpacity(0.1),
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : Colors.grey.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: TextField(
@@ -242,8 +242,8 @@ class _DanmakuInputState extends State<DanmakuInput> {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: isVisible
-                  ? Colors.blue.withOpacity(0.2)
-                  : Colors.grey.withOpacity(0.2),
+                  ? Colors.blue.withValues(alpha: 0.2)
+                  : Colors.grey.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
@@ -270,7 +270,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
           color: _showOptions
-              ? Colors.blue.withOpacity(0.2)
+              ? Colors.blue.withValues(alpha: 0.2)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(4),
         ),
@@ -327,7 +327,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
         color: Theme.of(context).cardColor,
         border: Border(
           top: BorderSide(
-            color: Theme.of(context).dividerColor.withOpacity(0.3),
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
           ),
         ),
       ),
@@ -367,7 +367,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
                           color: displayColor,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: isSelected ? Colors.blue : Colors.grey.withOpacity(0.3),
+                            color: isSelected ? Colors.blue : Colors.grey.withValues(alpha: 0.3),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -406,8 +406,8 @@ class _DanmakuInputState extends State<DanmakuInput> {
                       ),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? Colors.blue.withOpacity(0.2)
-                            : Colors.grey.withOpacity(0.1),
+                            ? Colors.blue.withValues(alpha: 0.2)
+                            : Colors.grey.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
                           color: isSelected ? Colors.blue : Colors.transparent,

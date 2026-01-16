@@ -57,7 +57,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 检查登录状态
   Future<void> _checkLoginStatus() async {
-    final isLoggedIn = await _authService.isLoggedIn();
+    final isLoggedIn = await _authService.isLoggedInAsync();
     if (mounted) {
       setState(() {
         _isLoggedIn = isLoggedIn;

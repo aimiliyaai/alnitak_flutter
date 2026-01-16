@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../pages/login_page.dart';
+import 'token_manager.dart';
 
 /// 登录守卫工具类
 /// 用于统一处理需要登录才能执行的操作
 class LoginGuard {
-  static final AuthService _authService = AuthService();
+  static final TokenManager _tokenManager = TokenManager();
   static final UserService _userService = UserService();
 
   // 缓存当前用户ID，避免频繁请求
@@ -16,9 +16,17 @@ class LoginGuard {
   // 【新增】缓存有效期（5分钟）
   static const Duration _cacheExpiry = Duration(minutes: 5);
 
-  /// 检查是否已登录
-  static Future<bool> isLoggedIn() async {
-    return await _authService.isLoggedIn();
+  /// 检查是否已登录（同步，基于 TokenManager）
+  static bool isLoggedIn() {
+    return _tokenManager.isLoggedIn;
+  }
+
+  /// 检查是否已登录（异步，确保 TokenManager 已初始化）
+  static Future<bool> isLoggedInAsync() async {
+    if (!_tokenManager.isInitialized) {
+      await _tokenManager.initialize();
+    }
+    return _tokenManager.isLoggedIn;
   }
 
   /// 获取当前登录用户的ID
@@ -39,7 +47,7 @@ class LoginGuard {
       }
     }
 
-    final isLogged = await isLoggedIn();
+    final isLogged = await isLoggedInAsync();
     if (!isLogged) {
       // 【修复】未登录时清除缓存
       clearCache();
@@ -75,7 +83,7 @@ class LoginGuard {
     BuildContext context, {
     String actionName = '此功能',
   }) async {
-    final loggedIn = await isLoggedIn();
+    final loggedIn = await isLoggedInAsync();
 
     if (!loggedIn && context.mounted) {
       _showLoginPrompt(context, actionName);

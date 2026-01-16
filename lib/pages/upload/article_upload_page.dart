@@ -186,15 +186,15 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
 
         await ArticleSubmitApiService.editArticle(editArticle);
 
-        if (mounted) {
-          // 【新增】成功后清理临时文件
-          await _cleanupTempFiles();
+        if (!mounted) return;
+        // 【新增】成功后清理临时文件
+        await _cleanupTempFiles();
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('文章编辑成功')),
-          );
-          Navigator.pop(context, true);
-        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文章编辑成功')),
+        );
+        Navigator.pop(context, true);
       } else {
         // 上传模式
         final uploadArticle = UploadArticle(
@@ -208,15 +208,15 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
 
         await ArticleSubmitApiService.uploadArticle(uploadArticle);
 
-        if (mounted) {
-          // 【新增】成功后清理临时文件
-          await _cleanupTempFiles();
+        if (!mounted) return;
+        // 【新增】成功后清理临时文件
+        await _cleanupTempFiles();
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('文章投稿成功')),
-          );
-          Navigator.pop(context, true);
-        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('文章投稿成功')),
+        );
+        Navigator.pop(context, true);
       }
     } catch (e) {
       // 【新增】失败后也清理临时文件

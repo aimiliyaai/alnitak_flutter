@@ -52,7 +52,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   /// 检查登录状态并加载数据
   Future<void> _checkLoginAndLoad() async {
-    final isLoggedIn = await _authService.isLoggedIn();
+    final isLoggedIn = await _authService.isLoggedInAsync();
     if (mounted) {
       setState(() => _isLoggedIn = isLoggedIn);
       if (isLoggedIn) {

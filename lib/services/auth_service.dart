@@ -1,6 +1,6 @@
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 import '../models/auth_models.dart';
 
 /// 需要人机验证异常（登录用）
@@ -30,10 +30,7 @@ class AuthService {
   AuthService._internal();
 
   final HttpClient _httpClient = HttpClient();
-
-  // Token 存储键
-  static const String _tokenKey = 'auth_token';
-  static const String _refreshTokenKey = 'refresh_token';
+  final TokenManager _tokenManager = TokenManager();
 
   /// 用户注册
   Future<bool> register({
@@ -121,7 +118,7 @@ class AuthService {
   /// 更新 Token
   Future<String?> updateToken() async {
     try {
-      final refreshToken = await getRefreshToken();
+      final refreshToken = _tokenManager.refreshToken;
       if (refreshToken == null) {
         return null;
       }
@@ -133,11 +130,11 @@ class AuthService {
 
       if (response.data['code'] == 200) {
         final newToken = response.data['data']['token'] as String;
-        await saveToken(newToken);
+        await _tokenManager.updateToken(newToken);
         return newToken;
       } else if (response.data['code'] == 2000) {
-        // Token 失效，清除本地存储
-        await clearTokens();
+        // Token 失效，触发自动退出
+        await _tokenManager.handleTokenExpired();
         return null;
       }
       return null;
@@ -150,11 +147,11 @@ class AuthService {
   /// 退出登录
   Future<bool> logout() async {
     try {
-      final token = await getToken();
-      final refreshToken = await getRefreshToken();
+      final token = _tokenManager.token;
+      final refreshToken = _tokenManager.refreshToken;
 
       if (token == null || refreshToken == null) {
-        await clearTokens();
+        await _tokenManager.clearTokens();
         return true;
       }
 
@@ -166,11 +163,11 @@ class AuthService {
         ),
       );
 
-      await clearTokens();
+      await _tokenManager.clearTokens();
       return response.data['code'] == 200;
     } catch (e) {
       print('❌ 退出登录失败: $e');
-      await clearTokens(); // 即使请求失败，也清除本地 token
+      await _tokenManager.clearTokens(); // 即使请求失败，也清除本地 token
       return false;
     }
   }
@@ -237,67 +234,41 @@ class AuthService {
     }
   }
 
-  // ========== Token 管理 ==========
+  // ========== Token 管理（统一使用 TokenManager）==========
 
-  /// 保存 Tokens（同时更新内存缓存）
+  /// 保存 Tokens（登录成功后调用）
   Future<void> _saveTokens(LoginResponse loginResponse) async {
-    // 【关键修复】同时更新 HttpClient 的内存缓存
-    await HttpClient.updateCachedTokens(
+    await _tokenManager.saveTokens(
       token: loginResponse.token,
       refreshToken: loginResponse.refreshToken,
     );
   }
 
-  /// 保存 Token
-  Future<void> saveToken(String token) async {
-    // 【关键修复】同时更新内存缓存
-    await HttpClient.updateCachedToken(token);
+  /// 获取 Token（同步）
+  String? getToken() {
+    return _tokenManager.token;
   }
 
-  /// 保存 Refresh Token
-  Future<void> saveRefreshToken(String refreshToken) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_refreshTokenKey, refreshToken);
+  /// 获取 Refresh Token（同步）
+  String? getRefreshToken() {
+    return _tokenManager.refreshToken;
   }
 
-  /// 获取 Token（优先从内存缓存获取）
-  Future<String?> getToken() async {
-    // 【关键修复】优先从内存缓存获取
-    final cachedToken = HttpClient.cachedToken;
-    if (cachedToken != null && cachedToken.isNotEmpty) {
-      return cachedToken;
-    }
-    // 回退到 SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_tokenKey);
-  }
-
-  /// 获取 Refresh Token
-  Future<String?> getRefreshToken() async {
-    // 【关键修复】优先从内存缓存获取
-    final cachedToken = HttpClient.cachedRefreshToken;
-    if (cachedToken != null && cachedToken.isNotEmpty) {
-      return cachedToken;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_refreshTokenKey);
-  }
-
-  /// 清除 Tokens（同时清除内存缓存）
+  /// 清除 Tokens
   Future<void> clearTokens() async {
-    // 【关键修复】同时清除内存缓存
-    await HttpClient.clearCachedTokens();
+    await _tokenManager.clearTokens();
   }
 
-  /// 检查是否已登录（使用内存缓存，速度更快）
-  Future<bool> isLoggedIn() async {
-    // 【关键修复】优先检查内存缓存
-    final cachedToken = HttpClient.cachedToken;
-    if (cachedToken != null && cachedToken.isNotEmpty) {
-      return true;
+  /// 检查是否已登录（同步，基于内存缓存）
+  bool isLoggedIn() {
+    return _tokenManager.isLoggedIn;
+  }
+
+  /// 检查是否已登录（异步版本，确保 TokenManager 已初始化）
+  Future<bool> isLoggedInAsync() async {
+    if (!_tokenManager.isInitialized) {
+      await _tokenManager.initialize();
     }
-    // 回退检查 SharedPreferences（兼容冷启动）
-    final token = await getToken();
-    return token != null && token.isNotEmpty;
+    return _tokenManager.isLoggedIn;
   }
 }

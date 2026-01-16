@@ -56,7 +56,7 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _isLoading = true);
 
     // 检查是否登录
-    final isLoggedIn = await _authService.isLoggedIn();
+    final isLoggedIn = await _authService.isLoggedInAsync();
     setState(() => _isLoggedIn = isLoggedIn);
 
     if (isLoggedIn) {

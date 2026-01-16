@@ -31,7 +31,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
   }
 
   Future<void> _checkLoginAndLoad() async {
-    final loggedIn = await LoginGuard.isLoggedIn();
+    final loggedIn = await LoginGuard.isLoggedInAsync();
     if (mounted) {
       setState(() {
         _isLoggedIn = loggedIn;

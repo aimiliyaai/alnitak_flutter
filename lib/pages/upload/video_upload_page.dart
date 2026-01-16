@@ -66,7 +66,7 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
   /// 检查登录状态并加载数据
   Future<void> _checkLoginAndLoad() async {
     // 检查登录状态
-    final isLoggedIn = await LoginGuard.isLoggedIn();
+    final isLoggedIn = await LoginGuard.isLoggedInAsync();
 
     if (!isLoggedIn && mounted) {
       // 未登录，显示提示并跳转登录
@@ -405,6 +405,7 @@ Future<void> _uploadVideo({String? title}) async {
         print('⚠️ 清理 FilePicker 临时文件失败: $e');
       }
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('上传完成')),
       );
@@ -552,15 +553,15 @@ Future<void> _uploadVideo({String? title}) async {
 
       print('🎬 ========== 视频投稿完成 ==========\n');
 
-      if (mounted) {
-        // 【新增】投稿成功后清理临时文件
-        await _cleanupTempFiles();
+      if (!mounted) return;
+      // 【新增】投稿成功后清理临时文件
+      await _cleanupTempFiles();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(currentPartitionId == 0 ? '稿件发布成功，请等待审核' : '稿件更新成功，请等待审核')),
-        );
-        Navigator.pop(context, true);
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(currentPartitionId == 0 ? '稿件发布成功，请等待审核' : '稿件更新成功，请等待审核')),
+      );
+      Navigator.pop(context, true);
     } catch (e) {
       print('❌ 提交失败: $e');
       print('🎬 ========== 视频投稿失败 ==========\n');

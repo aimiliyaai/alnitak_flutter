@@ -40,7 +40,7 @@ class UserService {
   /// 获取个人用户信息（需要登录）
   Future<UserInfo?> getUserInfo() async {
     try {
-      final token = await _authService.getToken();
+      final token = _authService.getToken();
       if (token == null) {
         print('❌ 未登录，无法获取个人信息');
         return null;
@@ -206,7 +206,7 @@ class UserService {
     required String spaceCover,
   }) async {
     try {
-      final token = await _authService.getToken();
+      final token = _authService.getToken();
       if (token == null) {
         print('❌ 未登录，无法编辑个人信息');
         return false;
