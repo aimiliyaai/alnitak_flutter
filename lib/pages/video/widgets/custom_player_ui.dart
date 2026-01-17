@@ -905,17 +905,51 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                 builder: (context, completedSnapshot) {
                   final completed = completedSnapshot.data ?? widget.controller.player.state.completed;
 
+                  // 播放结束时显示带背景的重播按钮，更明显
+                  if (completed) {
+                    return GestureDetector(
+                      onTap: () {
+                        widget.logic.seek(Duration.zero);
+                        widget.controller.player.play();
+                        _startHideTimer();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.replay,
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              '重播',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+
+                  // 暂停时显示播放按钮
                   return IconButton(
                     iconSize: 64,
                     icon: Icon(
-                      completed ? Icons.replay_circle_filled : Icons.play_circle_fill,
+                      Icons.play_circle_fill,
                       color: Colors.white.withValues(alpha: 0.9),
                     ),
                     onPressed: () {
-                      if (completed) {
-                        // 播放结束时，先 seek 到开头再播放
-                        widget.logic.seek(Duration.zero);
-                      }
                       widget.controller.player.play();
                       _startHideTimer();
                     },

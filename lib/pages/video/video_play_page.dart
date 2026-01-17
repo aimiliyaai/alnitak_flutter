@@ -851,6 +851,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 vid: _currentVid,
                 totalComments: _totalComments,
                 latestComment: _latestComment,
+                onSeek: (seconds) {
+                  // 点击评论中的时间戳，跳转到对应时间
+                  _playerManager.controller?.seek(Duration(seconds: seconds));
+                },
               ),
               const SizedBox(height: 16),
 

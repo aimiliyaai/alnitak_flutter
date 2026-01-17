@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
 import '../../../widgets/cached_image_widget.dart';
+import '../../../utils/timestamp_parser.dart';
 import 'comment_list.dart';
 
 /// 评论预览卡片 - 参考 YouTube 设计
@@ -9,12 +10,14 @@ class CommentPreviewCard extends StatelessWidget {
   final int totalComments;
   final Comment? latestComment; // 最新评论
   final int vid; // 视频ID，用于打开评论面板时传递
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const CommentPreviewCard({
     super.key,
     required this.totalComments,
     this.latestComment,
     required this.vid,
+    this.onSeek,
   });
 
   @override
@@ -80,15 +83,25 @@ class CommentPreviewCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        // 评论内容（最多显示2行）
-                        Text(
-                          latestComment!.content,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[800],
-                          ),
+                        // 评论内容（最多显示2行，支持时间戳点击）
+                        RichText(
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            children: TimestampParser.buildTextSpans(
+                              text: latestComment!.content,
+                              defaultStyle: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[800],
+                              ),
+                              timestampStyle: const TextStyle(
+                                fontSize: 13,
+                                color: Colors.blue,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              onTimestampTap: onSeek,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -131,6 +144,7 @@ class CommentPreviewCard extends StatelessWidget {
         totalComments: totalComments,
         latestComment: latestComment,
         vid: vid,
+        onSeek: onSeek,
       ),
     );
   }
@@ -141,12 +155,14 @@ class CommentPanel extends StatefulWidget {
   final int totalComments;
   final Comment? latestComment;
   final int vid;
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const CommentPanel({
     super.key,
     required this.totalComments,
     this.latestComment,
     required this.vid,
+    this.onSeek,
   });
 
   @override
@@ -221,6 +237,11 @@ class _CommentPanelState extends State<CommentPanel> {
                 child: CommentListContent(
                   vid: widget.vid,
                   scrollController: scrollController,
+                  onSeek: (seconds) {
+                    // 先关闭评论面板，再触发 seek
+                    Navigator.pop(context);
+                    widget.onSeek?.call(seconds);
+                  },
                 ),
               ),
             ],

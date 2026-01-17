@@ -3,16 +3,19 @@ import '../../../models/comment.dart';
 import '../../../services/video_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
+import '../../../utils/timestamp_parser.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../user/user_space_page.dart';
 
 /// 评论列表组件 - 优化输入体验
 class CommentList extends StatefulWidget {
   final int vid; // 视频ID
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const CommentList({
     super.key,
     required this.vid,
+    this.onSeek,
   });
 
   @override
@@ -23,11 +26,13 @@ class CommentList extends StatefulWidget {
 class CommentListContent extends StatefulWidget {
   final int vid;
   final ScrollController? scrollController; // 可选的 ScrollController
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const CommentListContent({
     super.key,
     required this.vid,
     this.scrollController,
+    this.onSeek,
   });
 
   @override
@@ -37,7 +42,7 @@ class CommentListContent extends StatefulWidget {
 class _CommentListState extends State<CommentList> {
   @override
   Widget build(BuildContext context) {
-    return CommentListContent(vid: widget.vid);
+    return CommentListContent(vid: widget.vid, onSeek: widget.onSeek);
   }
 }
 
@@ -444,6 +449,7 @@ class _CommentListContentState extends State<CommentListContent> {
                       isLoadingReplies: _loadingReplies[comment.id] ?? false,
                       formatTime: _formatTime,
                       currentUserId: _currentUserId,
+                      onSeek: widget.onSeek,
                     );
                   },
                 ),
@@ -573,6 +579,7 @@ class _CommentItem extends StatelessWidget {
   final bool isLoadingReplies;
   final String Function(DateTime) formatTime;
   final int? currentUserId;
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const _CommentItem({
     required this.comment,
@@ -586,6 +593,7 @@ class _CommentItem extends StatelessWidget {
     required this.isLoadingReplies,
     required this.formatTime,
     this.currentUserId,
+    this.onSeek,
   });
 
   bool get isOwnComment => currentUserId != null && comment.uid == currentUserId;
@@ -658,7 +666,7 @@ class _CommentItem extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
 
-                    // 评论正文
+                    // 评论正文（支持时间戳点击跳转）
                     RichText(
                       text: TextSpan(
                         style: TextStyle(fontSize: 14, color: colors.textPrimary),
@@ -671,7 +679,17 @@ class _CommentItem extends StatelessWidget {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                          TextSpan(text: comment.content),
+                          // 使用 TimestampParser 解析评论内容，支持时间戳点击
+                          ...TimestampParser.buildTextSpans(
+                            text: comment.content,
+                            defaultStyle: TextStyle(fontSize: 14, color: colors.textPrimary),
+                            timestampStyle: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            onTimestampTap: onSeek,
+                          ),
                         ],
                       ),
                     ),
@@ -776,6 +794,7 @@ class _CommentItem extends StatelessWidget {
                                 onDelete: () => onDeleteReply(reply.id),
                                 formatTime: formatTime,
                                 currentUserId: currentUserId,
+                                onSeek: onSeek,
                               )),
                           InkWell(
                             onTap: onToggleReplies,
@@ -815,6 +834,7 @@ class _ReplyItem extends StatelessWidget {
   final VoidCallback onDelete;
   final String Function(DateTime) formatTime;
   final int? currentUserId;
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const _ReplyItem({
     required this.reply,
@@ -822,6 +842,7 @@ class _ReplyItem extends StatelessWidget {
     required this.onDelete,
     required this.formatTime,
     this.currentUserId,
+    this.onSeek,
   });
 
   bool get isOwnReply => currentUserId != null && reply.uid == currentUserId;
@@ -887,7 +908,7 @@ class _ReplyItem extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
 
-                // 回复内容
+                // 回复内容（支持时间戳点击跳转）
                 RichText(
                   text: TextSpan(
                     style: TextStyle(fontSize: 13, color: colors.textPrimary),
@@ -900,7 +921,17 @@ class _ReplyItem extends StatelessWidget {
                             fontWeight: FontWeight.w500,
                           ),
                         ),
-                      TextSpan(text: reply.content),
+                      // 使用 TimestampParser 解析回复内容，支持时间戳点击
+                      ...TimestampParser.buildTextSpans(
+                        text: reply.content,
+                        defaultStyle: TextStyle(fontSize: 13, color: colors.textPrimary),
+                        timestampStyle: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.blue,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        onTimestampTap: onSeek,
+                      ),
                     ],
                   ),
                 ),
