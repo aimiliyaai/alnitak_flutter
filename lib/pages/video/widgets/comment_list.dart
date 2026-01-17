@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
+import '../../../models/user_model.dart';
 import '../../../services/video_service.dart';
+import '../../../services/user_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
 import '../../../utils/timestamp_parser.dart';
@@ -27,12 +29,14 @@ class CommentListContent extends StatefulWidget {
   final int vid;
   final ScrollController? scrollController; // 可选的 ScrollController
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
+  final VoidCallback? onCommentPosted; // 评论发送成功后的回调
 
   const CommentListContent({
     super.key,
     required this.vid,
     this.scrollController,
     this.onSeek,
+    this.onCommentPosted,
   });
 
   @override
@@ -48,6 +52,7 @@ class _CommentListState extends State<CommentList> {
 
 class _CommentListContentState extends State<CommentListContent> {
   final VideoService _videoService = VideoService();
+  final UserService _userService = UserService();
   late final ScrollController _scrollController;
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
@@ -58,8 +63,9 @@ class _CommentListContentState extends State<CommentListContent> {
   int _currentPage = 1;
   int _totalComments = 0;
 
-  // 当前登录用户ID（TODO: 从用户服务获取）
+  // 当前登录用户信息
   int? _currentUserId;
+  String? _currentUserAvatar;
 
   // 展开回复的评论ID集合
   final Set<int> _expandedReplies = {};
@@ -75,7 +81,7 @@ class _CommentListContentState extends State<CommentListContent> {
     super.initState();
     // 使用外部提供的 ScrollController 或创建新的
     _scrollController = widget.scrollController ?? ScrollController();
-    _loadCurrentUserId();
+    _loadCurrentUserInfo();
     _loadComments();
     _scrollController.addListener(_onScroll);
 
@@ -99,11 +105,19 @@ class _CommentListContentState extends State<CommentListContent> {
     }
   }
 
-  /// 加载当前登录用户ID
-  Future<void> _loadCurrentUserId() async {
-    setState(() {
-      _currentUserId = null; // 未登录时为null
-    });
+  /// 加载当前登录用户信息
+  Future<void> _loadCurrentUserInfo() async {
+    try {
+      final userInfo = await _userService.getUserInfo();
+      if (userInfo != null && mounted) {
+        setState(() {
+          _currentUserId = userInfo.userInfo.uid;
+          _currentUserAvatar = userInfo.userInfo.avatar;
+        });
+      }
+    } catch (e) {
+      print('加载用户信息失败: $e');
+    }
   }
 
   @override
@@ -268,6 +282,9 @@ class _CommentListContentState extends State<CommentListContent> {
       _currentPage = 1;
       _comments.clear();
       await _loadComments();
+
+      // 通知外部评论已发送成功
+      widget.onCommentPosted?.call();
 
       if (mounted) {
         scaffoldMessenger.showSnackBar(
@@ -507,11 +524,17 @@ class _CommentListContentState extends State<CommentListContent> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 当前登录用户头像
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: colors.surfaceVariant,
-                  child: Icon(Icons.person, color: colors.iconSecondary),
-                ),
+                _currentUserAvatar != null && _currentUserAvatar!.isNotEmpty
+                    ? CachedCircleAvatar(
+                        imageUrl: _currentUserAvatar!,
+                        radius: 20,
+                        cacheKey: 'current_user_avatar_$_currentUserId',
+                      )
+                    : CircleAvatar(
+                        radius: 20,
+                        backgroundColor: colors.surfaceVariant,
+                        child: Icon(Icons.person, color: colors.iconSecondary),
+                      ),
                 const SizedBox(width: 12),
 
                 // 输入框

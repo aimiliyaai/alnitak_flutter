@@ -345,6 +345,28 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     });
   }
 
+  /// 刷新评论预览（发表评论后调用）
+  Future<void> _refreshCommentPreview() async {
+    try {
+      final commentResponse = await _videoService.getComments(
+        vid: _currentVid,
+        page: 1,
+        pageSize: 1,
+      );
+      if (commentResponse != null && mounted) {
+        setState(() {
+          _totalComments = commentResponse.total;
+          _latestComment = commentResponse.comments.isNotEmpty
+              ? commentResponse.comments.first
+              : null;
+        });
+        print('✅ 评论预览已刷新: total=$_totalComments');
+      }
+    } catch (e) {
+      print('❌ 刷新评论预览失败: $e');
+    }
+  }
+
   /// 刷新作者信息（用于从个人中心返回后更新）
   Future<void> _refreshAuthorInfo() async {
     if (_videoDetail == null) return;
@@ -855,6 +877,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                   // 点击评论中的时间戳，跳转到对应时间
                   _playerManager.controller?.seek(Duration(seconds: seconds));
                 },
+                onCommentPosted: _refreshCommentPreview,
               ),
               const SizedBox(height: 16),
 

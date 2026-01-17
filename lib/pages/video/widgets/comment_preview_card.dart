@@ -11,6 +11,7 @@ class CommentPreviewCard extends StatelessWidget {
   final Comment? latestComment; // 最新评论
   final int vid; // 视频ID，用于打开评论面板时传递
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
+  final VoidCallback? onCommentPosted; // 评论发送成功后的回调
 
   const CommentPreviewCard({
     super.key,
@@ -18,6 +19,7 @@ class CommentPreviewCard extends StatelessWidget {
     this.latestComment,
     required this.vid,
     this.onSeek,
+    this.onCommentPosted,
   });
 
   @override
@@ -145,6 +147,7 @@ class CommentPreviewCard extends StatelessWidget {
         latestComment: latestComment,
         vid: vid,
         onSeek: onSeek,
+        onCommentPosted: onCommentPosted,
       ),
     );
   }
@@ -156,6 +159,7 @@ class CommentPanel extends StatefulWidget {
   final Comment? latestComment;
   final int vid;
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
+  final VoidCallback? onCommentPosted; // 评论发送成功后的回调
 
   const CommentPanel({
     super.key,
@@ -163,6 +167,7 @@ class CommentPanel extends StatefulWidget {
     this.latestComment,
     required this.vid,
     this.onSeek,
+    this.onCommentPosted,
   });
 
   @override
@@ -242,6 +247,7 @@ class _CommentPanelState extends State<CommentPanel> {
                     Navigator.pop(context);
                     widget.onSeek?.call(seconds);
                   },
+                  onCommentPosted: widget.onCommentPosted,
                 ),
               ),
             ],
