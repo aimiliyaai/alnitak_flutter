@@ -37,7 +37,6 @@ class VideoCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
             children: [
               // 封面图片
               ClipRRect(
@@ -83,42 +82,60 @@ class VideoCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 标题
-                    Text(
-                      video.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        height: 1.2,
-                        color: colors.textPrimary,
+                    // 标题 - 固定2行高度，确保下方内容位置一致
+                    SizedBox(
+                      height: 13 * 1.2 * 2, // fontSize * height * 2行
+                      child: Text(
+                        video.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          height: 1.2,
+                          color: colors.textPrimary,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // 用户名（可点击跳转到UP主页面）
-                    GestureDetector(
-                      onTap: video.authorUid != null
-                          ? () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => UserSpacePage(userId: video.authorUid!),
-                                ),
-                              );
-                            }
-                          : null,
-                      child: Row(
-                        children: [
-                          if (video.authorAvatar != null)
-                            CachedCircleAvatar(
+                    // UP主信息行
+                    Row(
+                      children: [
+                        // UP主头像（可点击）
+                        if (video.authorAvatar != null)
+                          GestureDetector(
+                            onTap: video.authorUid != null
+                                ? () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => UserSpacePage(userId: video.authorUid!),
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            child: CachedCircleAvatar(
                               imageUrl: video.authorAvatar!,
                               radius: 8,
                               cacheKey: video.authorUid != null ? 'user_avatar_${video.authorUid}' : null,
                             ),
-                          if (video.authorAvatar != null) const SizedBox(width: 4),
-                          Expanded(
+                          ),
+                        if (video.authorAvatar != null) const SizedBox(width: 4),
+                        // UP主名称（可点击）
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: video.authorUid != null
+                                ? () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => UserSpacePage(userId: video.authorUid!),
+                                      ),
+                                    );
+                                  }
+                                : null,
                             child: Text(
                               video.authorName,
                               maxLines: 1,
@@ -129,19 +146,20 @@ class VideoCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 2),
-                    // 播放次数和弹幕数量
+                    // 播放量和弹幕数行
                     Row(
                       children: [
+                        // 播放次数
                         Icon(
                           Icons.play_circle_outline,
-                          size: 12,
+                          size: 11,
                           color: colors.textTertiary,
                         ),
-                        const SizedBox(width: 3),
+                        const SizedBox(width: 2),
                         Text(
                           video.formattedPlayCount,
                           style: TextStyle(
@@ -150,12 +168,13 @@ class VideoCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 10),
+                        // 弹幕数量
                         Icon(
                           Icons.chat_bubble_outline,
-                          size: 12,
+                          size: 11,
                           color: colors.textTertiary,
                         ),
-                        const SizedBox(width: 3),
+                        const SizedBox(width: 2),
                         Text(
                           video.formattedDanmakuCount,
                           style: TextStyle(

@@ -79,14 +79,6 @@ class DanmakuFilter {
 }
 
 /// 弹幕控制器
-///
-/// 商业级弹幕方案核心功能：
-/// - 轨道管理：防止弹幕重叠
-/// - 碰撞检测：确保弹幕不会追尾
-/// - 时间同步：与视频播放进度精确同步
-/// - 暂停支持：暂停时弹幕静止
-/// - 类型屏蔽：支持按类型屏蔽弹幕
-/// - 性能优化：弹幕池复用、过期清理
 class DanmakuController extends ChangeNotifier {
   /// 弹幕服务
   final DanmakuService _danmakuService = DanmakuService();
@@ -125,6 +117,9 @@ class DanmakuController extends ChangeNotifier {
 
   /// 暂停时的时间戳
   int _pauseTime = 0;
+
+  /// 记录最近一次的屏幕宽度，用于发送弹幕时立即计算轨道
+  double _lastScreenWidth = 0;
 
   /// 轨道占用状态：记录每个轨道最后一个弹幕的离开时间
   /// key: 轨道索引, value: 轨道空闲时间点（毫秒时间戳）
@@ -287,6 +282,11 @@ class DanmakuController extends ChangeNotifier {
   /// [time] 当前播放时间（秒）
   /// [screenWidth] 屏幕宽度（用于计算弹幕飞行时间）
   void updateTime(double time, {double screenWidth = 0}) {
+    // 记录屏幕宽度，供发送弹幕时使用
+    if (screenWidth > 0) {
+      _lastScreenWidth = screenWidth;
+    }
+
     // 检测 seek 操作（进度跳跃超过2秒）
     if ((time - _currentTime).abs() > 2) {
       _onSeek(time);
@@ -342,20 +342,47 @@ class DanmakuController extends ChangeNotifier {
   void _processNewDanmakus(double screenWidth) {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 扫描即将出现的弹幕（当前时间前后0.5秒内）
+    // 扫描即将出现的弹幕（当前时间前后0.1秒内）
     while (_lastProcessedIndex < _filteredDanmakuList.length) {
       final danmaku = _filteredDanmakuList[_lastProcessedIndex];
 
-      // 弹幕时间还没到
+      // 1. 弹幕时间还没到，停止扫描
       if (danmaku.time > _currentTime + 0.1) break;
 
-      // 弹幕时间已过（可能是 seek 导致跳过的）
+      // 2. 弹幕时间已过（可能是 seek 导致跳过的），标记为已处理
       if (danmaku.time < _currentTime - 0.5) {
         _lastProcessedIndex++;
         continue;
       }
 
-      // 尝试分配轨道
+      // 3. 【新增关键逻辑】检测是否与正在飞行的"本地临时弹幕"重复
+      // 查找 activeDanmakus 中是否有：ID为负数(本地) && 内容相同 && 时间相近 的弹幕
+      final existingLocalIndex = _activeDanmakus.indexWhere((item) =>
+      item.danmaku.id < 0 && // 是本地发送的临时弹幕
+          item.danmaku.text == danmaku.text && // 内容一致
+          item.danmaku.color == danmaku.color && // 颜色一致
+          (item.danmaku.time - danmaku.time).abs() < 1.0 // 时间误差在1秒内
+      );
+
+      if (existingLocalIndex != -1) {
+        // 找到了对应的本地弹幕！
+        // 策略：用服务器返回的真实弹幕(包含真实ID)替换掉本地临时弹幕对象
+        // 但保留原有的轨道、开始时间等状态，这样视觉上不会有跳动，也不会出现两条
+        final oldItem = _activeDanmakus[existingLocalIndex];
+        _activeDanmakus[existingLocalIndex] = DanmakuItem(
+          danmaku: danmaku, // 替换为真实的 server 端弹幕
+          trackIndex: oldItem.trackIndex,
+          startTime: oldItem.startTime,
+          elapsedWhenPaused: oldItem.elapsedWhenPaused,
+          width: oldItem.width,
+        );
+
+        // 跳过创建新轨道，继续处理下一条
+        _lastProcessedIndex++;
+        continue;
+      }
+
+      // 4. 正常逻辑：尝试分配轨道
       final trackIndex = _allocateTrack(danmaku, now, screenWidth);
       if (trackIndex != -1) {
         final item = DanmakuItem(
@@ -546,6 +573,20 @@ class DanmakuController extends ChangeNotifier {
       color = '#$color';
     }
 
+    // 1. 本地立即显示 (Optimistic UI)
+    // 修改说明：删除了 vid 和 part 参数，因为通常 Danmaku 模型不包含这两个字段
+    final localDanmaku = Danmaku(
+      id: -DateTime.now().millisecondsSinceEpoch, // 使用负数ID防止冲突
+      time: _currentTime, // 使用当前播放时间
+      type: type,
+      color: color,
+      text: text,
+    );
+
+    // 立即加入渲染队列
+    _playLocalDanmaku(localDanmaku);
+
+    // 2. 发送网络请求
     final request = SendDanmakuRequest(
       vid: _currentVid!,
       part: _currentPart,
@@ -558,11 +599,41 @@ class DanmakuController extends ChangeNotifier {
     final success = await _danmakuService.sendDanmaku(request);
 
     if (success) {
-      // 发送成功后，刷新弹幕列表获取最新状态（包含自己发送的弹幕）
+      // 3. 发送成功后，刷新弹幕列表
       await _refreshDanmakuList();
     }
 
     return success;
+  }
+
+  /// 立即显示本地发送的弹幕
+  void _playLocalDanmaku(Danmaku danmaku) {
+    if (!_isVisible) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // 使用最近一次记录的屏幕宽度，如果未记录则使用默认值 1000
+    final screenWidth = _lastScreenWidth > 0 ? _lastScreenWidth : 1000.0;
+
+    final trackIndex = _allocateTrack(danmaku, now, screenWidth);
+    
+    if (trackIndex != -1) {
+      final item = DanmakuItem(
+        danmaku: danmaku,
+        trackIndex: trackIndex,
+        startTime: now,
+      );
+      
+      // 添加到当前活动弹幕列表
+      _activeDanmakus.add(item);
+      
+      // 也可以选择加入历史列表，但为了避免影响索引，等待接口刷新通常更安全
+      // 如果需要在 seek 回去时也能看到刚才发的，可以取消下面注释：
+      // _danmakuList.add(danmaku); 
+      // _danmakuList.sort((a, b) => a.time.compareTo(b.time));
+      // _applyFilter();
+      
+      notifyListeners();
+    }
   }
 
   /// 刷新弹幕列表（发送弹幕后调用）
@@ -581,6 +652,10 @@ class DanmakuController extends ChangeNotifier {
 
       // 应用过滤
       _applyFilter();
+
+      // 这里不重置 _activeDanmakus，让本地发送的弹幕继续飞完
+      // 只需更新 _lastProcessedIndex 以匹配新列表位置
+      _lastProcessedIndex = _findStartIndex(_currentTime);
 
       debugPrint('📝 弹幕刷新完成: ${_filteredDanmakuList.length}/${list.length}条');
       notifyListeners();

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/video_item.dart';
 import '../models/carousel_model.dart';
+import '../models/article_list_model.dart';
 import '../services/video_api_service.dart';
+import '../services/article_api_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/video_card.dart';
 import '../widgets/carousel_widget.dart';
@@ -23,10 +25,18 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
 
+  // ============ 视频数据 ============
   List<VideoItem> _videos = [];
-  int _currentPage = 1;
-  bool _isLoading = false;
-  bool _hasMore = true;
+  int _videoPage = 1;
+  bool _isLoadingVideos = false;
+  bool _hasMoreVideos = true;
+
+  // ============ 文章数据 ============
+  List<ArticleListItem> _articles = [];
+  int _articlePage = 1;
+  bool _isLoadingArticles = false;
+  bool _hasMoreArticles = true;
+
   String? _errorMessage;
   static const int _pageSize = 10;
 
@@ -55,12 +65,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     // 初始化动画控制器
     _headerAnimController = AnimationController(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
     _headerAnimation = CurvedAnimation(
       parent: _headerAnimController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
     );
 
     _scrollController.addListener(_onScroll);
@@ -134,25 +145,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
 
     // 加载更多
+    final isLoading = _contentType == 0 ? _isLoadingVideos : _isLoadingArticles;
+    final hasMore = _contentType == 0 ? _hasMoreVideos : _hasMoreArticles;
+
     if (currentOffset >= _scrollController.position.maxScrollExtent * 0.8 &&
-        !_isLoading &&
-        _hasMore) {
-      _loadMoreVideos();
+        !isLoading &&
+        hasMore) {
+      if (_contentType == 0) {
+        _loadMoreVideos();
+      } else {
+        _loadMoreArticles();
+      }
     }
   }
 
-  // 初始加载热门视频
+  // 初始加载视频（根据分区）
   Future<void> _loadInitialVideos() async {
-    if (_isLoading) return;
+    if (_isLoadingVideos) return;
 
     setState(() {
-      _isLoading = true;
+      _isLoadingVideos = true;
       _errorMessage = null;
-      _currentPage = 1;
+      _videoPage = 1;
     });
 
     try {
-      final apiVideos = await VideoApiService.asyncGetHotVideoAPI(
+      final apiVideos = await VideoApiService.getVideoByPartition(
+        partitionId: _selectedPartitionId,
         page: 1,
         pageSize: _pageSize,
       );
@@ -168,25 +187,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       setState(() {
         _videos = videos;
-        _hasMore = videos.length >= _pageSize;
-        _isLoading = false;
+        _hasMoreVideos = videos.length >= _pageSize;
+        _isLoadingVideos = false;
       });
     } catch (e, stackTrace) {
       // 记录错误日志
       await LoggerService.instance.logDataLoadError(
-        dataType: '热门视频',
+        dataType: '视频',
         operation: '初始加载',
         error: e,
         stackTrace: stackTrace,
         context: {
           '页码': 1,
           '每页数量': _pageSize,
+          '分区ID': _selectedPartitionId,
         },
       );
 
       setState(() {
         _errorMessage = e.toString();
-        _isLoading = false;
+        _isLoadingVideos = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -203,33 +223,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   // 加载更多视频
-  /// 【修复】使用页码锁防止并发加载同一页
   Future<void> _loadMoreVideos() async {
-    if (_isLoading || !_hasMore) return;
+    if (_isLoadingVideos || !_hasMoreVideos) return;
 
-    final nextPage = _currentPage + 1;
+    final nextPage = _videoPage + 1;
 
-    // 【修复】检查是否已经在加载这一页
+    // 检查是否已经在加载这一页
     if (_loadingPage == nextPage) {
-      print('⏭️ 页面 $nextPage 正在加载中，跳过重复请求');
       return;
     }
 
     setState(() {
-      _isLoading = true;
+      _isLoadingVideos = true;
     });
 
     _loadingPage = nextPage;
 
     try {
-      final apiVideos = await VideoApiService.getHotVideoAPI(
+      final apiVideos = await VideoApiService.getVideoByPartition(
+        partitionId: _selectedPartitionId,
         page: nextPage,
         pageSize: _pageSize,
       );
 
-      // 【修复】检查是否仍然是当前请求的页（防止竞态）
+      // 检查是否仍然是当前请求的页（防止竞态）
       if (_loadingPage != nextPage) {
-        print('⏭️ 页面 $nextPage 加载完成但已过期，丢弃数据');
         return;
       }
 
@@ -240,14 +258,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
       setState(() {
         _videos.addAll(newVideos);
-        _currentPage = nextPage;
-        _hasMore = newVideos.length >= _pageSize;
-        _isLoading = false;
+        _videoPage = nextPage;
+        _hasMoreVideos = newVideos.length >= _pageSize;
+        _isLoadingVideos = false;
       });
     } catch (e, stackTrace) {
       // 记录错误日志
       await LoggerService.instance.logDataLoadError(
-        dataType: '热门视频',
+        dataType: '视频',
         operation: '加载更多',
         error: e,
         stackTrace: stackTrace,
@@ -255,12 +273,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           '页码': nextPage,
           '每页数量': _pageSize,
           '当前视频数量': _videos.length,
+          '分区ID': _selectedPartitionId,
         },
       );
 
       setState(() {
-        _isLoading = false;
-        _hasMore = false; // 出错时停止加载更多
+        _isLoadingVideos = false;
+        _hasMoreVideos = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -270,10 +289,128 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       }
     } finally {
-      // 【修复】清除加载锁
       if (_loadingPage == nextPage) {
         _loadingPage = null;
       }
+    }
+  }
+
+  // 初始加载文章（根据分区）
+  Future<void> _loadInitialArticles() async {
+    if (_isLoadingArticles) return;
+
+    setState(() {
+      _isLoadingArticles = true;
+      _errorMessage = null;
+      _articlePage = 1;
+    });
+
+    try {
+      final articles = await ArticleApiService.getArticleByPartition(
+        partitionId: _selectedPartitionId,
+        page: 1,
+        pageSize: _pageSize,
+      );
+
+      setState(() {
+        _articles = articles;
+        _hasMoreArticles = articles.length >= _pageSize;
+        _isLoadingArticles = false;
+      });
+    } catch (e, stackTrace) {
+      await LoggerService.instance.logDataLoadError(
+        dataType: '文章',
+        operation: '初始加载',
+        error: e,
+        stackTrace: stackTrace,
+        context: {
+          '页码': 1,
+          '每页数量': _pageSize,
+          '分区ID': _selectedPartitionId,
+        },
+      );
+
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoadingArticles = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('加载失败: $e'),
+            action: SnackBarAction(
+              label: '重试',
+              onPressed: _loadInitialArticles,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  // 加载更多文章
+  Future<void> _loadMoreArticles() async {
+    if (_isLoadingArticles || !_hasMoreArticles) return;
+
+    final nextPage = _articlePage + 1;
+
+    setState(() {
+      _isLoadingArticles = true;
+    });
+
+    try {
+      final newArticles = await ArticleApiService.getArticleByPartition(
+        partitionId: _selectedPartitionId,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      setState(() {
+        _articles.addAll(newArticles);
+        _articlePage = nextPage;
+        _hasMoreArticles = newArticles.length >= _pageSize;
+        _isLoadingArticles = false;
+      });
+    } catch (e, stackTrace) {
+      await LoggerService.instance.logDataLoadError(
+        dataType: '文章',
+        operation: '加载更多',
+        error: e,
+        stackTrace: stackTrace,
+        context: {
+          '页码': nextPage,
+          '每页数量': _pageSize,
+          '当前文章数量': _articles.length,
+          '分区ID': _selectedPartitionId,
+        },
+      );
+
+      setState(() {
+        _isLoadingArticles = false;
+        _hasMoreArticles = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('加载更多失败: $e'),
+          ),
+        );
+      }
+    }
+  }
+
+  /// 重新加载当前内容（切换分区时调用）
+  void _reloadContent() {
+    if (_contentType == 0) {
+      _videos.clear();
+      _videoPage = 1;
+      _hasMoreVideos = true;
+      _loadInitialVideos();
+    } else {
+      _articles.clear();
+      _articlePage = 1;
+      _hasMoreArticles = true;
+      _loadInitialArticles();
     }
   }
 
@@ -317,8 +454,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final colors = context.colors;
     final statusBarHeight = MediaQuery.of(context).padding.top;
 
+    // 获取当前内容类型的数据和状态
+    final isEmpty = _contentType == 0 ? _videos.isEmpty : _articles.isEmpty;
+    final isLoading = _contentType == 0 ? _isLoadingVideos : _isLoadingArticles;
+    final hasMore = _contentType == 0 ? _hasMoreVideos : _hasMoreArticles;
+
     // 显示错误信息
-    if (_errorMessage != null && _videos.isEmpty) {
+    if (_errorMessage != null && isEmpty) {
       return SafeArea(
         child: Center(
           child: Column(
@@ -336,7 +478,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadInitialVideos,
+                onPressed: _reloadContent,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colors.accentColor,
                   foregroundColor: Colors.white,
@@ -350,7 +492,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
 
     // 初始加载中
-    if (_videos.isEmpty && _isLoading) {
+    if (isEmpty && isLoading) {
       return const SafeArea(
         child: Center(
           child: CircularProgressIndicator(),
@@ -358,50 +500,105 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       );
     }
 
-    // 视频列表 - 使用 Stack 实现固定顶部导航
+    // 内容列表 - 使用 Stack 实现固定顶部导航
     return Stack(
       children: [
         // 主内容区域
         RefreshIndicator(
-          onRefresh: _loadInitialVideos,
+          onRefresh: () async {
+            if (_contentType == 0) {
+              await _loadInitialVideos();
+            } else {
+              await _loadInitialArticles();
+            }
+          },
           child: CustomScrollView(
             controller: _scrollController,
             slivers: [
-              // 顶部区域：搜索栏 + 视频/专栏切换 + 分类标签（未收缩时）
+              // 顶部区域：搜索栏 + 视频/专栏切换 + 分类标签
               SliverToBoxAdapter(
                 child: _buildHeader(statusBarHeight),
               ),
-              // 轮播图
-              SliverToBoxAdapter(
-                child: CarouselWidget(
-                  onTap: _onCarouselTap,
-                ),
-              ),
-              // 双列网格布局
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 1,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      return VideoCard(
-                        video: _videos[index],
-                        onTap: () {
-                          _showVideoDetail(context, _videos[index]);
-                        },
-                      );
-                    },
-                    childCount: _videos.length,
+              // 轮播图（仅视频模式显示）
+              if (_contentType == 0)
+                SliverToBoxAdapter(
+                  child: CarouselWidget(
+                    onTap: _onCarouselTap,
                   ),
                 ),
-              ),
+              // 内容区域
+              if (_contentType == 0)
+                // 视频双列网格布局
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                      childAspectRatio: 1.05,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        return VideoCard(
+                          video: _videos[index],
+                          onTap: () {
+                            _showVideoDetail(context, _videos[index]);
+                          },
+                        );
+                      },
+                      childCount: _videos.length,
+                    ),
+                  ),
+                )
+              else if (_articles.isEmpty && !_isLoadingArticles)
+                // 专栏列表为空时的友好提示
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.article_outlined,
+                          size: 64,
+                          color: colors.iconSecondary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '暂无专栏内容',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '快去发布第一篇专栏吧',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                // 文章列表
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        return _buildArticleCard(_articles[index]);
+                      },
+                      childCount: _articles.length,
+                    ),
+                  ),
+                ),
               // 加载更多指示器
-              if (_isLoading && _videos.isNotEmpty)
+              if (isLoading && !isEmpty)
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.all(16.0),
@@ -411,7 +608,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                 ),
               // 没有更多数据提示
-              if (!_hasMore && _videos.isNotEmpty)
+              if (!hasMore && !isEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -430,22 +627,148 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        // 固定顶部导航栏（滚动时显示）
-        if (_isSearchCollapsed)
-          _buildFixedHeader(statusBarHeight),
+        // 固定顶部导航栏（使用动画过渡）
+        _buildFixedHeader(statusBarHeight),
       ],
     );
   }
 
-  /// 构建顶部区域：搜索栏 + 视频/专栏切换 + 分类标签（未收缩时）
+  /// 构建文章卡片
+  Widget _buildArticleCard(ArticleListItem article) {
+    final colors = context.colors;
+
+    return GestureDetector(
+      onTap: () {
+        // TODO: 跳转到文章详情页
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 封面图
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(8),
+                bottomLeft: Radius.circular(8),
+              ),
+              child: CachedImage(
+                imageUrl: article.cover,
+                width: 120,
+                height: 80,
+                fit: BoxFit.cover,
+                cacheKey: 'article_cover_${article.aid}',
+              ),
+            ),
+            // 文章信息
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 标题
+                    Text(
+                      article.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // 作者信息
+                    Row(
+                      children: [
+                        // 头像
+                        ClipOval(
+                          child: CachedImage(
+                            imageUrl: article.author.avatar,
+                            width: 20,
+                            height: 20,
+                            fit: BoxFit.cover,
+                            cacheKey: 'user_avatar_${article.author.uid}',
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // 作者名
+                        Expanded(
+                          child: Text(
+                            article.author.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        // 点击量
+                        Icon(
+                          Icons.remove_red_eye_outlined,
+                          size: 14,
+                          color: colors.textTertiary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _formatCount(article.clicks),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 格式化数量
+  String _formatCount(int count) {
+    if (count >= 10000) {
+      return '${(count / 10000).toStringAsFixed(1)}万';
+    }
+    return count.toString();
+  }
+
+  /// 构建顶部区域：搜索栏 + 视频/专栏切换 + 分类标签
   Widget _buildHeader(double statusBarHeight) {
     return Container(
       padding: EdgeInsets.only(top: statusBarHeight),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 搜索栏（未收缩时显示）
-          if (!_isSearchCollapsed) _buildSearchBar(),
+          // 搜索栏（使用动画过渡）
+          AnimatedBuilder(
+            animation: _headerAnimation,
+            builder: (context, child) {
+              // 动画值从0到1，搜索栏逐渐收起
+              final opacity = 1 - _headerAnimation.value;
+
+              return ClipRect(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  heightFactor: 1 - _headerAnimation.value,
+                  child: Opacity(
+                    opacity: opacity.clamp(0.0, 1.0),
+                    child: _buildSearchBar(),
+                  ),
+                ),
+              );
+            },
+          ),
           // 视频/专栏切换 + 分类标签展开
           _buildContentTypeSwitchWithTags(),
         ],
@@ -453,37 +776,52 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  /// 构建固定顶部导航（滚动后显示）
+  /// 构建固定顶部导航（滚动后显示，带动画过渡）
   Widget _buildFixedHeader(double statusBarHeight) {
     final colors = context.colors;
 
     return AnimatedBuilder(
       animation: _headerAnimation,
       builder: (context, child) {
+        // 动画值从0到1，固定导航栏从顶部滑入
+        final slideOffset = -60 * (1 - _headerAnimation.value);
+        final opacity = _headerAnimation.value;
+
+        // 完全隐藏时不渲染
+        if (opacity <= 0) {
+          return const SizedBox.shrink();
+        }
+
         return Positioned(
-          top: 0,
+          top: slideOffset,
           left: 0,
           right: 0,
-          child: Container(
-            padding: EdgeInsets.only(top: statusBarHeight),
-            decoration: BoxDecoration(
-              color: colors.background,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                // 视频/专栏切换
-                Expanded(child: _buildContentTypeSwitchCompact()),
-                // 搜索按钮
-                _buildCollapsedSearchButton(),
-                const SizedBox(width: 12),
-              ],
+          child: Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: Container(
+              padding: EdgeInsets.only(top: statusBarHeight),
+              decoration: BoxDecoration(
+                color: colors.background,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05 * opacity),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // 视频/专栏切换
+                  Expanded(child: _buildContentTypeSwitchCompact()),
+                  // 搜索按钮（带缩放动画）
+                  Transform.scale(
+                    scale: 0.8 + 0.2 * opacity,
+                    child: _buildCollapsedSearchButton(),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+              ),
             ),
           ),
         );
@@ -568,6 +906,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _contentType = index;
             _selectedPartitionId = 0; // 切换时重置分区选择
           });
+          // 切换内容类型时加载对应数据
+          if (index == 0 && _videos.isEmpty) {
+            _loadInitialVideos();
+          } else if (index == 1 && _articles.isEmpty) {
+            _loadInitialArticles();
+          }
         }
       },
       child: Row(
@@ -618,6 +962,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   /// 构建展开的分类标签
   Widget _buildExpandedTags(List<Partition> partitions) {
+    // 只显示主分区（parentId 为 null 的）
+    final mainPartitions = partitions.where((p) => p.parentId == null).toList();
+
     return AnimatedSize(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
@@ -630,8 +977,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           children: [
             // 推荐标签（始终显示）
             _buildTagChip('推荐', 0, _selectedPartitionId == 0),
-            // 动态分区标签
-            ...partitions.map((partition) {
+            // 动态分区标签（只显示主分区）
+            ...mainPartitions.map((partition) {
               return _buildTagChip(
                 partition.name,
                 partition.id,
@@ -652,7 +999,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       onTap: () {
         if (_selectedPartitionId != partitionId) {
           setState(() => _selectedPartitionId = partitionId);
-          // TODO: 根据分区重新加载数据
+          _reloadContent();
         }
       },
       child: Container(
@@ -698,6 +1045,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             _contentType = index;
             _selectedPartitionId = 0;
           });
+          // 切换内容类型时加载对应数据
+          if (index == 0 && _videos.isEmpty) {
+            _loadInitialVideos();
+          } else if (index == 1 && _articles.isEmpty) {
+            _loadInitialArticles();
+          }
         }
       },
       child: Text(

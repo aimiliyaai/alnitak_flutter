@@ -95,6 +95,96 @@ class VideoApiService {
     return await asyncGetHotVideoAPI(page: page, pageSize: pageSize);
   }
 
+  /// 按分区获取视频列表
+  /// [partitionId] 分区ID，0表示推荐/全部
+  /// [page] 页码（仅推荐模式支持分页）
+  /// [pageSize] 每页数量
+  /// 注：后端分区接口不支持分页，使用 size 参数获取指定数量
+  static Future<List<VideoApiModel>> getVideoByPartition({
+    required int partitionId,
+    int page = 1,
+    int pageSize = VideoApiService.pageSize,
+  }) async {
+    // 如果是推荐（partitionId=0），使用热门视频接口（支持分页）
+    if (partitionId == 0) {
+      return asyncGetHotVideoAPI(page: page, pageSize: pageSize);
+    }
+
+    // 分区接口不支持分页，只在第一页时请求数据
+    // 后续页返回空列表表示没有更多数据
+    if (page > 1) {
+      return [];
+    }
+
+    final url = Uri.parse(
+      '$baseUrl/api/v1/video/getVideoListByPartition?partitionId=$partitionId&size=$pageSize',
+    );
+
+    try {
+      LoggerService.instance.logDebug('🌐 按分区获取视频: partitionId=$partitionId, size=$pageSize');
+
+      final response = await http.get(url);
+
+      LoggerService.instance.logDebug('📡 响应状态码: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        try {
+          final jsonData = json.decode(response.body) as Map<String, dynamic>;
+          LoggerService.instance.logDebug('✅ JSON解析成功，code: ${jsonData['code']}');
+
+          final apiResponse = ApiResponse.fromJson(jsonData);
+
+          if (apiResponse.isSuccess && apiResponse.data != null) {
+            LoggerService.instance.logDebug('🎬 获取到 ${apiResponse.data!.videos.length} 个视频');
+            return apiResponse.data!.videos;
+          } else {
+            final error = Exception('API返回错误: ${apiResponse.msg}');
+            await LoggerService.instance.logApiError(
+              apiName: 'getVideoByPartition',
+              url: url.toString(),
+              statusCode: 200,
+              responseBody: response.body,
+              error: error,
+              requestParams: {'partitionId': partitionId, 'page': page, 'pageSize': pageSize},
+            );
+            throw error;
+          }
+        } catch (e, stackTrace) {
+          await LoggerService.instance.logApiError(
+            apiName: 'getVideoByPartition',
+            url: url.toString(),
+            statusCode: 200,
+            responseBody: response.body,
+            error: e,
+            stackTrace: stackTrace,
+            requestParams: {'partitionId': partitionId, 'page': page, 'pageSize': pageSize},
+          );
+          rethrow;
+        }
+      } else {
+        final error = Exception('HTTP错误: ${response.statusCode}');
+        await LoggerService.instance.logApiError(
+          apiName: 'getVideoByPartition',
+          url: url.toString(),
+          statusCode: response.statusCode,
+          responseBody: response.body,
+          error: error,
+          requestParams: {'partitionId': partitionId, 'page': page, 'pageSize': pageSize},
+        );
+        throw error;
+      }
+    } catch (e, stackTrace) {
+      await LoggerService.instance.logApiError(
+        apiName: 'getVideoByPartition',
+        url: url.toString(),
+        error: e,
+        stackTrace: stackTrace,
+        requestParams: {'partitionId': partitionId, 'page': page, 'pageSize': pageSize},
+      );
+      rethrow;
+    }
+  }
+
   // 搜索视频
   static Future<List<VideoApiModel>> searchVideo({
     required String keywords,

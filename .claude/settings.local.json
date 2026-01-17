@@ -49,7 +49,8 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Bash(taskkill:*)",
-      "Bash(if exist .gradle rmdir /s /q .gradle)"
+      "Bash(if exist .gradle rmdir /s /q .gradle)",
+      "Read(//e/**)"
     ],
     "deny": [],
     "ask": []

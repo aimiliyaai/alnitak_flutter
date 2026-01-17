@@ -88,6 +88,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   final GlobalKey _speedButtonKey = GlobalKey();
   double? _speedPanelRight;
 
+  // ============ 播放状态订阅 ============
+  StreamSubscription<bool>? _playingSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -104,14 +107,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       CurvedAnimation(parent: _titleScrollController, curve: Curves.easeInOut),
     );
 
-    // 【新增】监听播放完成事件，播放结束后显示UI
-    widget.logic.player.stream.completed.listen((completed) {
-      if (completed && mounted) {
-        setState(() {
-          _showControls = true;
-        });
-        // 取消隐藏计时器，确保控件在播放结束时保持可见
-        _hideTimer?.cancel();
+    // 监听播放状态变化，当视频开始播放且控制UI显示时，启动自动隐藏计时器
+    _playingSubscription = widget.controller.player.stream.playing.listen((isPlaying) {
+      if (isPlaying && _showControls && mounted) {
+        _startHideTimer();
       }
     });
   }
@@ -160,6 +159,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _playingSubscription?.cancel();
     _titleScrollController.dispose();
     super.dispose();
   }
@@ -168,7 +168,13 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
   void _startHideTimer() {
     _hideTimer?.cancel();
-    if (_isLocked) return; 
+    if (_isLocked) return;
+
+    // 只有在视频正在播放时才自动隐藏控制UI
+    // 暂停或播放结束时不自动隐藏
+    final isPlaying = widget.controller.player.state.playing;
+    final isCompleted = widget.controller.player.state.completed;
+    if (!isPlaying || isCompleted) return;
 
     _hideTimer = Timer(const Duration(seconds: 4), () {
       if (mounted) setState(() => _showControls = false);
@@ -530,21 +536,34 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       ),
                     ),
 
-                  // 4. 控制 UI
-                  IgnorePointer(
-                    ignoring: !_showControls, 
-                    child: AnimatedOpacity(
-                      opacity: _showControls ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 300),
-                      child: Stack(
-                        children: [
-                          if (!_isLocked) _buildTopBar(),
-                          if (!_isLocked) _buildLockButton(),
-                          if (!_isLocked) _buildCenterPlayButton(),
-                          if (!_isLocked) _buildBottomBar(),
-                        ],
-                      ),
-                    ),
+                  // 4. 控制 UI - 播放结束时只显示重播按钮
+                  StreamBuilder<bool>(
+                    stream: widget.controller.player.stream.completed,
+                    builder: (context, completedSnapshot) {
+                      final isCompleted = completedSnapshot.data ?? widget.controller.player.state.completed;
+
+                      // 播放结束时只显示重播按钮
+                      if (isCompleted) {
+                        return Center(child: _buildCenterPlayButton());
+                      }
+
+                      // 正常播放时显示完整控制UI
+                      return IgnorePointer(
+                        ignoring: !_showControls,
+                        child: AnimatedOpacity(
+                          opacity: _showControls ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 300),
+                          child: Stack(
+                            children: [
+                              if (!_isLocked) _buildTopBar(),
+                              if (!_isLocked) _buildLockButton(),
+                              if (!_isLocked) _buildCenterPlayButton(),
+                              if (!_isLocked) _buildBottomBar(),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
 
                   // 5. 清晰度加载 (透明度0.5)
@@ -876,19 +895,31 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         return Center(
           child: StreamBuilder<bool>(
             stream: widget.controller.player.stream.playing,
-            builder: (context, snapshot) {
-              final playing = snapshot.data ?? widget.controller.player.state.playing;
+            builder: (context, playingSnapshot) {
+              final playing = playingSnapshot.data ?? widget.controller.player.state.playing;
               if (playing) return const SizedBox.shrink();
 
-              return IconButton(
-                iconSize: 64,
-                icon: Icon(
-                  Icons.play_circle_fill,
-                  color: Colors.white.withValues(alpha: 0.9),
-                ),
-                onPressed: () {
-                  widget.controller.player.play();
-                  _startHideTimer();
+              // 监听播放完成状态
+              return StreamBuilder<bool>(
+                stream: widget.controller.player.stream.completed,
+                builder: (context, completedSnapshot) {
+                  final completed = completedSnapshot.data ?? widget.controller.player.state.completed;
+
+                  return IconButton(
+                    iconSize: 64,
+                    icon: Icon(
+                      completed ? Icons.replay_circle_filled : Icons.play_circle_fill,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                    onPressed: () {
+                      if (completed) {
+                        // 播放结束时，先 seek 到开头再播放
+                        widget.logic.seek(Duration.zero);
+                      }
+                      widget.controller.player.play();
+                      _startHideTimer();
+                    },
+                  );
                 },
               );
             },
