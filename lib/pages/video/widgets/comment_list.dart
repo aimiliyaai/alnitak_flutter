@@ -715,7 +715,7 @@ class _CommentItem extends StatelessWidget {
                             TextSpan(
                               text: '@${comment.replyUserName} ',
                               style: TextStyle(
-                                color: Theme.of(context).primaryColor,
+                                color: colors.accentColor,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -830,6 +830,7 @@ class _CommentItem extends StatelessWidget {
                         children: [
                           ...replies!.map((reply) => _ReplyItem(
                                 reply: reply,
+                                rootUid: comment.uid,
                                 onReply: () => onReplyToReply(reply),
                                 onDelete: () => onDeleteReply(reply.id),
                                 formatTime: formatTime,
@@ -870,6 +871,7 @@ class _CommentItem extends StatelessWidget {
 /// 回复项组件
 class _ReplyItem extends StatelessWidget {
   final Comment reply;
+  final int rootUid;
   final VoidCallback onReply;
   final VoidCallback onDelete;
   final String Function(DateTime) formatTime;
@@ -878,6 +880,7 @@ class _ReplyItem extends StatelessWidget {
 
   const _ReplyItem({
     required this.reply,
+    required this.rootUid,
     required this.onReply,
     required this.onDelete,
     required this.formatTime,
@@ -953,11 +956,13 @@ class _ReplyItem extends StatelessWidget {
                   text: TextSpan(
                     style: TextStyle(fontSize: 13, color: colors.textPrimary),
                     children: [
-                      if (reply.replyUserName != null && reply.replyUserName!.isNotEmpty)
+                      if (reply.replyUserName != null &&
+                          reply.replyUserName!.isNotEmpty &&
+                          reply.replyUserId != rootUid)
                         TextSpan(
                           text: '@${reply.replyUserName} ',
                           style: TextStyle(
-                            color: Theme.of(context).primaryColor,
+                            color: colors.accentColor,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
