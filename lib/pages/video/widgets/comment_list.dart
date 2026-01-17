@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
-import '../../../models/user_model.dart';
+///import '../../../models/user_model.dart';
 import '../../../services/video_service.dart';
 import '../../../services/user_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
 import '../../../utils/timestamp_parser.dart';
+import '../../../utils/auth_state_manager.dart';
 import '../../../theme/theme_extensions.dart';
+import '../../../utils/image_utils.dart';
 import '../../user/user_space_page.dart';
 
 /// 评论列表组件 - 优化输入体验
@@ -29,7 +31,8 @@ class CommentListContent extends StatefulWidget {
   final int vid;
   final ScrollController? scrollController; // 可选的 ScrollController
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
-  final VoidCallback? onCommentPosted; // 评论发送成功后的回调
+  final VoidCallback? onCommentPosted; // 评论发送或删除成功后的回调
+  final void Function(int count)? onTotalCommentsChanged; // 评论总数变化回调
 
   const CommentListContent({
     super.key,
@@ -37,6 +40,7 @@ class CommentListContent extends StatefulWidget {
     this.scrollController,
     this.onSeek,
     this.onCommentPosted,
+    this.onTotalCommentsChanged,
   });
 
   @override
@@ -53,6 +57,7 @@ class _CommentListState extends State<CommentList> {
 class _CommentListContentState extends State<CommentListContent> {
   final VideoService _videoService = VideoService();
   final UserService _userService = UserService();
+  final AuthStateManager _authStateManager = AuthStateManager();
   late final ScrollController _scrollController;
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
@@ -84,6 +89,7 @@ class _CommentListContentState extends State<CommentListContent> {
     _loadCurrentUserInfo();
     _loadComments();
     _scrollController.addListener(_onScroll);
+    _authStateManager.addListener(_onAuthStateChanged);
 
     // 监听焦点变化
     _commentFocusNode.addListener(_onFocusChange);
@@ -105,8 +111,23 @@ class _CommentListContentState extends State<CommentListContent> {
     }
   }
 
+  void _onAuthStateChanged() {
+    _loadCurrentUserInfo();
+  }
+
   /// 加载当前登录用户信息
   Future<void> _loadCurrentUserInfo() async {
+    final isLoggedIn = await LoginGuard.isLoggedInAsync();
+    if (!isLoggedIn) {
+      if (mounted) {
+        setState(() {
+          _currentUserId = null;
+          _currentUserAvatar = null;
+        });
+      }
+      return;
+    }
+
     try {
       final userInfo = await _userService.getUserInfo();
       if (userInfo != null && mounted) {
@@ -125,6 +146,7 @@ class _CommentListContentState extends State<CommentListContent> {
     if (widget.scrollController == null) {
       _scrollController.dispose();
     }
+    _authStateManager.removeListener(_onAuthStateChanged);
     _commentController.dispose();
     _commentFocusNode.dispose();
     super.dispose();
@@ -165,6 +187,8 @@ class _CommentListContentState extends State<CommentListContent> {
           _hasMore = response.hasMore;
           _isLoading = false;
         });
+        // 通知外部评论总数变化
+        widget.onTotalCommentsChanged?.call(response.total);
       } else {
         setState(() {
           _isLoading = false;
@@ -322,17 +346,14 @@ class _CommentListContentState extends State<CommentListContent> {
 
     if (confirmed != true) return;
 
-    setState(() {
-      _isLoading = true;
-    });
-
     try {
       final success = await _videoService.deleteComment(commentId);
 
       if (success) {
-        _currentPage = 1;
-        _comments.clear();
-        await _loadComments();
+        // 删除成功后刷新列表
+        await _loadComments(refresh: true);
+        // 通知外部刷新（复用 onCommentPosted 回调，用于更新预览区）
+        widget.onCommentPosted?.call();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('删除成功')),
@@ -352,10 +373,6 @@ class _CommentListContentState extends State<CommentListContent> {
           SnackBar(content: Text('删除评论失败: $e')),
         );
       }
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -526,7 +543,7 @@ class _CommentListContentState extends State<CommentListContent> {
                 // 当前登录用户头像
                 _currentUserAvatar != null && _currentUserAvatar!.isNotEmpty
                     ? CachedCircleAvatar(
-                        imageUrl: _currentUserAvatar!,
+                        imageUrl: ImageUtils.getFullImageUrl(_currentUserAvatar!),
                         radius: 20,
                         cacheKey: 'current_user_avatar_$_currentUserId',
                       )
@@ -646,7 +663,7 @@ class _CommentItem extends StatelessWidget {
                 onTap: () => _navigateToUserSpace(context, comment.uid),
                 child: comment.avatar.isNotEmpty
                     ? CachedCircleAvatar(
-                        imageUrl: comment.avatar,
+                        imageUrl: ImageUtils.getFullImageUrl(comment.avatar),
                         radius: 20,
                         cacheKey: 'user_avatar_${comment.uid}',
                       )
@@ -891,7 +908,7 @@ class _ReplyItem extends StatelessWidget {
             onTap: () => _navigateToUserSpace(context, reply.uid),
             child: reply.avatar.isNotEmpty
                 ? CachedCircleAvatar(
-                    imageUrl: reply.avatar,
+                    imageUrl: ImageUtils.getFullImageUrl(reply.avatar),
                     radius: 16,
                     cacheKey: 'user_avatar_${reply.uid}',
                   )

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/comment.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/timestamp_parser.dart';
+import '../../../utils/image_utils.dart';
 import 'comment_list.dart';
 
 /// 评论预览卡片 - 参考 YouTube 设计
@@ -62,7 +63,7 @@ class CommentPreviewCard extends StatelessWidget {
                   // 评论者头像
                   latestComment!.avatar.isNotEmpty
                       ? CachedCircleAvatar(
-                          imageUrl: latestComment!.avatar,
+                          imageUrl: ImageUtils.getFullImageUrl(latestComment!.avatar),
                           radius: 20,
                         )
                       : CircleAvatar(
@@ -175,6 +176,14 @@ class CommentPanel extends StatefulWidget {
 }
 
 class _CommentPanelState extends State<CommentPanel> {
+  late int _currentTotalComments;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentTotalComments = widget.totalComments;
+  }
+
   @override
   Widget build(BuildContext context) {
     // 计算面板高度，确保不挡住播放器
@@ -220,7 +229,7 @@ class _CommentPanelState extends State<CommentPanel> {
                     const SizedBox(width: 16),
                     // 评论数标题
                     Text(
-                      '评论 ${widget.totalComments}',
+                      '评论 $_currentTotalComments',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -248,6 +257,13 @@ class _CommentPanelState extends State<CommentPanel> {
                     widget.onSeek?.call(seconds);
                   },
                   onCommentPosted: widget.onCommentPosted,
+                  onTotalCommentsChanged: (count) {
+                    if (mounted && count != _currentTotalComments) {
+                      setState(() {
+                        _currentTotalComments = count;
+                      });
+                    }
+                  },
                 ),
               ),
             ],
@@ -257,5 +273,3 @@ class _CommentPanelState extends State<CommentPanel> {
     );
   }
 }
-
-
