@@ -16,15 +16,15 @@ class RecommendList extends StatefulWidget {
   });
 
   @override
-  State<RecommendList> createState() => _RecommendListState();
+  State<RecommendList> createState() => RecommendListState();
 }
 
-class _RecommendListState extends State<RecommendList> {
+class RecommendListState extends State<RecommendList> {
   final VideoService _videoService = VideoService();
   List<Map<String, dynamic>> _recommendVideos = [];
   bool _isLoading = true;
   bool _autoNext = false;
-  int _currentPlayIndex = 0;
+  int _currentPlayIndex = -1; // -1 表示还没有开始播放推荐列表中的视频
 
   @override
   void initState() {
@@ -75,9 +75,12 @@ class _RecommendListState extends State<RecommendList> {
   /// 获取下一个视频
   int? getNextVideo() {
     if (!_autoNext || _recommendVideos.isEmpty) return null;
-    if (_currentPlayIndex < _recommendVideos.length - 1) {
-      _currentPlayIndex++;
-      return _recommendVideos[_currentPlayIndex]['vid'];
+    // _currentPlayIndex 为 -1 表示还没开始播放推荐视频，此时返回第一个
+    // 否则返回下一个视频
+    final nextIndex = _currentPlayIndex + 1;
+    if (nextIndex < _recommendVideos.length) {
+      _currentPlayIndex = nextIndex;
+      return _recommendVideos[nextIndex]['vid'];
     }
     return null;
   }

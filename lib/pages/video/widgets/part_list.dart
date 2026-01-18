@@ -17,12 +17,15 @@ class PartList extends StatefulWidget {
   });
 
   @override
-  State<PartList> createState() => _PartListState();
+  State<PartList> createState() => PartListState();
 }
 
-class _PartListState extends State<PartList> {
+class PartListState extends State<PartList> {
   bool _showTitleMode = true; // true: 显示标题, false: 显示数字网格
   bool _autoNext = true; // 自动连播下一集
+
+  /// 是否开启自动连播
+  bool get autoNext => _autoNext;
 
   @override
   void initState() {

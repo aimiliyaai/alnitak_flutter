@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' as foundation;
 import '../../../models/comment.dart';
-///import '../../../models/user_model.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../../../services/video_service.dart';
 import '../../../services/user_service.dart';
 import '../../../widgets/cached_image_widget.dart';
@@ -62,6 +63,7 @@ class _CommentListContentState extends State<CommentListContent> {
   final TextEditingController _commentController = TextEditingController();
   final FocusNode _commentFocusNode = FocusNode();
 
+  bool _showEmojiPicker = false;
   final List<Comment> _comments = [];
   bool _isLoading = false;
   bool _hasMore = true;
@@ -295,10 +297,14 @@ class _CommentListContentState extends State<CommentListContent> {
     }
 
     if (success) {
+      // 先保存回复上下文，用于刷新回复列表
+      final parentCommentId = _replyToParentComment?.id ?? _replyToComment?.id;
+
       _commentController.clear();
       setState(() {
         _replyToComment = null;
         _replyToParentComment = null;
+        _showEmojiPicker = false; // 关闭表情选择器
       });
       _commentFocusNode.unfocus();
 
@@ -306,6 +312,11 @@ class _CommentListContentState extends State<CommentListContent> {
       _currentPage = 1;
       _comments.clear();
       await _loadComments();
+
+      // 如果是回复评论，刷新该评论的回复列表
+      if (parentCommentId != null) {
+        _loadReplies(parentCommentId);
+      }
 
       // 通知外部评论已发送成功
       widget.onCommentPosted?.call();
@@ -381,6 +392,14 @@ class _CommentListContentState extends State<CommentListContent> {
     setState(() {
       _replyToComment = comment;
       _replyToParentComment = parentComment;
+      // 如果是回复二级评论，自动添加 @用户名 前缀
+      if (parentComment != null) {
+        _commentController.text = '@${comment.username} ';
+        // 将光标移动到文本末尾
+        _commentController.selection = TextSelection.fromPosition(
+          TextPosition(offset: _commentController.text.length),
+        );
+      }
     });
     _commentFocusNode.requestFocus();
   }
@@ -420,6 +439,10 @@ class _CommentListContentState extends State<CommentListContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 展开的评论
+        SizedBox(
+          height: 1,
+        ),
         // 评论输入框（置顶）
         _buildInputArea(),
 
@@ -492,12 +515,25 @@ class _CommentListContentState extends State<CommentListContent> {
     );
   }
 
+
+
+
+
   /// 构建输入区域（置顶）
   Widget _buildInputArea() {
     final colors = context.colors;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
+          // 评论背景色
+          // gradient: LinearGradient(
+          //   begin: Alignment.topCenter,
+          //   end: Alignment.bottomCenter,
+          //   colors: [
+          //     Colors.white.withOpacity(0.3),
+          //     Colors.grey.withOpacity(0.3),
+          //   ],
+          // ),
         color: colors.card,
         border: Border(
           bottom: BorderSide(color: colors.border, width: 0.5),
@@ -581,6 +617,35 @@ class _CommentListContentState extends State<CommentListContent> {
                     onSubmitted: (_) => _submitComment(),
                   ),
                 ),
+                // 表情选择按钮
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _showEmojiPicker = !_showEmojiPicker;
+                    });
+                    //  if (_showEmojiPicker) {
+                    //   FocusScope.of(context).unfocus();
+                    // } else {
+                    //   _commentFocusNode.requestFocus();
+                    // }
+                  },
+                  icon: Icon(
+                    Icons.emoji_emotions,
+                    color: _showEmojiPicker ? colors.accentColor : colors.iconSecondary,
+                  ),
+                ),
+                // const SizedBox(width: 8),
+
+                // // 发送按钮
+                // Container(
+                //   decoration: BoxDecoration(
+                //     color: colors.accentColor,
+                //     shape: BoxShape.circle,
+                //   ),
+                //   child: IconButton(
+                //     icon: const Icon(Icons.send, size: 20),
+                //     onPressed: _submitComment,
+                //     color: Colors.white,
                 const SizedBox(width: 8),
 
                 // 发送按钮
@@ -599,12 +664,59 @@ class _CommentListContentState extends State<CommentListContent> {
                 ),
               ],
             ),
+
+            // 表情选择器
+            Offstage(
+              offstage: !_showEmojiPicker,
+              child: SizedBox(
+                height: 250,
+                child: EmojiPicker(
+                  textEditingController: _commentController,
+                  config: Config(
+                    height: 250,
+                    checkPlatformCompatibility: true,
+                    emojiViewConfig: EmojiViewConfig(
+                      columns: 8,
+                      // iOS 上需要调整 emoji 大小以避免显示问题
+                      emojiSizeMax: 28 * (foundation.defaultTargetPlatform == foundation.TargetPlatform.iOS ? 1.2 : 1.0),
+                      backgroundColor: colors.card,
+                      // 无最近使用记录时的提示（中文 + 深浅色适配）
+                      noRecents: Text(
+                        '暂无最近使用的表情',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: colors.textSecondary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    categoryViewConfig: CategoryViewConfig(
+                      backgroundColor: colors.card,
+                      indicatorColor: colors.accentColor,
+                      iconColorSelected: colors.accentColor,
+                      iconColor: colors.iconSecondary, // 未选中图标颜色适配
+                    ),
+                    bottomActionBarConfig: const BottomActionBarConfig(
+                      enabled: false, // 隐藏底部操作栏
+                    ),
+                    searchViewConfig: SearchViewConfig(
+                      backgroundColor: colors.card,
+                      buttonIconColor: colors.iconSecondary,
+                      hintText: '搜索表情', // 搜索提示语中文
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
+
+
         ),
       ),
     );
-  }
 }
+}
+
 
 /// 评论项组件
 class _CommentItem extends StatelessWidget {
@@ -612,6 +724,7 @@ class _CommentItem extends StatelessWidget {
   final VoidCallback onToggleReplies;
   final VoidCallback onReply;
   final Function(Comment) onReplyToReply; // 回复二级评论
+  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
   final VoidCallback onDelete;
   final Function(int) onDeleteReply;
   final bool showReplies;
@@ -619,12 +732,11 @@ class _CommentItem extends StatelessWidget {
   final bool isLoadingReplies;
   final String Function(DateTime) formatTime;
   final int? currentUserId;
-  final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const _CommentItem({
     required this.comment,
     required this.onToggleReplies,
-    required this.onReply,
+      required this.onReply,
     required this.onReplyToReply,
     required this.onDelete,
     required this.onDeleteReply,
@@ -638,7 +750,7 @@ class _CommentItem extends StatelessWidget {
 
   bool get isOwnComment => currentUserId != null && comment.uid == currentUserId;
 
-  void _navigateToUserSpace(BuildContext context, int uid) {
+ void _navigateToUserSpace(BuildContext context, int uid) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -738,6 +850,7 @@ class _CommentItem extends StatelessWidget {
                     // 操作按钮
                     Row(
                       children: [
+
                         // 回复按钮
                         InkWell(
                           onTap: onReply,
@@ -759,6 +872,7 @@ class _CommentItem extends StatelessWidget {
                             ],
                           ),
                         ),
+
                         const SizedBox(width: 16),
 
                         // 查看回复按钮
@@ -808,7 +922,9 @@ class _CommentItem extends StatelessWidget {
                             ),
                           ),
                       ],
+
                     ),
+
                   ],
                 ),
               ),
@@ -868,10 +984,14 @@ class _CommentItem extends StatelessWidget {
   }
 }
 
+
+
+
+
 /// 回复项组件
 class _ReplyItem extends StatelessWidget {
   final Comment reply;
-  final int rootUid;
+ final int rootUid;
   final VoidCallback onReply;
   final VoidCallback onDelete;
   final String Function(DateTime) formatTime;
@@ -888,7 +1008,9 @@ class _ReplyItem extends StatelessWidget {
     this.onSeek,
   });
 
+
   bool get isOwnReply => currentUserId != null && reply.uid == currentUserId;
+
 
   void _navigateToUserSpace(BuildContext context, int uid) {
     Navigator.push(
@@ -900,6 +1022,7 @@ class _ReplyItem extends StatelessWidget {
   }
 
   @override
+
   Widget build(BuildContext context) {
     final colors = context.colors;
     return Padding(
@@ -909,7 +1032,7 @@ class _ReplyItem extends StatelessWidget {
         children: [
           GestureDetector(
             onTap: () => _navigateToUserSpace(context, reply.uid),
-            child: reply.avatar.isNotEmpty
+            child:  reply.avatar.isNotEmpty
                 ? CachedCircleAvatar(
                     imageUrl: ImageUtils.getFullImageUrl(reply.avatar),
                     radius: 16,

@@ -70,6 +70,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   int _totalComments = 0;
   Comment? _latestComment;
 
+  // 【新增】分集列表和推荐列表的 GlobalKey，用于自动连播
+  final GlobalKey<PartListState> _partListKey = GlobalKey<PartListState>();
+  final GlobalKey<RecommendListState> _recommendListKey = GlobalKey<RecommendListState>();
+
   @override
   void initState() {
     super.initState();
@@ -672,7 +676,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
-  /// 播放结束回调（仅用于上报播放完成，不处理自动播放逻辑）
+  /// 播放结束回调
   void _onVideoEnded() {
     // 避免重复上报
     if (_hasReportedCompleted) {
@@ -691,9 +695,24 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
     _hasReportedCompleted = true; // 标记为已上报
 
-    // 注意：自动播放逻辑现在由播放器的循环模式控制
-    // 当循环模式为"列表循环"时，播放器会通过 onPartChange 回调来切换分P
-    print('✅ 播放完成上报结束');
+    // 【自动连播逻辑】
+    // 1. 优先检查合集自动连播（下一集）
+    final nextPart = _partListKey.currentState?.getNextPart();
+    if (nextPart != null) {
+      print('🔄 合集自动连播: 切换到第 $nextPart 集');
+      _changePart(nextPart);
+      return;
+    }
+
+    // 2. 如果没有下一集，检查推荐列表自动连播
+    final nextVideo = _recommendListKey.currentState?.getNextVideo();
+    if (nextVideo != null) {
+      print('🔄 推荐列表自动连播: 切换到视频 $nextVideo');
+      _switchToVideo(nextVideo);
+      return;
+    }
+
+    print('✅ 播放完成，无自动连播');
   }
 
 ///头部
@@ -861,6 +880,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               // 分P列表（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 PartList(
+                  key: _partListKey,
                   resources: _videoDetail!.resources,
                   currentPart: _currentPart,
                   onPartChange: _changePart,
@@ -884,6 +904,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               // 推荐视频（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 RecommendList(
+                  key: _recommendListKey,
                   vid: _currentVid,
                   onVideoTap: _switchToVideo,
                 ),
@@ -921,6 +942,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             // 分P列表
             if (_videoDetail!.resources.length > 1)
               PartList(
+                key: _partListKey,
                 resources: _videoDetail!.resources,
                 currentPart: _currentPart,
                 onPartChange: _changePart,
@@ -930,6 +952,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
             // 推荐视频
             RecommendList(
+              key: _recommendListKey,
               vid: _currentVid,
               onVideoTap: _switchToVideo,
             ),

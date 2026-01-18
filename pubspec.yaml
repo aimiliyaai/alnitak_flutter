@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.9.2
+  sdk: '>=3.0.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -73,6 +73,7 @@ dependencies:
   file_picker: ^10.3.7  # 检查最新版本
   # 二维码生成
   qr_flutter: ^4.1.0
+  emoji_picker_flutter: ^3.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

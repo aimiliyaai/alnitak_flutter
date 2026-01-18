@@ -3,6 +3,7 @@ import '../../../models/comment.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/timestamp_parser.dart';
 import '../../../utils/image_utils.dart';
+import '../../../theme/theme_extensions.dart';
 import 'comment_list.dart';
 
 /// 评论预览卡片 - 参考 YouTube 设计
@@ -25,12 +26,14 @@ class CommentPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return InkWell(
       onTap: () => _showCommentPanel(context),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
+          color: colors.card,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -41,16 +44,17 @@ class CommentPreviewCard extends StatelessWidget {
               children: [
                 Text(
                   '评论 $totalComments',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
                   ),
                 ),
                 const Spacer(),
                 Icon(
                   Icons.arrow_forward_ios,
                   size: 16,
-                  color: Colors.grey[600],
+                  color: colors.iconSecondary,
                 ),
               ],
             ),
@@ -68,8 +72,8 @@ class CommentPreviewCard extends StatelessWidget {
                         )
                       : CircleAvatar(
                           radius: 20,
-                          backgroundColor: Colors.grey[200],
-                          child: const Icon(Icons.person, size: 20),
+                          backgroundColor: colors.surfaceVariant,
+                          child: Icon(Icons.person, size: 20, color: colors.iconSecondary),
                         ),
                   const SizedBox(width: 12),
                   // 评论内容
@@ -80,9 +84,10 @@ class CommentPreviewCard extends StatelessWidget {
                         // 用户名
                         Text(
                           latestComment!.username,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
+                            color: colors.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -95,11 +100,11 @@ class CommentPreviewCard extends StatelessWidget {
                               text: latestComment!.content,
                               defaultStyle: TextStyle(
                                 fontSize: 13,
-                                color: Colors.grey[800],
+                                color: colors.textSecondary,
                               ),
-                              timestampStyle: const TextStyle(
+                              timestampStyle: TextStyle(
                                 fontSize: 13,
-                                color: Colors.blue,
+                                color: colors.accentColor,
                                 fontWeight: FontWeight.w500,
                               ),
                               onTimestampTap: onSeek,
@@ -119,14 +124,14 @@ class CommentPreviewCard extends StatelessWidget {
                   Icon(
                     Icons.comment_outlined,
                     size: 20,
-                    color: Colors.grey[400],
+                    color: colors.iconSecondary,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     '暂无评论，来抢个沙发吧',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.grey[600],
+                      color: colors.textSecondary,
                     ),
                   ),
                 ],
@@ -186,12 +191,14 @@ class _CommentPanelState extends State<CommentPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     // 计算面板高度，确保不挡住播放器
     final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
     final playerHeight = screenWidth * 9 / 16; // 播放器高度（16:9）
     final availableHeight = screenHeight - playerHeight; // 可用高度
-    
+
     // 计算初始大小和最大大小（基于可用高度）
     final initialSize = (availableHeight * 0.7) / screenHeight; // 初始占用屏幕的70%
     final minSize = (availableHeight * 0.4) / screenHeight; // 最小40%
@@ -204,7 +211,7 @@ class _CommentPanelState extends State<CommentPanel> {
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
+            color: colors.background,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(16),
               topRight: Radius.circular(16),
@@ -222,7 +229,7 @@ class _CommentPanelState extends State<CommentPanel> {
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: colors.divider,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -230,22 +237,23 @@ class _CommentPanelState extends State<CommentPanel> {
                     // 评论数标题
                     Text(
                       '评论 $_currentTotalComments',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
                       ),
                     ),
                     const Spacer(),
                     // 关闭按钮
                     IconButton(
-                      icon: const Icon(Icons.close),
+                      icon: Icon(Icons.close, color: colors.iconPrimary),
                       onPressed: () => Navigator.pop(context),
                       iconSize: 24,
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              Divider(height: 1, color: colors.divider),
               // 评论列表内容（包含头部和输入框）
               Expanded(
                 child: CommentListContent(

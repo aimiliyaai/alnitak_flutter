@@ -4,26 +4,119 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 
 /// 上传API服务 - 参考PC端实现
+///
+/// Token 刷新机制说明：
+/// - 使用 TokenManager 统一管理 token
+/// - 当请求返回 code=3000 时自动刷新 token 并重试
+/// - 所有涉及认证的请求都会自动处理 token 过期问题
 class UploadApiService {
   static String get baseUrl => HttpClient().dio.options.baseUrl;
 
-  /// 获取认证 token
-  static Future<String?> _getAuthToken() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString('auth_token');
-    } catch (e) {
-      print('⚠️ 获取 token 失败: $e');
-      return null;
+  /// 获取认证 token（统一使用 TokenManager）
+  static String? _getAuthToken() {
+    return TokenManager().token;
+  }
+
+  /// 刷新 token 并返回新 token
+  static Future<String?> _refreshToken() async {
+    return await HttpClient().refreshToken();
+  }
+
+  /// 发送带 token 刷新机制的 POST 请求
+  /// 当收到 code=3000 时自动刷新 token 并重试一次
+  static Future<Map<String, dynamic>> _postWithTokenRefresh({
+    required String endpoint,
+    required Map<String, dynamic> body,
+    bool isRetry = false,
+  }) async {
+    final url = Uri.parse('$baseUrl$endpoint');
+    var token = _getAuthToken();
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    if (token != null) {
+      headers['Authorization'] = token;
+    }
+
+    final response = await http.post(
+      url,
+      headers: headers,
+      body: json.encode(body),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      // 检测 token 过期 (code=3000)，自动刷新重试
+      if (data['code'] == 3000 && !isRetry) {
+        print('🔄 检测到 Token 过期 (code=3000)，尝试刷新...');
+        final newToken = await _refreshToken();
+        if (newToken != null) {
+          print('✅ Token 刷新成功，重试请求...');
+          return _postWithTokenRefresh(
+            endpoint: endpoint,
+            body: body,
+            isRetry: true,
+          );
+        } else {
+          print('❌ Token 刷新失败');
+          throw Exception('登录已过期，请重新登录');
+        }
+      }
+
+      return data;
+    } else {
+      throw Exception('请求失败: ${response.statusCode}');
+    }
+  }
+
+  /// 发送带 token 刷新机制的 Multipart 请求（用于文件上传）
+  /// [buildRequest] 回调函数接收当前 token，返回构建好的 MultipartRequest
+  static Future<Map<String, dynamic>> _multipartWithTokenRefresh({
+    required String endpoint,
+    required Future<http.MultipartRequest> Function(String? token) buildRequest,
+    bool isRetry = false,
+  }) async {
+    var token = _getAuthToken();
+
+    final request = await buildRequest(token);
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      // 检测 token 过期 (code=3000)，自动刷新重试
+      if (data['code'] == 3000 && !isRetry) {
+        print('🔄 检测到 Token 过期 (code=3000)，尝试刷新...');
+        final newToken = await _refreshToken();
+        if (newToken != null) {
+          print('✅ Token 刷新成功，重试请求...');
+          return _multipartWithTokenRefresh(
+            endpoint: endpoint,
+            buildRequest: buildRequest,
+            isRetry: true,
+          );
+        } else {
+          print('❌ Token 刷新失败');
+          throw Exception('登录已过期，请重新登录');
+        }
+      }
+
+      return data;
+    } else {
+      throw Exception('请求失败: ${response.statusCode}, ${response.body}');
     }
   }
 
   /// 上传图片
-  /// 返回图片URL
+  /// 返回图片URL（带 token 刷新机制）
   static Future<String> uploadImage(File file) async {
     print('📤 ========== 开始上传封面图片 ==========');
     print('📁 文件路径: ${file.path}');
@@ -32,58 +125,40 @@ class UploadApiService {
     final fileSize = await file.length();
     print('📦 文件大小: ${(fileSize / 1024).toStringAsFixed(2)} KB');
 
-    final url = Uri.parse('$baseUrl/api/v1/upload/image');
-    print('🌐 请求URL: $url');
+    final data = await _multipartWithTokenRefresh(
+      endpoint: '/api/v1/upload/image',
+      buildRequest: (token) async {
+        final url = Uri.parse('$baseUrl/api/v1/upload/image');
+        final request = http.MultipartRequest('POST', url);
 
-    final token = await _getAuthToken();
-    print('🔑 Token: ${token != null ? "${token.substring(0, 20)}..." : "null"}');
+        // 添加 Authorization header
+        if (token != null) {
+          request.headers['Authorization'] = token;
+        }
 
-    final request = http.MultipartRequest('POST', url);
+        // 添加文件（参考PC端：字段名使用 "image"）
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'image',
+            file.path,
+            filename: path.basename(file.path),
+          ),
+        );
 
-    // 添加 Authorization header
-    if (token != null) {
-      request.headers['Authorization'] = token;
-    }
-    print('📋 请求头: ${request.headers}');
-
-    // 添加文件（参考PC端：字段名使用 "image"）
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        'image', // PC端使用 "image" 作为字段名
-        file.path,
-        filename: path.basename(file.path),
-      ),
+        return request;
+      },
     );
-    print('📎 添加文件到请求: field="image", filename="${path.basename(file.path)}"');
 
-    print('⏳ 发送请求...');
-    final streamedResponse = await request.send();
-    print('📡 响应状态码: ${streamedResponse.statusCode}');
-
-    final response = await http.Response.fromStream(streamedResponse);
-    print('📥 响应体长度: ${response.body.length} 字节');
-    print('📄 响应内容: ${response.body}');
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      print('✅ 解析JSON成功: $data');
-
-      if (data['code'] == 200) {
-        final imageUrl = data['data']['url'] as String;
-        print('✅ 图片上传成功！');
-        print('🖼️ 图片URL: $imageUrl');
-        print('📤 ========== 封面上传完成 ==========\n');
-        return imageUrl;
-      } else {
-        print('❌ 服务器返回错误: code=${data['code']}, msg=${data['msg']}');
-        print('📤 ========== 封面上传失败 ==========\n');
-        throw Exception(data['msg'] ?? '上传图片失败');
-      }
+    if (data['code'] == 200) {
+      final imageUrl = data['data']['url'] as String;
+      print('✅ 图片上传成功！');
+      print('🖼️ 图片URL: $imageUrl');
+      print('📤 ========== 封面上传完成 ==========\n');
+      return imageUrl;
     } else {
-      print('❌ HTTP请求失败: ${response.statusCode}');
-      print('📄 错误响应: ${response.body}');
+      print('❌ 服务器返回错误: code=${data['code']}, msg=${data['msg']}');
       print('📤 ========== 封面上传失败 ==========\n');
-      throw Exception('上传失败: ${response.statusCode}, ${response.body}');
+      throw Exception(data['msg'] ?? '上传图片失败');
     }
   }
 
@@ -199,42 +274,25 @@ class UploadApiService {
     return md5Hash;
   }
 
-  /// 检查已上传的分片
+  /// 检查已上传的分片（带 token 刷新机制）
   /// 返回 { chunks: 已上传分片列表, instantUpload: 是否可秒传 }
   static Future<Map<String, dynamic>> _checkUploadedChunks(String hash) async {
-    final url = Uri.parse('$baseUrl/api/v1/upload/checkVideo');
-    final token = await _getAuthToken();
-
-    final headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (token != null) {
-      headers['Authorization'] = token;
-    }
-
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: json.encode({'hash': hash}),
+    final data = await _postWithTokenRefresh(
+      endpoint: '/api/v1/upload/checkVideo',
+      body: {'hash': hash},
     );
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['code'] == 200) {
-        final chunks = data['data']['chunks'] as List<dynamic>?;
-        final chunkList = chunks?.map((e) => e as int).toList() ?? [];
+    if (data['code'] == 200) {
+      final chunks = data['data']['chunks'] as List<dynamic>?;
+      final chunkList = chunks?.map((e) => e as int).toList() ?? [];
 
-        // 后端返回 [-1] 表示文件已就绪，可以秒传
-        if (chunkList.length == 1 && chunkList[0] == -1) {
-          return {'chunks': <int>[], 'instantUpload': true};
-        }
-        return {'chunks': chunkList, 'instantUpload': false};
-      } else {
-        throw Exception(data['msg'] ?? '检查分片失败');
+      // 后端返回 [-1] 表示文件已就绪，可以秒传
+      if (chunkList.length == 1 && chunkList[0] == -1) {
+        return {'chunks': <int>[], 'instantUpload': true};
       }
+      return {'chunks': chunkList, 'instantUpload': false};
     } else {
-      throw Exception('请求失败: ${response.statusCode}');
+      throw Exception(data['msg'] ?? '检查分片失败');
     }
   }
 
@@ -306,7 +364,7 @@ class UploadApiService {
     }
   }
 
-  /// 上传单个分片
+  /// 上传单个分片（带 token 刷新机制）
   static Future<void> _uploadChunk({
     required File file,
     required String hash,
@@ -316,9 +374,6 @@ class UploadApiService {
     required int chunkSize,
     required int fileSize,
   }) async {
-    final url = Uri.parse('$baseUrl/api/v1/upload/chunkVideo');
-    final token = await _getAuthToken();
-
     final start = chunkIndex * chunkSize;
     final end = (start + chunkSize > fileSize) ? fileSize : start + chunkSize;
 
@@ -327,134 +382,84 @@ class UploadApiService {
     final chunkBytes = await randomAccessFile.read(end - start);
     await randomAccessFile.close();
 
-    final request = http.MultipartRequest('POST', url);
+    final data = await _multipartWithTokenRefresh(
+      endpoint: '/api/v1/upload/chunkVideo',
+      buildRequest: (token) async {
+        final url = Uri.parse('$baseUrl/api/v1/upload/chunkVideo');
+        final request = http.MultipartRequest('POST', url);
 
-    // 添加 Authorization header
-    if (token != null) {
-      request.headers['Authorization'] = token;
-    }
+        // 添加 Authorization header
+        if (token != null) {
+          request.headers['Authorization'] = token;
+        }
 
-    // 添加表单字段
-    request.fields['hash'] = hash;
-    request.fields['name'] = fileName; // 这里会使用我们传入的正确文件名 (screen-xxx.mp4)
-    request.fields['chunkIndex'] = chunkIndex.toString();
-    request.fields['totalChunks'] = totalChunks.toString();
+        // 添加表单字段
+        request.fields['hash'] = hash;
+        request.fields['name'] = fileName;
+        request.fields['chunkIndex'] = chunkIndex.toString();
+        request.fields['totalChunks'] = totalChunks.toString();
 
-    // 添加文件
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'video',
-        chunkBytes,
-        filename: 'chunk_$chunkIndex',
-      ),
+        // 添加文件
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'video',
+            chunkBytes,
+            filename: 'chunk_$chunkIndex',
+          ),
+        );
+
+        return request;
+      },
     );
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode != 200) {
-      throw Exception('分片上传失败 (chunk $chunkIndex): ${response.statusCode}');
-    }
-
-    final data = json.decode(response.body);
     if (data['code'] != 200) {
       throw Exception(data['msg'] ?? '分片上传失败 (chunk $chunkIndex)');
     }
   }
 
-  /// 合并分片
+  /// 合并分片（带 token 刷新机制）
   static Future<void> _mergeChunks(String hash) async {
-    final url = Uri.parse('$baseUrl/api/v1/upload/mergeVideo');
-    final token = await _getAuthToken();
-
-    final headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (token != null) {
-      headers['Authorization'] = token;
-    }
-
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: json.encode({'hash': hash}),
+    final data = await _postWithTokenRefresh(
+      endpoint: '/api/v1/upload/mergeVideo',
+      body: {'hash': hash},
     );
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['code'] != 200) {
-        throw Exception(data['msg'] ?? '合并分片失败');
-      }
-    } else {
-      throw Exception('合并失败: ${response.statusCode}');
+    if (data['code'] != 200) {
+      throw Exception(data['msg'] ?? '合并分片失败');
     }
   }
 
-  /// 获取视频信息
+  /// 获取视频信息（带 token 刷新机制）
   static Future<Map<String, dynamic>> _getVideoInfo(String hash, {required String title, int? vid}) async {
     final endpoint = vid != null ? '/api/v1/upload/video/$vid' : '/api/v1/upload/video';
-    final url = Uri.parse('$baseUrl$endpoint');
-    final token = await _getAuthToken();
 
     print('📡 获取视频信息: $endpoint');
     print('📝 视频标题: $title');
 
-    final headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (token != null) {
-      headers['Authorization'] = token;
-    }
-
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: json.encode({
+    final data = await _postWithTokenRefresh(
+      endpoint: endpoint,
+      body: {
         'hash': hash,
         'title': title,
-      }),
+      },
     );
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['code'] == 200) {
-        return data['data']['resource'] as Map<String, dynamic>;
-      } else {
-        throw Exception(data['msg'] ?? '获取视频信息失败');
-      }
+    if (data['code'] == 200) {
+      return data['data']['resource'] as Map<String, dynamic>;
     } else {
-      throw Exception('获取失败: ${response.statusCode}');
+      throw Exception(data['msg'] ?? '获取视频信息失败');
     }
   }
 
-  /// 删除视频资源
+  /// 删除视频资源（带 token 刷新机制）
   static Future<void> deleteVideoResource(int resourceId) async {
-    final url = Uri.parse('$baseUrl/api/v1/upload/video/resource/delete');
-    final token = await _getAuthToken();
-
-    final headers = {
-      'Content-Type': 'application/json',
-    };
-
-    if (token != null) {
-      headers['Authorization'] = token;
-    }
-
-    final response = await http.post(
-      url,
-      headers: headers,
-      body: json.encode({'id': resourceId}),
+    final data = await _postWithTokenRefresh(
+      endpoint: '/api/v1/upload/video/resource/delete',
+      body: {'id': resourceId},
     );
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      if (data['code'] != 200) {
-        throw Exception(data['msg'] ?? '删除视频资源失败');
-      }
-    } else {
-      throw Exception('删除失败: ${response.statusCode}');
+    if (data['code'] != 200) {
+      throw Exception(data['msg'] ?? '删除视频资源失败');
     }
   }
 }

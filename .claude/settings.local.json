@@ -50,7 +50,9 @@
       "Bash(grep:*)",
       "Bash(taskkill:*)",
       "Bash(if exist .gradle rmdir /s /q .gradle)",
-      "Read(//e/**)"
+      "Read(//e/**)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs"
     ],
     "deny": [],
     "ask": []
