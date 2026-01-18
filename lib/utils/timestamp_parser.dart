@@ -14,6 +14,12 @@ class TimestampParser {
     r'(\d{1,2})[：:](\d{2})(?:[：:](\d{2}))?',
   );
 
+  /// 匹配 @用户名 的正则表达式
+  /// 支持中文、英文、数字，用户名长度 1-20
+  static final RegExp _mentionRegex = RegExp(
+    r'@([\u4e00-\u9fa5a-zA-Z0-9]{1,20})',
+  );
+
   /// 解析时间戳字符串为秒数
   /// 返回 null 表示无效的时间戳
   static int? parseToSeconds(String timestamp) {
@@ -33,27 +39,71 @@ class TimestampParser {
     }
   }
 
-  /// 构建包含可点击时间戳的 TextSpan 列表
+  /// 构建包含可点击时间戳和@用户名的 TextSpan 列表
   /// [text] 原始文本
   /// [defaultStyle] 默认文本样式
   /// [timestampStyle] 时间戳文本样式
+  /// [mentionStyle] @用户名文本样式
   /// [onTimestampTap] 点击时间戳的回调，参数为秒数
+  /// [onMentionTap] 点击@用户名的回调，参数为用户名（不含@）
   static List<InlineSpan> buildTextSpans({
     required String text,
     required TextStyle defaultStyle,
     TextStyle? timestampStyle,
+    TextStyle? mentionStyle,
     void Function(int seconds)? onTimestampTap,
+    void Function(String username)? onMentionTap,
   }) {
     final spans = <InlineSpan>[];
     final effectiveTimestampStyle = timestampStyle ?? defaultStyle.copyWith(
       color: Colors.blue,
       fontWeight: FontWeight.w500,
     );
+    final effectiveMentionStyle = mentionStyle ?? defaultStyle.copyWith(
+      color: Colors.blue,
+      fontWeight: FontWeight.w500,
+    );
 
+    // 收集所有匹配项并按位置排序
+    final allMatches = <_MatchInfo>[];
+
+    // 收集时间戳匹配
+    for (final match in _timestampRegex.allMatches(text)) {
+      allMatches.add(_MatchInfo(
+        start: match.start,
+        end: match.end,
+        text: match.group(0)!,
+        type: _MatchType.timestamp,
+      ));
+    }
+
+    // 收集 @用户名 匹配
+    for (final match in _mentionRegex.allMatches(text)) {
+      allMatches.add(_MatchInfo(
+        start: match.start,
+        end: match.end,
+        text: match.group(0)!,
+        username: match.group(1),
+        type: _MatchType.mention,
+      ));
+    }
+
+    // 按起始位置排序
+    allMatches.sort((a, b) => a.start.compareTo(b.start));
+
+    // 移除重叠的匹配（保留先出现的）
+    final filteredMatches = <_MatchInfo>[];
     int lastEnd = 0;
-    final matches = _timestampRegex.allMatches(text);
+    for (final match in allMatches) {
+      if (match.start >= lastEnd) {
+        filteredMatches.add(match);
+        lastEnd = match.end;
+      }
+    }
 
-    for (final match in matches) {
+    // 构建 TextSpan
+    lastEnd = 0;
+    for (final match in filteredMatches) {
       // 添加匹配前的普通文本
       if (match.start > lastEnd) {
         spans.add(TextSpan(
@@ -62,23 +112,37 @@ class TimestampParser {
         ));
       }
 
-      // 添加时间戳（可点击）
-      final timestampText = match.group(0)!;
-      final seconds = parseToSeconds(timestampText);
-
-      if (seconds != null && onTimestampTap != null) {
-        spans.add(TextSpan(
-          text: timestampText,
-          style: effectiveTimestampStyle,
-          recognizer: TapGestureRecognizer()
-            ..onTap = () => onTimestampTap(seconds),
-        ));
-      } else {
-        // 无效时间戳或无回调，显示为普通文本
-        spans.add(TextSpan(
-          text: timestampText,
-          style: defaultStyle,
-        ));
+      // 根据匹配类型添加对应的 TextSpan
+      if (match.type == _MatchType.timestamp) {
+        final seconds = parseToSeconds(match.text);
+        if (seconds != null && onTimestampTap != null) {
+          spans.add(TextSpan(
+            text: match.text,
+            style: effectiveTimestampStyle,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => onTimestampTap(seconds),
+          ));
+        } else {
+          spans.add(TextSpan(
+            text: match.text,
+            style: defaultStyle,
+          ));
+        }
+      } else if (match.type == _MatchType.mention) {
+        if (onMentionTap != null && match.username != null) {
+          spans.add(TextSpan(
+            text: match.text,
+            style: effectiveMentionStyle,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => onMentionTap(match.username!),
+          ));
+        } else {
+          // 即使没有回调，@用户名也显示为蓝色高亮
+          spans.add(TextSpan(
+            text: match.text,
+            style: effectiveMentionStyle,
+          ));
+        }
       }
 
       lastEnd = match.end;
@@ -104,4 +168,32 @@ class TimestampParser {
   static bool containsTimestamp(String text) {
     return _timestampRegex.hasMatch(text);
   }
+
+  /// 检查文本中是否包含 @用户名
+  static bool containsMention(String text) {
+    return _mentionRegex.hasMatch(text);
+  }
+}
+
+/// 匹配类型
+enum _MatchType {
+  timestamp,
+  mention,
+}
+
+/// 匹配信息
+class _MatchInfo {
+  final int start;
+  final int end;
+  final String text;
+  final String? username;
+  final _MatchType type;
+
+  _MatchInfo({
+    required this.start,
+    required this.end,
+    required this.text,
+    this.username,
+    required this.type,
+  });
 }

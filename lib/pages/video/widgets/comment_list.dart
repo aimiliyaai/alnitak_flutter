@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' as foundation;
+import 'package:flutter/gestures.dart';
 import '../../../models/comment.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../../../services/video_service.dart';
@@ -818,7 +819,7 @@ class _CommentItem extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
 
-                    // 评论正文（支持时间戳点击跳转）
+                    // 评论正文（支持时间戳点击跳转和@用户名点击跳转）
                     RichText(
                       text: TextSpan(
                         style: TextStyle(fontSize: 14, color: colors.textPrimary),
@@ -830,8 +831,19 @@ class _CommentItem extends StatelessWidget {
                                 color: colors.accentColor,
                                 fontWeight: FontWeight.w500,
                               ),
+                              recognizer: comment.replyUserId != null
+                                  ? (TapGestureRecognizer()
+                                    ..onTap = () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => UserSpacePage(userId: comment.replyUserId!),
+                                        ),
+                                      );
+                                    })
+                                  : null,
                             ),
-                          // 使用 TimestampParser 解析评论内容，支持时间戳点击
+                          // 使用 TimestampParser 解析评论内容，支持时间戳和@用户名点击
                           ...TimestampParser.buildTextSpans(
                             text: comment.content,
                             defaultStyle: TextStyle(fontSize: 14, color: colors.textPrimary),
@@ -840,7 +852,24 @@ class _CommentItem extends StatelessWidget {
                               color: Colors.blue,
                               fontWeight: FontWeight.w500,
                             ),
+                            mentionStyle: TextStyle(
+                              fontSize: 14,
+                              color: colors.accentColor,
+                              fontWeight: FontWeight.w500,
+                            ),
                             onTimestampTap: onSeek,
+                            onMentionTap: (username) {
+                              // 如果@的用户名和replyUserName匹配，使用replyUserId跳转
+                              if (comment.replyUserName == username && comment.replyUserId != null) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => UserSpacePage(userId: comment.replyUserId!),
+                                  ),
+                                );
+                              }
+                              // 否则只显示高亮，暂不支持跳转（因为无法通过用户名获取userId）
+                            },
                           ),
                         ],
                       ),
@@ -1074,7 +1103,7 @@ class _ReplyItem extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
 
-                // 回复内容（支持时间戳点击跳转）
+                // 回复内容（支持时间戳点击跳转和@用户名点击跳转）
                 RichText(
                   text: TextSpan(
                     style: TextStyle(fontSize: 13, color: colors.textPrimary),
@@ -1088,8 +1117,19 @@ class _ReplyItem extends StatelessWidget {
                             color: colors.accentColor,
                             fontWeight: FontWeight.w500,
                           ),
+                          recognizer: reply.replyUserId != null
+                              ? (TapGestureRecognizer()
+                                ..onTap = () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => UserSpacePage(userId: reply.replyUserId!),
+                                    ),
+                                  );
+                                })
+                              : null,
                         ),
-                      // 使用 TimestampParser 解析回复内容，支持时间戳点击
+                      // 使用 TimestampParser 解析回复内容，支持时间戳和@用户名点击
                       ...TimestampParser.buildTextSpans(
                         text: reply.content,
                         defaultStyle: TextStyle(fontSize: 13, color: colors.textPrimary),
@@ -1098,7 +1138,24 @@ class _ReplyItem extends StatelessWidget {
                           color: Colors.blue,
                           fontWeight: FontWeight.w500,
                         ),
+                        mentionStyle: TextStyle(
+                          fontSize: 13,
+                          color: colors.accentColor,
+                          fontWeight: FontWeight.w500,
+                        ),
                         onTimestampTap: onSeek,
+                        onMentionTap: (username) {
+                          // 如果@的用户名和replyUserName匹配，使用replyUserId跳转
+                          if (reply.replyUserName == username && reply.replyUserId != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => UserSpacePage(userId: reply.replyUserId!),
+                              ),
+                            );
+                          }
+                          // 否则只显示高亮，暂不支持跳转（因为无法通过用户名获取userId）
+                        },
                       ),
                     ],
                   ),

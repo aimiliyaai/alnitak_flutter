@@ -91,7 +91,7 @@ class CommentPreviewCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        // 评论内容（最多显示2行，支持时间戳点击）
+                        // 评论内容（最多显示2行，支持时间戳点击和@用户名高亮）
                         RichText(
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -107,7 +107,13 @@ class CommentPreviewCard extends StatelessWidget {
                                 color: colors.accentColor,
                                 fontWeight: FontWeight.w500,
                               ),
+                              mentionStyle: TextStyle(
+                                fontSize: 13,
+                                color: colors.accentColor,
+                                fontWeight: FontWeight.w500,
+                              ),
                               onTimestampTap: onSeek,
+                              // 预览卡片中@用户名只高亮，不跳转（点击卡片会打开完整评论区）
                             ),
                           ),
                         ),
