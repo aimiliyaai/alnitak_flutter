@@ -20,6 +20,8 @@ class CustomPlayerUI extends StatefulWidget {
   final VoidCallback? onBack;
   /// 弹幕控制器（可选，不传则不显示弹幕）
   final DanmakuController? danmakuController;
+  /// 在看人数（可选）
+  final ValueNotifier<int>? onlineCount;
 
   const CustomPlayerUI({
     super.key,
@@ -28,6 +30,7 @@ class CustomPlayerUI extends StatefulWidget {
     this.title = '',
     this.onBack,
     this.danmakuController,
+    this.onlineCount,
   });
 
   @override
@@ -756,6 +759,40 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   },
                 ),
               ),
+              // 在看人数（右侧）
+              if (widget.onlineCount != null)
+                ValueListenableBuilder<int>(
+                  valueListenable: widget.onlineCount!,
+                  builder: (context, count, _) {
+                    if (count <= 0) return const SizedBox.shrink();
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.remove_red_eye_outlined,
+                            color: Colors.white70,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$count人在看',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               const SizedBox(width: 8),
             ],
           ),

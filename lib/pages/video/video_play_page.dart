@@ -5,6 +5,7 @@ import '../../models/history_models.dart';
 import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/hls_service.dart';
+import '../../services/online_websocket_service.dart';
 import '../../managers/video_player_manager.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
@@ -48,6 +49,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 【新增】弹幕控制器
   late final DanmakuController _danmakuController;
 
+  // 【新增】在线人数 WebSocket 服务
+  late final OnlineWebSocketService _onlineWebSocketService;
+
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
   UserActionStatus? _actionStatus;
@@ -87,6 +91,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【新增】创建弹幕控制器
     _danmakuController = DanmakuController();
+
+    // 【新增】创建在线人数服务
+    _onlineWebSocketService = OnlineWebSocketService();
 
     _loadVideoData();
     // 添加生命周期监听
@@ -150,6 +157,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【新增】销毁弹幕控制器
     _danmakuController.dispose();
+
+    // 【新增】断开在线人数连接
+    _onlineWebSocketService.dispose();
 
     super.dispose();
   }
@@ -292,6 +302,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
       // 【新增】加载弹幕数据
       _danmakuController.loadDanmaku(vid: _currentVid, part: targetPart);
+
+      // 【新增】连接在线人数 WebSocket
+      _onlineWebSocketService.connect(_currentVid);
 
       // 【后台加载】并发请求次要数据（不阻塞主UI）
       _loadSecondaryData(videoDetail.author.uid);
@@ -623,6 +636,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       // 【新增】切换视频时重新加载弹幕
       _danmakuController.loadDanmaku(vid: targetVid, part: targetPart);
 
+      // 【新增】切换视频时重新连接在线人数 WebSocket
+      _onlineWebSocketService.switchVideo(targetVid);
+
       // 后台加载次要数据（统计、评论、用户操作状态）
       _loadSecondaryData(videoDetail.author.uid);
 
@@ -836,6 +852,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             onPartChange: _changePart,
             danmakuController: _danmakuController, // 【新增】传递弹幕控制器
             onPlayingStateChanged: _onPlayingStateChanged, // 【新增】播放状态变化
+            onlineCount: _onlineWebSocketService.onlineCount, // 【新增】在看人数
           ),
         ),
 

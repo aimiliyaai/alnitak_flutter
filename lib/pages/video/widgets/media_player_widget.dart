@@ -40,6 +40,8 @@ class MediaPlayerWidget extends StatefulWidget {
   final DanmakuController? danmakuController;
   /// 播放状态变化回调
   final Function(bool playing)? onPlayingStateChanged;
+  /// 在看人数（可选）
+  final ValueNotifier<int>? onlineCount;
 
   const MediaPlayerWidget({
     super.key,
@@ -59,6 +61,7 @@ class MediaPlayerWidget extends StatefulWidget {
     this.onControllerReady,
     this.danmakuController,
     this.onPlayingStateChanged,
+    this.onlineCount,
   }) : assert(resourceId != null || manager != null, 'resourceId 或 manager 必须提供其一');
 
   @override
@@ -288,6 +291,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
                     title: widget.title ?? '',
                     onBack: () => Navigator.of(context).maybePop(),
                     danmakuController: widget.danmakuController,
+                    onlineCount: widget.onlineCount,
                   );
                 },
               );

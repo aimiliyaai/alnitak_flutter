@@ -9,7 +9,7 @@ import '../../theme/theme_extensions.dart';
 import '../../utils/login_guard.dart';
 import '../user/user_space_page.dart';
 import 'widgets/article_action_buttons.dart';
-import 'widgets/article_comment_list.dart';
+import 'widgets/article_comment_preview_card.dart';
 
 /// 专栏浏览页面
 class ArticleViewPage extends StatefulWidget {
@@ -31,7 +31,10 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
   bool _hasCollected = false;
   bool _isLoading = true;
   String? _errorMessage;
+
+  // 评论相关
   int _totalComments = 0;
+  ArticleComment? _latestComment;
 
   // 关注状态：0=未关注，1=已关注，2=互相关注
   int _relationStatus = 0;
@@ -55,15 +58,17 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
       // 先加载文章详情
       final article = await ArticleApiService.getArticleById(widget.aid);
 
-      // 并行加载统计信息、用户操作状态和关注状态
+      // 并行加载统计信息、用户操作状态、关注状态和评论预览
       final results = await Future.wait([
         ArticleApiService.getArticleStat(widget.aid),
         ArticleApiService.hasLikedArticle(widget.aid),
         ArticleApiService.hasCollectedArticle(widget.aid),
         _videoService.getUserActionStatus(0, article.author.uid),
+        ArticleApiService.getArticleComments(aid: widget.aid, page: 1, pageSize: 1),
       ]);
 
       if (mounted) {
+        final commentResponse = results[4] as ArticleCommentResponse?;
         setState(() {
           _article = article;
           _stat = results[0] as ArticleStat?;
@@ -71,6 +76,11 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
           _hasCollected = results[2] as bool;
           final actionStatus = results[3] as UserActionStatus?;
           _relationStatus = actionStatus?.relationStatus ?? 0;
+          // 评论预览数据
+          _totalComments = commentResponse?.total ?? 0;
+          _latestComment = commentResponse?.comments.isNotEmpty == true
+              ? commentResponse!.comments.first
+              : null;
           _isLoading = false;
         });
       }
@@ -174,74 +184,25 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
     }
   }
 
-  void _showCommentPanel() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.4,
-        maxChildSize: 0.9,
-        builder: (context, scrollController) {
-          final colors = context.colors;
-          return Container(
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Column(
-              children: [
-                // 拖动手柄
-                Container(
-                  margin: const EdgeInsets.only(top: 12, bottom: 8),
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.divider,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                // 标题
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '评论 $_totalComments',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.close, color: colors.iconSecondary),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(height: 1, color: colors.divider),
-                // 评论列表
-                Expanded(
-                  child: ArticleCommentList(
-                    aid: widget.aid,
-                    scrollController: scrollController,
-                    onTotalCommentsChanged: (count) {
-                      setState(() {
-                        _totalComments = count;
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+  /// 刷新评论预览（发表评论后调用）
+  Future<void> _refreshCommentPreview() async {
+    try {
+      final commentResponse = await ArticleApiService.getArticleComments(
+        aid: widget.aid,
+        page: 1,
+        pageSize: 1,
+      );
+      if (commentResponse != null && mounted) {
+        setState(() {
+          _totalComments = commentResponse.total;
+          _latestComment = commentResponse.comments.isNotEmpty
+              ? commentResponse.comments.first
+              : null;
+        });
+      }
+    } catch (e) {
+      // 忽略刷新失败
+    }
   }
 
   @override
@@ -266,41 +227,6 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
           ),
         ),
         centerTitle: true,
-        actions: [
-          // 评论按钮
-          IconButton(
-            icon: Stack(
-              children: [
-                Icon(Icons.comment_outlined, color: colors.iconPrimary),
-                if (_totalComments > 0)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: colors.accentColor,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 12,
-                        minHeight: 12,
-                      ),
-                      child: Text(
-                        _totalComments > 99 ? '99+' : '$_totalComments',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            onPressed: _article != null ? _showCommentPanel : null,
-          ),
-        ],
       ),
       body: _buildBody(),
     );
@@ -529,6 +455,17 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // 评论预览卡片（参考视频播放页）
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: ArticleCommentPreviewCard(
+                    aid: widget.aid,
+                    totalComments: _totalComments,
+                    latestComment: _latestComment,
+                    onCommentPosted: _refreshCommentPreview,
                   ),
                 ),
                 const SizedBox(height: 16),
