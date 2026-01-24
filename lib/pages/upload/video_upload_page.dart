@@ -55,6 +55,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
   // 上传取消标志：当用户主动离开页面时设为true
   bool _cancelUpload = false;
 
+  // 分区是否已锁定（编辑模式下，如果分区已设置则不可修改）
+  bool _isPartitionLocked = false;
+
   bool get isEditMode => widget.vid != null;
 
   @override
@@ -231,6 +234,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
             _selectedParentPartition = partition;
           }
         }
+
+        // 如果分区ID不为0，说明分区已设置，锁定分区选择
+        _isPartitionLocked = videoStatus.partitionId != 0;
 
         _isLoading = false;
       });
@@ -997,21 +1003,38 @@ Future<void> _uploadVideo({String? title}) async {
 
 
   Widget _buildPartitionSection() {
+    final colors = context.colors;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '分区',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        Row(
+          children: [
+            const Text(
+              '分区',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (_isPartitionLocked) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.lock, size: 16, color: colors.textTertiary),
+              const SizedBox(width: 4),
+              Text(
+                '(分区已锁定，不可修改)',
+                style: TextStyle(fontSize: 12, color: colors.textTertiary),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 8),
 
         // 父分区选择
         DropdownButtonFormField<Partition>(
           initialValue: _selectedParentPartition,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '主分区',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            filled: _isPartitionLocked,
+            fillColor: _isPartitionLocked ? colors.inputBackground : null,
           ),
           items: _parentPartitions.map((partition) {
             return DropdownMenuItem(
@@ -1019,7 +1042,7 @@ Future<void> _uploadVideo({String? title}) async {
               child: Text(partition.name),
             );
           }).toList(),
-          onChanged: (value) {
+          onChanged: _isPartitionLocked ? null : (value) {
             setState(() {
               _selectedParentPartition = value;
               _selectedSubPartition = null;
@@ -1041,9 +1064,11 @@ Future<void> _uploadVideo({String? title}) async {
           const SizedBox(height: 12),
           DropdownButtonFormField<Partition>(
             initialValue: _selectedSubPartition,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: '子分区',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              filled: _isPartitionLocked,
+              fillColor: _isPartitionLocked ? colors.inputBackground : null,
             ),
             items: _subPartitions.map((partition) {
               return DropdownMenuItem(
@@ -1051,7 +1076,7 @@ Future<void> _uploadVideo({String? title}) async {
                 child: Text(partition.subpartition ?? partition.name),
               );
             }).toList(),
-            onChanged: (value) {
+            onChanged: _isPartitionLocked ? null : (value) {
               setState(() {
                 _selectedSubPartition = value;
               });

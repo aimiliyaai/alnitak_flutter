@@ -1,3 +1,5 @@
+import '../utils/image_utils.dart';
+
 /// 文章列表项模型
 class ArticleListItem {
   final int aid;
@@ -31,7 +33,7 @@ class ArticleListItem {
       aid: json['aid'] ?? 0,
       uid: json['uid'] ?? 0,
       title: json['title'] ?? '',
-      cover: json['cover'] ?? '',
+      cover: ImageUtils.getFullImageUrl(json['cover'] ?? ''),
       content: json['content'] ?? '',
       createdAt: json['createdAt'] ?? '',
       copyright: json['copyright'] ?? false,
@@ -70,7 +72,7 @@ class ArticleAuthor {
     return ArticleAuthor(
       uid: json['uid'] ?? 0,
       name: json['name'] ?? '',
-      avatar: json['avatar'] ?? '',
+      avatar: ImageUtils.getFullImageUrl(json['avatar'] ?? ''),
     );
   }
 }

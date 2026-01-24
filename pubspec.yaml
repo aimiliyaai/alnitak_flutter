@@ -74,6 +74,8 @@ dependencies:
   # 二维码生成
   qr_flutter: ^4.1.0
   emoji_picker_flutter: ^3.0.0
+  # HTML 渲染
+  flutter_widget_from_html: ^0.15.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

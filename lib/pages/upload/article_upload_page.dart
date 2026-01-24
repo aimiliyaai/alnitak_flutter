@@ -6,6 +6,7 @@ import '../../models/upload_article.dart';
 import '../../services/partition_api_service.dart';
 import '../../services/upload_api_service.dart';
 import '../../services/article_submit_api_service.dart';
+import '../../theme/theme_extensions.dart';
 
 class ArticleUploadPage extends StatefulWidget {
   final int? aid; // 如果是编辑模式，传入aid
@@ -33,6 +34,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
   bool _copyright = true;
   bool _isLoading = false;
   String? _errorMessage;
+
+  // 分区是否已锁定（编辑模式下，分区已设置则不可修改）
+  bool _isPartitionLocked = false;
 
   bool get isEditMode => widget.aid != null;
 
@@ -123,6 +127,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
             _selectedParentPartition = partition;
           }
         }
+
+        // 如果分区ID不为0，说明分区已设置，锁定分区选择
+        _isPartitionLocked = articleStatus.partitionId != 0;
 
         _isLoading = false;
       });
@@ -419,21 +426,38 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
   }
 
   Widget _buildPartitionSection() {
+    final colors = context.colors;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '分区',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        Row(
+          children: [
+            const Text(
+              '分区',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (_isPartitionLocked) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.lock, size: 16, color: colors.textTertiary),
+              const SizedBox(width: 4),
+              Text(
+                '(分区已锁定，不可修改)',
+                style: TextStyle(fontSize: 12, color: colors.textTertiary),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 8),
 
         // 父分区选择
         DropdownButtonFormField<Partition>(
           initialValue: _selectedParentPartition,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: '主分区',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            filled: _isPartitionLocked,
+            fillColor: _isPartitionLocked ? colors.inputBackground : null,
           ),
           items: _parentPartitions.map((partition) {
             return DropdownMenuItem(
@@ -441,7 +465,7 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
               child: Text(partition.name),
             );
           }).toList(),
-          onChanged: (value) {
+          onChanged: _isPartitionLocked ? null : (value) {
             setState(() {
               _selectedParentPartition = value;
               _selectedSubPartition = null;
@@ -463,9 +487,11 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
           const SizedBox(height: 12),
           DropdownButtonFormField<Partition>(
             initialValue: _selectedSubPartition,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: '子分区',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              filled: _isPartitionLocked,
+              fillColor: _isPartitionLocked ? colors.inputBackground : null,
             ),
             items: _subPartitions.map((partition) {
               return DropdownMenuItem(
@@ -473,7 +499,7 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
                 child: Text(partition.subpartition ?? partition.name),
               );
             }).toList(),
-            onChanged: (value) {
+            onChanged: _isPartitionLocked ? null : (value) {
               setState(() {
                 _selectedSubPartition = value;
               });

@@ -13,6 +13,7 @@ import '../widgets/carousel_widget.dart';
 import '../theme/theme_extensions.dart';
 import 'video/video_play_page.dart';
 import 'search_page.dart';
+import 'article/article_view_page.dart';
 import '../widgets/cached_image_widget.dart';
 
 class HomePage extends StatefulWidget {
@@ -639,7 +640,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     return GestureDetector(
       onTap: () {
-        // TODO: 跳转到文章详情页
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ArticleViewPage(aid: article.aid),
+          ),
+        );
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
