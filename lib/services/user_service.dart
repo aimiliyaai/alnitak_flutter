@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 import '../models/user_model.dart';
 import 'auth_service.dart';
 
@@ -11,6 +12,7 @@ class UserService {
 
   final HttpClient _httpClient = HttpClient();
   final AuthService _authService = AuthService();
+  final TokenManager _tokenManager = TokenManager();
 
   /// 根据用户ID获取用户基础信息
   Future<UserBaseInfo?> getUserBaseInfo(int userId) async {
@@ -39,6 +41,12 @@ class UserService {
 
   /// 获取个人用户信息（需要登录）
   Future<UserInfo?> getUserInfo() async {
+    // 【新增】检查是否可以进行认证请求
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过获取个人信息：未登录或token已失效');
+      return null;
+    }
+
     try {
       final token = _authService.getToken();
       if (token == null) {
@@ -170,6 +178,10 @@ class UserService {
 
   /// 关注用户
   Future<bool> followUser(int userId) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _httpClient.dio.post(
         '/api/v1/relation/follow',
@@ -184,6 +196,10 @@ class UserService {
 
   /// 取消关注
   Future<bool> unfollowUser(int userId) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _httpClient.dio.post(
         '/api/v1/relation/unfollow',
@@ -205,6 +221,12 @@ class UserService {
     String? sign,
     required String spaceCover,
   }) async {
+    // 【新增】检查是否可以进行认证请求
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过编辑个人信息：未登录或token已失效');
+      return false;
+    }
+
     try {
       final token = _authService.getToken();
       if (token == null) {

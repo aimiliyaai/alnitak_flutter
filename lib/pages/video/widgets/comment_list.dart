@@ -858,17 +858,14 @@ class _CommentItem extends StatelessWidget {
                               fontWeight: FontWeight.w500,
                             ),
                             onTimestampTap: onSeek,
-                            onMentionTap: (username) {
-                              // 如果@的用户名和replyUserName匹配，使用replyUserId跳转
-                              if (comment.replyUserName == username && comment.replyUserId != null) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => UserSpacePage(userId: comment.replyUserId!),
-                                  ),
-                                );
-                              }
-                              // 否则只显示高亮，暂不支持跳转（因为无法通过用户名获取userId）
+                            atUserMap: comment.atUserMap,
+                            onMentionTapWithId: (userId) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => UserSpacePage(userId: userId),
+                                ),
+                              );
                             },
                           ),
                         ],
@@ -1144,17 +1141,14 @@ class _ReplyItem extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                         onTimestampTap: onSeek,
-                        onMentionTap: (username) {
-                          // 如果@的用户名和replyUserName匹配，使用replyUserId跳转
-                          if (reply.replyUserName == username && reply.replyUserId != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => UserSpacePage(userId: reply.replyUserId!),
-                              ),
-                            );
-                          }
-                          // 否则只显示高亮，暂不支持跳转（因为无法通过用户名获取userId）
+                        atUserMap: reply.atUserMap,
+                        onMentionTapWithId: (userId) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => UserSpacePage(userId: userId),
+                            ),
+                          );
                         },
                       ),
                     ],

@@ -1,9 +1,11 @@
 import '../models/message_models.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 
 /// 消息API服务
 class MessageApiService {
   final HttpClient _httpClient = HttpClient();
+  final TokenManager _tokenManager = TokenManager();
 
   /// 获取公告列表
   Future<List<AnnounceMessage>> getAnnounceList({
@@ -35,6 +37,10 @@ class MessageApiService {
     int page = 1,
     int pageSize = 10,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return [];
+    }
+
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/message/getAtMsg',
@@ -60,6 +66,10 @@ class MessageApiService {
     int page = 1,
     int pageSize = 10,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return [];
+    }
+
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/message/getLikeMsg',
@@ -85,6 +95,10 @@ class MessageApiService {
     int page = 1,
     int pageSize = 10,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return [];
+    }
+
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/message/getReplyMsg',
@@ -107,6 +121,10 @@ class MessageApiService {
 
   /// 获取私信列表
   Future<List<WhisperListItem>> getWhisperList() async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return [];
+    }
+
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/message/getWhisperList',
@@ -132,6 +150,10 @@ class MessageApiService {
     int page = 1,
     int pageSize = 20,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return [];
+    }
+
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/message/getWhisperDetails',
@@ -163,6 +185,10 @@ class MessageApiService {
     required int fid,
     required String content,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _httpClient.dio.post(
         '/api/v1/message/sendWhisper',
@@ -182,6 +208,10 @@ class MessageApiService {
   /// 标记私信为已读
   /// [fid] 对方用户ID
   Future<bool> readWhisper(int fid) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _httpClient.dio.post(
         '/api/v1/message/readWhisper',

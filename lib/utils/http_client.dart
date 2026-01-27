@@ -119,6 +119,12 @@ class HttpClient {
   Future<String?> refreshToken() async {
     final tokenManager = TokenManager();
 
+    // 【新增】检查是否刷新已失败（冷却期内不再尝试）
+    if (tokenManager.isRefreshFailed) {
+      _debugPrint('⏸️ Token 刷新已失败且在冷却期内，跳过刷新');
+      return null;
+    }
+
     // 检查是否正在刷新
     final existingCompleter = tokenManager.refreshCompleter;
     if (tokenManager.isRefreshing && existingCompleter != null) {
@@ -134,6 +140,7 @@ class HttpClient {
       final refreshTokenValue = tokenManager.refreshToken;
       if (refreshTokenValue == null || refreshTokenValue.isEmpty) {
         _debugPrint('❌ RefreshToken 不存在，需要重新登录');
+        tokenManager.markRefreshFailed(); // 【新增】标记刷新失败
         await tokenManager.handleTokenExpired();
         completer.complete(null);
         return null;
@@ -162,16 +169,19 @@ class HttpClient {
       } else if (response.data['code'] == 2000) {
         // RefreshToken 也失效了，触发自动退出
         _debugPrint('❌ RefreshToken 已失效，执行自动退出');
+        tokenManager.markRefreshFailed(); // 【新增】标记刷新失败
         await tokenManager.handleTokenExpired();
         completer.complete(null);
         return null;
       } else {
         _debugPrint('⚠️ Token 刷新失败: ${response.data['msg']}');
+        tokenManager.markRefreshFailed(); // 【新增】标记刷新失败
         completer.complete(null);
         return null;
       }
     } catch (e) {
       _debugPrint('❌ Token 刷新异常: $e');
+      tokenManager.markRefreshFailed(); // 【新增】标记刷新失败
       completer.complete(null);
       return null;
     } finally {
@@ -194,13 +204,23 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    final tokenManager = TokenManager();
+
     // 如果请求已经包含 Authorization header，不覆盖
     if (options.headers.containsKey('Authorization')) {
       return handler.next(options);
     }
 
+    // 【新增】如果刷新已失败（用户未登录或token无效），不添加无效的token
+    if (tokenManager.isRefreshFailed) {
+      if (kDebugMode) {
+        print('⏸️ 刷新已失败，跳过添加 Authorization');
+      }
+      return handler.next(options);
+    }
+
     // 从 TokenManager 获取 Token
-    final token = TokenManager().token;
+    final token = tokenManager.token;
 
     if (token != null && token.isNotEmpty) {
       options.headers['Authorization'] = token;
@@ -215,8 +235,18 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) async {
+    final tokenManager = TokenManager();
+
     // 检测 Token 失效响应，自动刷新
     if (response.data is Map && response.data['code'] == 3000) {
+      // 【新增】如果刷新已失败，不再尝试刷新，直接返回响应
+      if (tokenManager.isRefreshFailed) {
+        if (kDebugMode) {
+          print('⏸️ Token 刷新已失败且在冷却期内，直接返回响应');
+        }
+        return handler.next(response);
+      }
+
       if (kDebugMode) {
         print('🔄 检测到 Token 失效 (code=3000)，尝试自动刷新...');
       }
@@ -240,8 +270,9 @@ class AuthInterceptor extends Interceptor {
         }
       } else {
         if (kDebugMode) {
-          print('❌ Token 刷新失败，返回原响应');
+          print('❌ Token 刷新失败，返回原响应（不再重试）');
         }
+        // 刷新失败，直接返回原响应，不会再次触发刷新
       }
     }
 

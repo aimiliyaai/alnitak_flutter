@@ -52,7 +52,8 @@
       "Bash(if exist .gradle rmdir /s /q .gradle)",
       "Read(//e/**)",
       "mcp__context7__resolve-library-id",
-      "mcp__context7__query-docs"
+      "mcp__context7__query-docs",
+      "Bash(cd /d e:alnitak_flutter)"
     ],
     "deny": [],
     "ask": []

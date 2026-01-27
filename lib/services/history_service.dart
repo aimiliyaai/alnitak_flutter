@@ -1,17 +1,20 @@
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 import '../models/history_models.dart';
 
 /// 历史记录服务
 ///
 /// 【关键修复】Token 刷新逻辑已移至 HttpClient 统一处理
 /// 当收到 code=3000 时，AuthInterceptor 会自动刷新 Token 并重试请求
+/// 【新增】在请求前检查登录状态，避免无效请求
 class HistoryService {
   static final HistoryService _instance = HistoryService._internal();
   factory HistoryService() => _instance;
   HistoryService._internal();
 
   final Dio _dio = HttpClient().dio;
+  final TokenManager _tokenManager = TokenManager();
 
   // 【新增】用于保证进度上报顺序的序列号
   int _progressSequence = 0;
@@ -33,6 +36,12 @@ class HistoryService {
     required double time,
     required int duration,
   }) async {
+    // 【新增】检查是否可以进行认证请求（防止死循环）
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过历史记录上报：未登录或token已失效');
+      return false;
+    }
+
     // 【修复】获取当前序列号
     final currentSequence = ++_progressSequence;
 
@@ -101,6 +110,12 @@ class HistoryService {
     required int vid,
     int? part,
   }) async {
+    // 【新增】检查是否可以进行认证请求
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过获取进度：未登录或token已失效');
+      return null;
+    }
+
     try {
       final queryParams = <String, dynamic>{'vid': vid};
       if (part != null) {
@@ -141,6 +156,12 @@ class HistoryService {
     int page = 1,
     int pageSize = 20,
   }) async {
+    // 【新增】检查是否可以进行认证请求
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过获取历史记录：未登录或token已失效');
+      return null;
+    }
+
     try {
       print('📜 [History] 请求历史记录: page=$page, pageSize=$pageSize');
 

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../models/collection.dart';
 import '../utils/http_client.dart';
+import '../utils/token_manager.dart';
 
 /// 收藏夹服务
 class CollectionService {
@@ -9,9 +10,16 @@ class CollectionService {
   CollectionService._internal();
 
   final Dio _dio = HttpClient().dio;
+  final TokenManager _tokenManager = TokenManager();
 
   /// 获取收藏夹列表
   Future<List<Collection>?> getCollectionList() async {
+    // 【新增】检查是否可以进行认证请求
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过获取收藏夹列表：未登录或token已失效');
+      return null;
+    }
+
     try {
       final response = await _dio.get('/api/v1/collection/getCollectionList');
       if (response.data['code'] == 200) {
@@ -29,6 +37,11 @@ class CollectionService {
 
   /// 创建收藏夹
   Future<int?> addCollection(String name) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      print('⏭️ 跳过创建收藏夹：未登录或token已失效');
+      return null;
+    }
+
     try {
       print('📁 CollectionService: 开始创建收藏夹 "$name"');
       final response = await _dio.post('/api/v1/collection/addCollection', data: {'name': name});
@@ -55,6 +68,10 @@ class CollectionService {
     String? desc,
     bool? open,
   }) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _dio.put('/api/v1/collection/editCollection', data: {
         'id': id,
@@ -72,6 +89,10 @@ class CollectionService {
 
   /// 删除收藏夹
   Future<bool> deleteCollection(int id) async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return false;
+    }
+
     try {
       final response = await _dio.delete('/api/v1/collection/deleteCollection/$id');
       return response.data['code'] == 200;

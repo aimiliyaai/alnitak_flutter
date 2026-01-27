@@ -150,6 +150,8 @@ class ArticleComment {
   final String? replyContent;
   final int replyCount;
   final DateTime createdAt;
+  final String? atUserIds; // @提及的用户ID列表（逗号分隔）
+  final String? atUsernames; // @提及的用户名列表（逗号分隔）
 
   ArticleComment({
     required this.id,
@@ -164,6 +166,8 @@ class ArticleComment {
     this.replyContent,
     required this.replyCount,
     required this.createdAt,
+    this.atUserIds,
+    this.atUsernames,
   });
 
   factory ArticleComment.fromJson(Map<String, dynamic> json) {
@@ -180,7 +184,27 @@ class ArticleComment {
       replyContent: json['replyContent'],
       replyCount: json['replyCount'] ?? 0,
       createdAt: DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now(),
+      atUserIds: json['atUserIds'] as String?,
+      atUsernames: json['atUsernames'] as String?,
     );
+  }
+
+  /// 解析 atUserIds 和 atUsernames 为 Map<用户名, 用户ID>
+  Map<String, int> get atUserMap {
+    if (atUserIds == null || atUsernames == null ||
+        atUserIds!.isEmpty || atUsernames!.isEmpty) {
+      return {};
+    }
+    final ids = atUserIds!.split(',');
+    final names = atUsernames!.split(',');
+    final map = <String, int>{};
+    for (var i = 0; i < names.length && i < ids.length; i++) {
+      final id = int.tryParse(ids[i]);
+      if (id != null && names[i].isNotEmpty) {
+        map[names[i]] = id;
+      }
+    }
+    return map;
   }
 }
 

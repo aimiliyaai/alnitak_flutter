@@ -155,13 +155,11 @@ class VideoStat {
   final int like;
   final int collect;
   final int share;
-  final int onlineCount;
 
   VideoStat({
     required this.like,
     required this.collect,
     required this.share,
-    this.onlineCount = 0,
   });
 
   factory VideoStat.fromJson(Map<String, dynamic> json) {
@@ -169,7 +167,6 @@ class VideoStat {
       like: json['like'] ?? 0,
       collect: json['collect'] ?? 0,
       share: json['share'] ?? 0,
-      onlineCount: json['online_count'] ?? 0,
     );
   }
 
@@ -177,13 +174,11 @@ class VideoStat {
     int? like,
     int? collect,
     int? share,
-    int? onlineCount,
   }) {
     return VideoStat(
       like: like ?? this.like,
       collect: collect ?? this.collect,
       share: share ?? this.share,
-      onlineCount: onlineCount ?? this.onlineCount,
     );
   }
 }

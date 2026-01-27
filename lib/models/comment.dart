@@ -13,6 +13,8 @@ class Comment {
   final String? replyUserName; // 回复的用户名（仅回复时存在）
   final int? replyUserId; // 回复的用户ID（仅回复时存在）
   final int? parentId; // 所属评论ID（仅回复时存在）
+  final String? atUserIds; // @提及的用户ID列表（逗号分隔）
+  final String? atUsernames; // @提及的用户名列表（逗号分隔）
 
   Comment({
     required this.id,
@@ -26,6 +28,8 @@ class Comment {
     this.replyUserName,
     this.replyUserId,
     this.parentId,
+    this.atUserIds,
+    this.atUsernames,
   });
 
   factory Comment.fromJson(Map<String, dynamic> json) {
@@ -57,6 +61,8 @@ class Comment {
       parentId: json['parentId'] != null && json['parentId'].toString().isNotEmpty
           ? int.tryParse(json['parentId'].toString())
           : null,
+      atUserIds: json['atUserIds'] as String?,
+      atUsernames: json['atUsernames'] as String?,
     );
   }
 
@@ -73,6 +79,8 @@ class Comment {
       'replyUserName': replyUserName,
       'replyUserId': replyUserId,
       'parentId': parentId,
+      'atUserIds': atUserIds,
+      'atUsernames': atUsernames,
     };
   }
 
@@ -88,6 +96,8 @@ class Comment {
     String? replyUserName,
     int? replyUserId,
     int? parentId,
+    String? atUserIds,
+    String? atUsernames,
   }) {
     return Comment(
       id: id ?? this.id,
@@ -101,7 +111,27 @@ class Comment {
       replyUserName: replyUserName ?? this.replyUserName,
       replyUserId: replyUserId ?? this.replyUserId,
       parentId: parentId ?? this.parentId,
+      atUserIds: atUserIds ?? this.atUserIds,
+      atUsernames: atUsernames ?? this.atUsernames,
     );
+  }
+
+  /// 解析 atUserIds 和 atUsernames 为 Map<用户名, 用户ID>
+  Map<String, int> get atUserMap {
+    if (atUserIds == null || atUsernames == null ||
+        atUserIds!.isEmpty || atUsernames!.isEmpty) {
+      return {};
+    }
+    final ids = atUserIds!.split(',');
+    final names = atUsernames!.split(',');
+    final map = <String, int>{};
+    for (var i = 0; i < names.length && i < ids.length; i++) {
+      final id = int.tryParse(ids[i]);
+      if (id != null && names[i].isNotEmpty) {
+        map[names[i]] = id;
+      }
+    }
+    return map;
   }
 }
 

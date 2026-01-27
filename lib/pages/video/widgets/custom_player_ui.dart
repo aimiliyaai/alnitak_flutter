@@ -698,6 +698,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   // ============ UI 组件构建 ============
 
   Widget _buildTopBar() {
+    // 在顶层获取全屏状态，供所有子组件使用
+    final fullscreen = isFullscreen(context);
+
     return Positioned(
       top: 0,
       left: 0,
@@ -723,8 +726,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
               Expanded(
                 child: Builder(
                   builder: (context) {
-                    final fullscreen = isFullscreen(context);
-
                     // 检测全屏状态变化
                     if (fullscreen && !_wasFullscreen) {
                       // 刚进入全屏，重置动画状态并延迟启动
@@ -759,12 +760,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   },
                 ),
               ),
-              // 在看人数（右侧）
-              if (widget.onlineCount != null)
+              // 在看人数（右侧，仅全屏时显示）
+              if (widget.onlineCount != null && fullscreen)
                 ValueListenableBuilder<int>(
                   valueListenable: widget.onlineCount!,
                   builder: (context, count, _) {
-                    if (count <= 0) return const SizedBox.shrink();
+                    // count=0 时也显示，便于确认 WebSocket 是否工作
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       margin: const EdgeInsets.only(right: 8),
@@ -782,7 +783,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            '$count人在看',
+                            count > 0 ? '$count人在看' : '连接中...',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,

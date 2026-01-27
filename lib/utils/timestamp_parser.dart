@@ -46,6 +46,8 @@ class TimestampParser {
   /// [mentionStyle] @用户名文本样式
   /// [onTimestampTap] 点击时间戳的回调，参数为秒数
   /// [onMentionTap] 点击@用户名的回调，参数为用户名（不含@）
+  /// [onMentionTapWithId] 点击@用户名的回调（带用户ID），参数为用户ID
+  /// [atUserMap] @用户名到用户ID的映射，用于支持点击跳转到用户主页
   static List<InlineSpan> buildTextSpans({
     required String text,
     required TextStyle defaultStyle,
@@ -53,6 +55,8 @@ class TimestampParser {
     TextStyle? mentionStyle,
     void Function(int seconds)? onTimestampTap,
     void Function(String username)? onMentionTap,
+    void Function(int userId)? onMentionTapWithId,
+    Map<String, int>? atUserMap,
   }) {
     final spans = <InlineSpan>[];
     final effectiveTimestampStyle = timestampStyle ?? defaultStyle.copyWith(
@@ -129,12 +133,26 @@ class TimestampParser {
           ));
         }
       } else if (match.type == _MatchType.mention) {
-        if (onMentionTap != null && match.username != null) {
+        final String? username = match.username;
+        int? userId;
+        if (username != null && atUserMap != null) {
+          userId = atUserMap[username];
+        }
+
+        // 优先使用带用户ID的回调
+        if (userId != null && onMentionTapWithId != null) {
           spans.add(TextSpan(
             text: match.text,
             style: effectiveMentionStyle,
             recognizer: TapGestureRecognizer()
-              ..onTap = () => onMentionTap(match.username!),
+              ..onTap = () => onMentionTapWithId(userId!),
+          ));
+        } else if (onMentionTap != null && username != null) {
+          spans.add(TextSpan(
+            text: match.text,
+            style: effectiveMentionStyle,
+            recognizer: TapGestureRecognizer()
+              ..onTap = () => onMentionTap(username),
           ));
         } else {
           // 即使没有回调，@用户名也显示为蓝色高亮

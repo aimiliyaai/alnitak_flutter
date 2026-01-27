@@ -8,6 +8,7 @@ import '../../../services/user_service.dart';
 import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
 import '../../../utils/auth_state_manager.dart';
+import '../../../utils/timestamp_parser.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../../utils/image_utils.dart';
 import '../../user/user_space_page.dart';
@@ -737,7 +738,25 @@ class _ArticleCommentItem extends StatelessWidget {
                                     })
                                   : null,
                             ),
-                          TextSpan(text: comment.content),
+                          // 使用 TimestampParser 解析评论内容，支持 @用户名点击跳转
+                          ...TimestampParser.buildTextSpans(
+                            text: comment.content,
+                            defaultStyle: TextStyle(fontSize: 14, color: colors.textPrimary),
+                            mentionStyle: TextStyle(
+                              fontSize: 14,
+                              color: colors.accentColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            atUserMap: comment.atUserMap,
+                            onMentionTapWithId: (userId) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => UserSpacePage(userId: userId),
+                                ),
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -977,7 +996,25 @@ class _ArticleReplyItem extends StatelessWidget {
                                 })
                               : null,
                         ),
-                      TextSpan(text: reply.content),
+                      // 使用 TimestampParser 解析回复内容，支持 @用户名点击跳转
+                      ...TimestampParser.buildTextSpans(
+                        text: reply.content,
+                        defaultStyle: TextStyle(fontSize: 13, color: colors.textPrimary),
+                        mentionStyle: TextStyle(
+                          fontSize: 13,
+                          color: colors.accentColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        atUserMap: reply.atUserMap,
+                        onMentionTapWithId: (userId) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => UserSpacePage(userId: userId),
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),

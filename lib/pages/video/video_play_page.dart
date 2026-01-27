@@ -52,6 +52,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 【新增】在线人数 WebSocket 服务
   late final OnlineWebSocketService _onlineWebSocketService;
 
+  // 【新增】弹幕数量 ValueNotifier（用于实时更新显示）
+  final ValueNotifier<int> _danmakuCountNotifier = ValueNotifier<int>(0);
+
   VideoDetail? _videoDetail;
   VideoStat? _videoStat;
   UserActionStatus? _actionStatus;
@@ -91,6 +94,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【新增】创建弹幕控制器
     _danmakuController = DanmakuController();
+    // 监听弹幕控制器变化，更新弹幕数量
+    _danmakuController.addListener(_onDanmakuChanged);
 
     // 【新增】创建在线人数服务
     _onlineWebSocketService = OnlineWebSocketService();
@@ -108,6 +113,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _refreshUserActionStatus();
     // 登录后恢复服务端历史进度（Controller 内部已保存 vid/part 上下文）
     _playerManager.controller?.fetchAndRestoreProgress();
+  }
+
+  /// 弹幕控制器变化回调（更新弹幕数量显示）
+  void _onDanmakuChanged() {
+    _danmakuCountNotifier.value = _danmakuController.rawTotalCount;
   }
 
   /// 刷新用户操作状态
@@ -156,7 +166,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _playerManager.dispose();
 
     // 【新增】销毁弹幕控制器
+    _danmakuController.removeListener(_onDanmakuChanged);
     _danmakuController.dispose();
+
+    // 【新增】释放弹幕数量 ValueNotifier
+    _danmakuCountNotifier.dispose();
 
     // 【新增】断开在线人数连接
     _onlineWebSocketService.dispose();
@@ -867,6 +881,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 videoDetail: _videoDetail!,
                 videoStat: _videoStat!,
                 currentPart: _currentPart,
+                onlineCount: _onlineWebSocketService.onlineCount,
+                danmakuCount: _danmakuCountNotifier,
               ),
               const SizedBox(height: 16),
 

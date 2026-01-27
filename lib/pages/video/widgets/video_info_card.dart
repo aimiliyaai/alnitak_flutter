@@ -8,12 +8,16 @@ class VideoInfoCard extends StatefulWidget {
   final VideoDetail videoDetail;
   final VideoStat videoStat;
   final int currentPart;
+  final ValueNotifier<int>? onlineCount;
+  final ValueNotifier<int>? danmakuCount; // 弹幕数量（从弹幕控制器获取）
 
   const VideoInfoCard({
     super.key,
     required this.videoDetail,
     required this.videoStat,
     this.currentPart = 1,
+    this.onlineCount,
+    this.danmakuCount,
   });
 
   @override
@@ -86,13 +90,24 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
               ),
               const SizedBox(width: 16),
 
-              // 弹幕数
+              // 弹幕数（优先使用动态数量）
               Icon(Icons.chat_bubble_outline, size: 16, color: colors.textSecondary),
               const SizedBox(width: 4),
-              Text(
-                _formatNumber(widget.videoDetail.danmakuCount),
-                style: TextStyle(fontSize: 13, color: colors.textSecondary),
-              ),
+              if (widget.danmakuCount != null)
+                ValueListenableBuilder<int>(
+                  valueListenable: widget.danmakuCount!,
+                  builder: (context, count, _) {
+                    return Text(
+                      _formatNumber(count),
+                      style: TextStyle(fontSize: 13, color: colors.textSecondary),
+                    );
+                  },
+                )
+              else
+                Text(
+                  _formatNumber(widget.videoDetail.danmakuCount),
+                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
+                ),
               const SizedBox(width: 16),
 
               // 上传时间
@@ -102,17 +117,26 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
                 _formatRelativeTime(widget.videoDetail.createdAt),
                 style: TextStyle(fontSize: 13, color: colors.textSecondary),
               ),
-              const SizedBox(width: 16),
 
-              // 在线观看人数
-              if (widget.videoStat.onlineCount > 0) ...[
-                Icon(Icons.visibility, size: 16, color: colors.textSecondary),
-                const SizedBox(width: 4),
-                Text(
-                  '${widget.videoStat.onlineCount}人正在观看',
-                  style: TextStyle(fontSize: 13, color: colors.textSecondary),
+              // 在看人数（移到发布时间右边）
+              if (widget.onlineCount != null)
+                ValueListenableBuilder<int>(
+                  valueListenable: widget.onlineCount!,
+                  builder: (context, count, _) {
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 16),
+                        Icon(Icons.remove_red_eye_outlined, size: 16, color: colors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          count > 0 ? '$count人在看' : '连接中',
+                          style: TextStyle(fontSize: 13, color: colors.textSecondary),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              ],
             ],
           ),
           const SizedBox(height: 12),

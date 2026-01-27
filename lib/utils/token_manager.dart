@@ -30,6 +30,12 @@ class TokenManager extends ChangeNotifier {
   bool _isRefreshing = false;
   Completer<String?>? _refreshCompleter;
 
+  // 【新增】刷新失败标记（防止死循环）
+  bool _refreshFailed = false;
+  DateTime? _refreshFailedTime;
+  // 刷新失败后的冷却时间（防止频繁重试）
+  static const Duration _refreshCooldown = Duration(minutes: 5);
+
   // 登出回调（由 AuthStateManager 注册）
   VoidCallback? _onTokenExpired;
 
@@ -38,6 +44,17 @@ class TokenManager extends ChangeNotifier {
 
   /// 是否已登录（同步检查，基于内存缓存）
   bool get isLoggedIn => _cachedToken != null && _cachedToken!.isNotEmpty;
+
+  /// 【新增】检查是否可以进行需要认证的API请求
+  /// 返回 true 表示可以请求（已登录且刷新未失败）
+  /// 返回 false 表示不应该请求（未登录或刷新已失败）
+  bool get canMakeAuthenticatedRequest {
+    // 如果未登录，不能请求
+    if (!isLoggedIn) return false;
+    // 如果刷新已失败（token无效），也不应该请求
+    if (isRefreshFailed) return false;
+    return true;
+  }
 
   /// 获取当前 Token
   String? get token => _cachedToken;
@@ -124,6 +141,9 @@ class TokenManager extends ChangeNotifier {
       _cachedToken = token;
       _cachedRefreshToken = refreshToken;
 
+      // 【新增】登录成功，重置刷新失败状态
+      resetRefreshFailedState();
+
       // 保存到存储
       final prefs = await SharedPreferences.getInstance();
       await _saveToStorage(prefs);
@@ -175,6 +195,37 @@ class TokenManager extends ChangeNotifier {
 
   /// 获取刷新锁状态
   bool get isRefreshing => _isRefreshing;
+
+  /// 【新增】检查刷新是否已失败（且在冷却期内）
+  bool get isRefreshFailed {
+    if (!_refreshFailed) return false;
+    // 检查是否已过冷却期
+    if (_refreshFailedTime != null) {
+      final elapsed = DateTime.now().difference(_refreshFailedTime!);
+      if (elapsed >= _refreshCooldown) {
+        // 冷却期已过，重置状态
+        _refreshFailed = false;
+        _refreshFailedTime = null;
+        _logSafe('刷新冷却期已过，允许重新刷新');
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// 【新增】标记刷新失败
+  void markRefreshFailed() {
+    _refreshFailed = true;
+    _refreshFailedTime = DateTime.now();
+    _logSafe('Token 刷新已标记为失败，${_refreshCooldown.inMinutes}分钟内不再尝试');
+  }
+
+  /// 【新增】重置刷新失败状态（登录成功后调用）
+  void resetRefreshFailedState() {
+    _refreshFailed = false;
+    _refreshFailedTime = null;
+    _logSafe('刷新失败状态已重置');
+  }
 
   /// 设置刷新状态（供 HttpClient 使用）
   void setRefreshing(bool value, [Completer<String?>? completer]) {

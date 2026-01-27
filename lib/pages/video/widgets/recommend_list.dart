@@ -33,6 +33,16 @@ class RecommendListState extends State<RecommendList> {
     _fetchRecommendVideos();
   }
 
+  @override
+  void didUpdateWidget(RecommendList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当视频ID变化时，重新加载推荐列表
+    if (widget.vid != oldWidget.vid) {
+      _currentPlayIndex = -1;
+      _fetchRecommendVideos();
+    }
+  }
+
   /// 加载设置
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -51,17 +61,36 @@ class RecommendListState extends State<RecommendList> {
   /// 获取推荐视频
   Future<void> _fetchRecommendVideos() async {
     if (!mounted) return;
+
+    // 无效 vid 直接显示空状态
+    if (widget.vid <= 0) {
+      setState(() {
+        _recommendVideos = [];
+        _isLoading = false;
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
-    final videos = await _videoService.getRecommendedVideos(widget.vid);
+    try {
+      final videos = await _videoService.getRecommendedVideos(widget.vid);
 
-    if (!mounted) return;
-    setState(() {
-      _recommendVideos = videos;
-      _isLoading = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        _recommendVideos = videos;
+        _isLoading = false;
+      });
+    } catch (e) {
+      // 确保即使出错也结束加载状态
+      if (!mounted) return;
+      setState(() {
+        _recommendVideos = [];
+        _isLoading = false;
+      });
+    }
   }
 
   /// 切换自动连播
@@ -86,17 +115,17 @@ class RecommendListState extends State<RecommendList> {
   }
 
   /// 格式化数字
-  String _formatNumber(int number) {
+  String _formatNumber(num number) {
     if (number >= 100000000) {
       return '${(number / 100000000).toStringAsFixed(1)}亿';
     } else if (number >= 10000) {
       return '${(number / 10000).toStringAsFixed(1)}万';
     }
-    return number.toString();
+    return number.toInt().toString();
   }
 
   /// 格式化时长
-  String _formatDuration(double seconds) {
+  String _formatDuration(num seconds) {
     final duration = Duration(seconds: seconds.toInt());
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
@@ -191,13 +220,14 @@ class RecommendListState extends State<RecommendList> {
 
   /// 构建视频卡片
   Widget _buildVideoCard(Map<String, dynamic> video, int index) {
-    final vid = video['vid'] ?? 0;
-    final title = video['title'] ?? '';
-    final coverPath = video['cover'] ?? '';
+    // 安全地提取数据，防止类型转换异常
+    final vid = (video['vid'] as num?)?.toInt() ?? 0;
+    final title = video['title']?.toString() ?? '';
+    final coverPath = video['cover']?.toString() ?? '';
     final cover = ImageUtils.getFullImageUrl(coverPath);
-    final clicks = video['clicks'] ?? 0;
-    final duration = video['duration'] ?? 0;
-    final authorName = video['author']?['name'] ?? '';
+    final clicks = (video['clicks'] as num?) ?? 0;
+    final duration = (video['duration'] as num?) ?? 0;
+    final authorName = video['author']?['name']?.toString() ?? '';
 
     return InkWell(
       onTap: () {
