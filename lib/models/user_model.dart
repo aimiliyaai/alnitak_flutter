@@ -249,17 +249,20 @@ class FollowListResponse {
 /// 关注/粉丝用户信息
 class FollowUser {
   final FollowUserInfo user;
-  final int relation; // 0未关注 1已关注 2互粉
+  int relation; // 0未关注 1已关注 2互粉（页面主人视角）
+  int myRelation; // 0未关注 1已关注 2互粉（当前登录用户视角）
 
   FollowUser({
     required this.user,
     required this.relation,
+    required this.myRelation,
   });
 
   factory FollowUser.fromJson(Map<String, dynamic> json) {
     return FollowUser(
       user: FollowUserInfo.fromJson(json['user'] as Map<String, dynamic>),
       relation: json['relation'] ?? 0,
+      myRelation: json['myRelation'] ?? 0,
     );
   }
 }

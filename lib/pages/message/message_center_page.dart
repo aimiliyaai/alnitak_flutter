@@ -54,15 +54,28 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
         _apiService.getAtMessageList(page: 1, pageSize: 1),
       ]);
 
-      final announceLatestId = (results[0] as List).isNotEmpty ? (results[0] as List).first.id : 0;
-      final likeLatestId = (results[1] as List).isNotEmpty ? (results[1] as List).first.id : 0;
-      final replyLatestId = (results[2] as List).isNotEmpty ? (results[2] as List).first.id : 0;
-      final atLatestId = (results[3] as List).isNotEmpty ? (results[3] as List).first.id : 0;
+      final announceList = results[0] as List;
+      final likeList = results[1] as List;
+      final replyList = results[2] as List;
+      final atList = results[3] as List;
+
+      final announceLatestId = announceList.isNotEmpty ? announceList.first.id as int : 0;
+      final likeLatestId = likeList.isNotEmpty ? likeList.first.id as int : 0;
+      final replyLatestId = replyList.isNotEmpty ? replyList.first.id as int : 0;
+      final atLatestId = atList.isNotEmpty ? atList.first.id as int : 0;
+
+      print('📬 最新消息ID: announce=$announceLatestId, like=$likeLatestId, reply=$replyLatestId, at=$atLatestId');
 
       _latestIds[MessageReadStatus.announce] = announceLatestId;
       _latestIds[MessageReadStatus.like] = likeLatestId;
       _latestIds[MessageReadStatus.reply] = replyLatestId;
       _latestIds[MessageReadStatus.at] = atLatestId;
+
+      final savedAnnounce = await MessageReadStatus.getLastReadId(MessageReadStatus.announce);
+      final savedLike = await MessageReadStatus.getLastReadId(MessageReadStatus.like);
+      final savedReply = await MessageReadStatus.getLastReadId(MessageReadStatus.reply);
+      final savedAt = await MessageReadStatus.getLastReadId(MessageReadStatus.at);
+      print('📬 已读ID: announce=$savedAnnounce, like=$savedLike, reply=$savedReply, at=$savedAt');
 
       final unreadResults = await Future.wait([
         MessageReadStatus.hasUnread(MessageReadStatus.announce, announceLatestId),
@@ -70,6 +83,8 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
         MessageReadStatus.hasUnread(MessageReadStatus.reply, replyLatestId),
         MessageReadStatus.hasUnread(MessageReadStatus.at, atLatestId),
       ]);
+
+      print('📬 未读状态: announce=${unreadResults[0]}, like=${unreadResults[1]}, reply=${unreadResults[2]}, at=${unreadResults[3]}');
 
       if (mounted) {
         setState(() {
@@ -86,8 +101,11 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
 
   Future<void> _navigateToAndMarkRead(String category, Widget page) async {
     final latestId = _latestIds[category] ?? 0;
+    print('📬 标记已读: category=$category, latestId=$latestId');
     if (latestId > 0) {
       await MessageReadStatus.markAsRead(category, latestId);
+      final verify = await MessageReadStatus.getLastReadId(category);
+      print('📬 验证写入: category=$category, savedId=$verify');
     }
     if (mounted) {
       setState(() => _unreadStatus[category] = false);

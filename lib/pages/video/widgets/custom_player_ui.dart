@@ -301,9 +301,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         diff > 0 ? Icons.fast_forward : Icons.fast_rewind,
         '${_formatDuration(_seekPos)} / ${_formatDuration(widget.controller.player.state.duration)}\n($sign$diff秒)',
         null,
-      );
-    }
+    );
   }
+}
 
   void _onDragEnd() {
     if (_gestureType == 3) {
@@ -1063,26 +1063,35 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         final dur = widget.controller.player.state.duration;
         final bufferDur = widget.controller.player.state.buffer;
 
+        // 修复：视频结束时进度条归零的问题
+        final isCompleted = widget.controller.player.state.completed;
+        final displayPos = (isCompleted && dur.inSeconds > 0) ? dur : pos;
+
         return Row(
           children: [
             Text(
-              _formatDuration(pos),
+              _formatDuration(displayPos),
               style: const TextStyle(color: Colors.white, fontSize: 11),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3.5,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                  trackHeight: 4.0,
+                  thumbShape: const _CustomSliderThumbShape(
+                    enabledThumbRadius: 7,
+                    thumbColor: Colors.blue,
+                    borderColor: Colors.white,
+                    borderWidth: 2,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
                   activeTrackColor: Colors.blue,
                   inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
-                  thumbColor: Colors.white,
+                  thumbColor: Colors.blue,
                   secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.5),
                 ),
                 child: Slider(
-                  value: pos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
+                  value: displayPos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
                   min: 0,
                   max: dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0,
                   secondaryTrackValue: bufferDur.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
@@ -1477,5 +1486,56 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         ),
       ),
     );
+  }
+}
+
+class _CustomSliderThumbShape extends SliderComponentShape {
+  final double enabledThumbRadius;
+  final Color thumbColor;
+  final Color borderColor;
+  final double borderWidth;
+
+  const _CustomSliderThumbShape({
+    this.enabledThumbRadius = 7.0,
+    this.thumbColor = Colors.blue,
+    this.borderColor = Colors.white,
+    this.borderWidth = 2.0,
+  });
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) {
+    return Size.fromRadius(enabledThumbRadius);
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final Canvas canvas = context.canvas;
+    final Paint paint = Paint()
+      ..color = thumbColor
+      ..style = PaintingStyle.fill;
+
+    final Paint borderPaint = Paint()
+      ..color = borderColor
+      ..strokeWidth = borderWidth
+      ..style = PaintingStyle.stroke;
+
+    final radius = enabledThumbRadius;
+    final path = Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+
+    canvas.drawPath(path, borderPaint);
+    canvas.drawPath(path, paint);
   }
 }

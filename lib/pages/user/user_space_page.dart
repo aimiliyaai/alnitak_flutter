@@ -761,6 +761,8 @@ class _FollowListTabState extends State<_FollowListTab>
   bool _hasMore = true;
   int _currentPage = 1;
   static const int _pageSize = 20;
+  final Set<int> _followLoadingIds = {}; // 正在处理关注/取关的用户ID
+  int? _currentUserId; // 当前登录用户ID
 
   @override
   bool get wantKeepAlive => true;
@@ -768,8 +770,13 @@ class _FollowListTabState extends State<_FollowListTab>
   @override
   void initState() {
     super.initState();
+    _loadCurrentUserId();
     _loadUsers();
     _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _loadCurrentUserId() async {
+    _currentUserId = await LoginGuard.getCurrentUserId();
   }
 
   @override
@@ -921,31 +928,97 @@ class _FollowListTabState extends State<_FollowListTab>
               overflow: TextOverflow.ellipsis,
             )
           : null,
-      trailing: _buildRelationBadge(followUser.relation),
+      trailing: _buildFollowButton(followUser),
     );
   }
 
-  Widget? _buildRelationBadge(int relation) {
+  /// 构建关注/取关按钮
+  Widget? _buildFollowButton(FollowUser followUser) {
     final colors = context.colors;
+    final uid = followUser.user.uid;
 
-    if (relation == 0) return null;
+    // 不显示自己的关注按钮
+    if (_currentUserId != null && _currentUserId == uid) return null;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: relation == 2
-            ? colors.accentColor.withValues(alpha: 0.1)
-            : colors.surfaceVariant,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        relation == 2 ? '互相关注' : '已关注',
-        style: TextStyle(
-          fontSize: 11,
-          color: relation == 2 ? colors.accentColor : colors.textSecondary,
+    final isLoading = _followLoadingIds.contains(uid);
+    final relation = followUser.myRelation;
+
+    String text;
+    Color bgColor;
+    Color textColor;
+
+    switch (relation) {
+      case 2: // 互相关注
+        text = '已互粉';
+        bgColor = colors.accentColor.withValues(alpha: 0.1);
+        textColor = colors.accentColor;
+        break;
+      case 1: // 已关注
+        text = '已关注';
+        bgColor = colors.surfaceVariant;
+        textColor = colors.textSecondary;
+        break;
+      default: // 未关注
+        text = '关注';
+        bgColor = colors.accentColor;
+        textColor = Colors.white;
+        break;
+    }
+
+    return GestureDetector(
+      onTap: isLoading ? null : () => _handleFollowToggle(followUser),
+      child: Container(
+        width: 64,
+        height: 28,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(14),
         ),
+        child: isLoading
+            ? SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(textColor),
+                ),
+              )
+            : Text(
+                text,
+                style: TextStyle(fontSize: 12, color: textColor),
+              ),
       ),
     );
+  }
+
+  /// 处理关注/取关操作
+  Future<void> _handleFollowToggle(FollowUser followUser) async {
+    final uid = followUser.user.uid;
+
+    if (!await LoginGuard.check(context, actionName: '关注')) return;
+
+    setState(() => _followLoadingIds.add(uid));
+
+    try {
+      bool success;
+      if (followUser.myRelation == 0) {
+        success = await _userService.followUser(uid);
+      } else {
+        success = await _userService.unfollowUser(uid);
+      }
+
+      if (success && mounted) {
+        final newRelation = await _userService.getUserRelation(uid);
+        setState(() {
+          followUser.myRelation = newRelation;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _followLoadingIds.remove(uid));
+      }
+    }
   }
 
   /// 统一的头像构建方法
