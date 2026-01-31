@@ -515,6 +515,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           },
           child: CustomScrollView(
             controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               // 顶部区域：搜索栏 + 视频/专栏切换 + 分类标签
               SliverToBoxAdapter(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'comment_manage_page.dart';
 import 'video_manage_page.dart';
+import 'playlist_manage_page.dart';
 import '../upload/article_manuscript_page.dart';
 import '../upload/video_upload_page.dart';
 import '../upload/article_upload_page.dart';
@@ -114,6 +115,16 @@ class _CreatorCenterPageState extends State<CreatorCenterPage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => const ArticleManuscriptPage()),
+                    );
+                  },
+                ),
+                _buildMenuItem(
+                  icon: Icons.playlist_play_outlined,
+                  title: '合集管理',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PlaylistManagePage()),
                     );
                   },
                 ),

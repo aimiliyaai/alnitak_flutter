@@ -586,6 +586,10 @@ class DanmakuController extends ChangeNotifier {
     // 立即加入渲染队列
     _playLocalDanmaku(localDanmaku);
 
+    // 【新增】立即更新弹幕数量（乐观更新）
+    _danmakuList.add(localDanmaku);
+    notifyListeners();
+
     // 2. 发送网络请求
     final request = SendDanmakuRequest(
       vid: _currentVid!,

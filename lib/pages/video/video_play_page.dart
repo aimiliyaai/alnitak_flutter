@@ -16,8 +16,10 @@ import 'widgets/author_card.dart';
 import 'widgets/video_info_card.dart';
 import 'widgets/video_action_buttons.dart';
 import 'widgets/part_list.dart';
+import 'widgets/collection_list.dart';
 import 'widgets/recommend_list.dart';
 import 'widgets/comment_preview_card.dart';
+import '../../widgets/danmaku_overlay.dart';
 
 /// 视频播放页面
 class VideoPlayPage extends StatefulWidget {
@@ -79,6 +81,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   // 【新增】分集列表和推荐列表的 GlobalKey，用于自动连播
   final GlobalKey<PartListState> _partListKey = GlobalKey<PartListState>();
+  final GlobalKey<CollectionListState> _collectionListKey = GlobalKey<CollectionListState>();
   final GlobalKey<RecommendListState> _recommendListKey = GlobalKey<RecommendListState>();
 
   @override
@@ -118,6 +121,64 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   /// 弹幕控制器变化回调（更新弹幕数量显示）
   void _onDanmakuChanged() {
     _danmakuCountNotifier.value = _danmakuController.rawTotalCount;
+  }
+
+  /// 构建非全屏弹幕发送栏
+  Widget _buildDanmakuInputBar() {
+    final colors = context.colors;
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              color: colors.card,
+              child: SafeArea(
+                top: false,
+                child: DanmakuSendBar(
+                  controller: _danmakuController,
+                  onSendEnd: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.card,
+          border: Border(
+            bottom: BorderSide(color: colors.divider, width: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colors.inputBackground,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '发一条弹幕...',
+                  style: TextStyle(
+                    color: colors.textTertiary,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// 刷新用户操作状态
@@ -726,15 +787,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _hasReportedCompleted = true; // 标记为已上报
 
     // 【自动连播逻辑】
-    // 1. 优先检查合集自动连播（下一集）
+    // 1. 优先检查分P自动连播（下一集）
     final nextPart = _partListKey.currentState?.getNextPart();
     if (nextPart != null) {
-      print('🔄 合集自动连播: 切换到第 $nextPart 集');
+      print('🔄 分P自动连播: 切换到第 $nextPart 集');
       _changePart(nextPart);
       return;
     }
 
-    // 2. 如果没有下一集，检查推荐列表自动连播
+    // 2. 检查合集自动连播（下一个视频）
+    final nextCollectionVideo = _collectionListKey.currentState?.getNextVideo();
+    if (nextCollectionVideo != null) {
+      print('🔄 合集自动连播: 切换到视频 $nextCollectionVideo');
+      _switchToVideo(nextCollectionVideo);
+      return;
+    }
+
+    // 3. 如果没有下一集，检查推荐列表自动连播
     final nextVideo = _recommendListKey.currentState?.getNextVideo();
     if (nextVideo != null) {
       print('🔄 推荐列表自动连播: 切换到视频 $nextVideo');
@@ -858,7 +927,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
             onControllerReady: (controller) => _playerController = controller,
-            title: currentResource.title, // 传递分P标题
+            title: _videoDetail!.resources.length > 1
+                ? currentResource.title
+                : _videoDetail!.title, // 单P用稿件标题，多P用分P标题
             author: _videoDetail!.author.name, // 传递作者名（后台播放通知用）
             coverUrl: _videoDetail!.cover, // 传递封面（后台播放通知用）
             totalParts: _videoDetail!.resources.length,
@@ -874,72 +945,103 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         Expanded(
           child: ListView(
             controller: _scrollController,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.only(bottom: 16),
             children: [
+              // 弹幕发送入口（非全屏模式）
+              _buildDanmakuInputBar(),
               // 视频标题和信息
-              VideoInfoCard(
-                videoDetail: _videoDetail!,
-                videoStat: _videoStat!,
-                currentPart: _currentPart,
-                onlineCount: _onlineWebSocketService.onlineCount,
-                danmakuCount: _danmakuCountNotifier,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: VideoInfoCard(
+                  videoDetail: _videoDetail!,
+                  videoStat: _videoStat!,
+                  currentPart: _currentPart,
+                  onlineCount: _onlineWebSocketService.onlineCount,
+                  danmakuCount: _danmakuCountNotifier,
+                ),
               ),
               const SizedBox(height: 16),
 
               // 操作按钮
-              VideoActionButtons(
-                vid: _currentVid,
-                initialStat: _videoStat!,
-                initialHasLiked: _actionStatus!.hasLiked,
-                initialHasCollected: _actionStatus!.hasCollected,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: VideoActionButtons(
+                  vid: _currentVid,
+                  initialStat: _videoStat!,
+                  initialHasLiked: _actionStatus!.hasLiked,
+                  initialHasCollected: _actionStatus!.hasCollected,
+                ),
               ),
               const SizedBox(height: 16),
 
               // 作者信息
-              AuthorCard(
-                author: _videoDetail!.author,
-                initialRelationStatus: _actionStatus!.relationStatus,
-                onAvatarTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
-                    ),
-                  );
-                },
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: AuthorCard(
+                  author: _videoDetail!.author,
+                  initialRelationStatus: _actionStatus!.relationStatus,
+                  onAvatarTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
+                      ),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 16),
 
               // 分P列表（手机端）
               if (MediaQuery.of(context).size.width <= 900)
-                PartList(
-                  key: _partListKey,
-                  resources: _videoDetail!.resources,
-                  currentPart: _currentPart,
-                  onPartChange: _changePart,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: PartList(
+                    key: _partListKey,
+                    resources: _videoDetail!.resources,
+                    currentPart: _currentPart,
+                    onPartChange: _changePart,
+                  ),
+                ),
+
+              // 合集列表（手机端）
+              if (MediaQuery.of(context).size.width <= 900)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: CollectionList(
+                    key: _collectionListKey,
+                    vid: _currentVid,
+                    onVideoTap: _switchToVideo,
+                  ),
                 ),
 
               const SizedBox(height: 16),
 
               // 评论预览卡片（YouTube 风格）
-              CommentPreviewCard(
-                vid: _currentVid,
-                totalComments: _totalComments,
-                latestComment: _latestComment,
-                onSeek: (seconds) {
-                  // 点击评论中的时间戳，跳转到对应时间
-                  _playerManager.controller?.seek(Duration(seconds: seconds));
-                },
-                onCommentPosted: _refreshCommentPreview,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: CommentPreviewCard(
+                  vid: _currentVid,
+                  totalComments: _totalComments,
+                  latestComment: _latestComment,
+                  onSeek: (seconds) {
+                    // 点击评论中的时间戳，跳转到对应时间
+                    _playerManager.controller?.seek(Duration(seconds: seconds));
+                  },
+                  onCommentPosted: _refreshCommentPreview,
+                ),
               ),
               const SizedBox(height: 16),
 
               // 推荐视频（手机端）
               if (MediaQuery.of(context).size.width <= 900)
-                RecommendList(
-                  key: _recommendListKey,
-                  vid: _currentVid,
-                  onVideoTap: _switchToVideo,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: RecommendList(
+                    key: _recommendListKey,
+                    vid: _currentVid,
+                    onVideoTap: _switchToVideo,
+                  ),
                 ),
             ],
           ),
@@ -980,6 +1082,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 currentPart: _currentPart,
                 onPartChange: _changePart,
               ),
+
+            // 合集列表
+            CollectionList(
+              key: _collectionListKey,
+              vid: _currentVid,
+              onVideoTap: _switchToVideo,
+            ),
 
             const SizedBox(height: 16),
 

@@ -539,15 +539,34 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       ),
                     ),
 
-                  // 4. 控制 UI - 播放结束时只显示重播按钮
+                  // 4. 控制 UI
                   StreamBuilder<bool>(
                     stream: widget.controller.player.stream.completed,
                     builder: (context, completedSnapshot) {
                       final isCompleted = completedSnapshot.data ?? widget.controller.player.state.completed;
 
-                      // 播放结束时只显示重播按钮
                       if (isCompleted) {
-                        return Center(child: _buildCenterPlayButton());
+                        // 播放结束：始终显示重播按钮，点击空白可切换控制UI
+                        return Stack(
+                          children: [
+                            // 重播按钮始终显示
+                            Center(child: _buildCenterPlayButton()),
+                            // 控制UI可切换显示/隐藏
+                            IgnorePointer(
+                              ignoring: !_showControls,
+                              child: AnimatedOpacity(
+                                opacity: _showControls ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 300),
+                                child: Stack(
+                                  children: [
+                                    if (!_isLocked) _buildTopBar(),
+                                    if (!_isLocked) _buildBottomBar(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
                       }
 
                       // 正常播放时显示完整控制UI
@@ -1412,7 +1431,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
   Widget _buildSpeedPanel() {
     return Positioned(
-      right: _speedPanelRight ?? 100,
+      right: (_speedPanelRight ?? 100) - 12, // 向右偏移
       bottom: 50, // 对齐底部控制栏上方
       child: GestureDetector(
         onTap: () {}, // 拦截点击穿透

@@ -394,7 +394,7 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                             ? CachedCircleAvatar(
                                 imageUrl: ImageUtils.getFullImageUrl(video.author.avatar),
                                 radius: 10,
-                                cacheKey: 'author_avatar_${video.author.uid}',
+                                cacheKey: 'user_avatar_${video.author.uid}',
                               )
                             : CircleAvatar(
                                 radius: 10,

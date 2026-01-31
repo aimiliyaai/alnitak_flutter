@@ -92,6 +92,7 @@ class MessageArticleInfo {
 
 /// @消息
 class AtMessage {
+  final int id;
   final int type; // 0=视频, 1=文章
   final MessageVideoInfo? video;
   final MessageArticleInfo? article;
@@ -99,6 +100,7 @@ class AtMessage {
   final String createdAt;
 
   AtMessage({
+    required this.id,
     required this.type,
     this.video,
     this.article,
@@ -108,6 +110,7 @@ class AtMessage {
 
   factory AtMessage.fromJson(Map<String, dynamic> json) {
     return AtMessage(
+      id: json['id'] ?? 0,
       type: json['type'] ?? 0,
       video: json['video'] != null ? MessageVideoInfo.fromJson(json['video']) : null,
       article: json['article'] != null ? MessageArticleInfo.fromJson(json['article']) : null,
@@ -119,6 +122,7 @@ class AtMessage {
 
 /// 点赞消息
 class LikeMessage {
+  final int id;
   final int type; // 0=视频, 1=文章
   final MessageVideoInfo? video;
   final MessageArticleInfo? article;
@@ -126,6 +130,7 @@ class LikeMessage {
   final String createdAt;
 
   LikeMessage({
+    required this.id,
     required this.type,
     this.video,
     this.article,
@@ -135,6 +140,7 @@ class LikeMessage {
 
   factory LikeMessage.fromJson(Map<String, dynamic> json) {
     return LikeMessage(
+      id: json['id'] ?? 0,
       type: json['type'] ?? 0,
       video: json['video'] != null ? MessageVideoInfo.fromJson(json['video']) : null,
       article: json['article'] != null ? MessageArticleInfo.fromJson(json['article']) : null,
@@ -146,6 +152,7 @@ class LikeMessage {
 
 /// 回复消息
 class ReplyMessage {
+  final int id;
   final int type; // 0=视频, 1=文章
   final MessageVideoInfo? video;
   final MessageArticleInfo? article;
@@ -157,6 +164,7 @@ class ReplyMessage {
   final String commentId; // 评论ID
 
   ReplyMessage({
+    required this.id,
     required this.type,
     this.video,
     this.article,
@@ -170,6 +178,7 @@ class ReplyMessage {
 
   factory ReplyMessage.fromJson(Map<String, dynamic> json) {
     return ReplyMessage(
+      id: json['id'] ?? 0,
       type: json['type'] ?? 0,
       video: json['video'] != null ? MessageVideoInfo.fromJson(json['video']) : null,
       article: json['article'] != null ? MessageArticleInfo.fromJson(json['article']) : null,

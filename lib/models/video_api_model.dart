@@ -10,6 +10,7 @@ class VideoApiModel {
   final double duration;
   final int clicks;
   final int partitionId;
+  final int danmakuCount; // 弹幕数量
   final AuthorModel author;
   final List<ResourceModel> resources;
 
@@ -25,6 +26,7 @@ class VideoApiModel {
     required this.duration,
     required this.clicks,
     required this.partitionId,
+    required this.danmakuCount,
     required this.author,
     required this.resources,
   });
@@ -42,6 +44,7 @@ class VideoApiModel {
       duration: (json['duration'] ?? 0).toDouble(),
       clicks: json['clicks'] ?? 0,
       partitionId: json['partitionId'] ?? 0,
+      danmakuCount: json['danmakuCount'] ?? 0,
       author: AuthorModel.fromJson(json['author'] ?? {}),
       resources: (json['resources'] as List<dynamic>?)
               ?.map((r) => ResourceModel.fromJson(r as Map<String, dynamic>))

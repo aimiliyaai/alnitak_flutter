@@ -45,7 +45,7 @@ class VideoItem {
       authorUid: apiModel.author.uid, // 保存作者ID用于缓存key
       playCount: apiModel.clicks,
       duration: apiModel.formattedDuration,
-      danmakuCount: 0, // API中没有弹幕数量字段，设为0
+      danmakuCount: apiModel.danmakuCount, // 从API获取弹幕数量
       authorAvatar: apiModel.author.avatar.isNotEmpty
           ? getFullImageUrl(apiModel.author.avatar)
           : null,

@@ -507,7 +507,7 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
                     ? CachedCircleAvatar(
                         imageUrl: ImageUtils.getFullImageUrl(_currentUserAvatar!),
                         radius: 20,
-                        cacheKey: 'current_user_avatar_$_currentUserId',
+                        cacheKey: 'user_avatar_$_currentUserId',
                       )
                     : CircleAvatar(
                         radius: 20,
