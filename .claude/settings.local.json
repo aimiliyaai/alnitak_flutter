@@ -53,7 +53,8 @@
       "Read(//e/**)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
-      "Bash(cd /d e:alnitak_flutter)"
+      "Bash(cd /d e:alnitak_flutter)",
+      "Bash(dart analyze:*)"
     ],
     "deny": [],
     "ask": [],

@@ -2,6 +2,19 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
 
+/// 合集创建/编辑结果
+class PlaylistResult {
+  final bool success;
+  final String? errorMessage;
+  final dynamic data;
+
+  PlaylistResult({
+    required this.success,
+    this.errorMessage,
+    this.data,
+  });
+}
+
 /// 合集(Playlist) API 服务
 class PlaylistApiService {
   static final PlaylistApiService _instance = PlaylistApiService._internal();
@@ -76,33 +89,58 @@ class PlaylistApiService {
   }
 
   /// 创建合集
-  Future<bool> addPlaylist({
+  Future<PlaylistResult> addPlaylist({
     required String title,
     String cover = '',
     String desc = '',
   }) async {
-    if (!_tokenManager.canMakeAuthenticatedRequest) return false;
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return PlaylistResult(
+        success: false,
+        errorMessage: '未登录',
+      );
+    }
+
     try {
       final response = await _dio.post(
         '/api/v1/playlist/add',
         data: {'title': title, 'cover': cover, 'desc': desc},
       );
-      return response.data['code'] == 200;
+      
+      if (response.data['code'] == 200) {
+        return PlaylistResult(
+          success: true,
+          data: response.data['data'],
+        );
+      } else {
+        return PlaylistResult(
+          success: false,
+          errorMessage: response.data['msg']?.toString() ?? '创建失败',
+        );
+      }
     } catch (e) {
       print('创建合集失败: $e');
-      return false;
+      return PlaylistResult(
+        success: false,
+        errorMessage: '网络错误，请稍后重试',
+      );
     }
   }
 
   /// 编辑合集
-  Future<bool> editPlaylist({
+  Future<PlaylistResult> editPlaylist({
     required int id,
     required String title,
     String cover = '',
     String desc = '',
-    bool isOpen = true,
   }) async {
-    if (!_tokenManager.canMakeAuthenticatedRequest) return false;
+    if (!_tokenManager.canMakeAuthenticatedRequest) {
+      return PlaylistResult(
+        success: false,
+        errorMessage: '未登录',
+      );
+    }
+
     try {
       final response = await _dio.put(
         '/api/v1/playlist/edit',
@@ -111,13 +149,23 @@ class PlaylistApiService {
           'title': title,
           'cover': cover,
           'desc': desc,
-          'isOpen': isOpen,
         },
       );
-      return response.data['code'] == 200;
+      
+      if (response.data['code'] == 200) {
+        return PlaylistResult(success: true);
+      } else {
+        return PlaylistResult(
+          success: false,
+          errorMessage: response.data['msg']?.toString() ?? '编辑失败',
+        );
+      }
     } catch (e) {
       print('编辑合集失败: $e');
-      return false;
+      return PlaylistResult(
+        success: false,
+        errorMessage: '网络错误，请稍后重试',
+      );
     }
   }
 

@@ -1,5 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../services/playlist_api_service.dart';
+import '../../services/upload_api_service.dart';
+import '../../utils/image_utils.dart';
+import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 
 /// 合集编辑页面（创建/编辑）
@@ -18,8 +23,9 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
   final PlaylistApiService _api = PlaylistApiService();
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  bool _isOpen = true;
   bool _submitting = false;
+  String _coverUrl = '';
+  File? _coverFile;
 
   @override
   void initState() {
@@ -27,7 +33,7 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
     if (widget.isEdit) {
       _titleController.text = widget.playlistData!['title'] ?? '';
       _descController.text = widget.playlistData!['desc'] ?? '';
-      _isOpen = widget.playlistData!['isOpen'] ?? true;
+      _coverUrl = widget.playlistData!['cover'] ?? '';
     }
   }
 
@@ -36,6 +42,16 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
     _titleController.dispose();
     _descController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickCover() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _coverFile = File(pickedFile.path);
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -49,20 +65,38 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
 
     setState(() => _submitting = true);
 
+    // 如果选择了新封面，先上传
+    if (_coverFile != null) {
+      try {
+        final url = await UploadApiService.uploadImage(_coverFile!);
+        _coverUrl = url;
+      } catch (e) {
+        if (mounted) {
+          setState(() => _submitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('封面上传失败: $e')),
+          );
+        }
+        return;
+      }
+    }
+
     bool success;
     if (widget.isEdit) {
-      success = await _api.editPlaylist(
+      final result = await _api.editPlaylist(
         id: widget.playlistData!['id'],
         title: title,
         desc: _descController.text.trim(),
-        cover: widget.playlistData!['cover'] ?? '',
-        isOpen: _isOpen,
+        cover: _coverUrl,
       );
+      success = result.success;
     } else {
-      success = await _api.addPlaylist(
+      final result = await _api.addPlaylist(
         title: title,
         desc: _descController.text.trim(),
+        cover: _coverUrl,
       );
+      success = result.success;
     }
 
     if (mounted) {
@@ -97,7 +131,14 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
         padding: const EdgeInsets.all(16),
         children: [
           // 标题
-          Text('合集标题', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colors.textPrimary)),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(text: '合集标题', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colors.textPrimary)),
+                const TextSpan(text: ' *', style: TextStyle(fontSize: 14, color: Colors.red)),
+              ],
+            ),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _titleController,
@@ -107,6 +148,90 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
               filled: true,
               fillColor: colors.card,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 封面
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(text: '合集封面', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colors.textPrimary)),
+                const TextSpan(text: ' *', style: TextStyle(fontSize: 14, color: Colors.red)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: _pickCover,
+            child: Container(
+              width: double.infinity,
+              height: 180,
+              decoration: BoxDecoration(
+                border: Border.all(color: colors.border),
+                borderRadius: BorderRadius.circular(8),
+                color: colors.card,
+              ),
+              child: _coverFile != null
+                  ? Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            _coverFile!,
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('点击更换', style: TextStyle(color: Colors.white, fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    )
+                  : _coverUrl.isNotEmpty
+                      ? Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: CachedImage(
+                                imageUrl: ImageUtils.getFullImageUrl(_coverUrl),
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text('点击更换', style: TextStyle(color: Colors.white, fontSize: 12)),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_photo_alternate, size: 48, color: colors.textTertiary),
+                            const SizedBox(height: 8),
+                            Text('点击上传封面', style: TextStyle(color: colors.textTertiary)),
+                          ],
+                        ),
             ),
           ),
           const SizedBox(height: 16),
@@ -125,25 +250,6 @@ class _PlaylistEditPageState extends State<PlaylistEditPage> {
               fillColor: colors.card,
             ),
           ),
-
-          // 公开设置（仅编辑模式）
-          if (widget.isEdit) ...[
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('公开合集', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: colors.textPrimary)),
-                Switch(
-                  value: _isOpen,
-                  onChanged: (val) => setState(() => _isOpen = val),
-                ),
-              ],
-            ),
-            Text(
-              _isOpen ? '所有人可见此合集' : '仅自己可见',
-              style: TextStyle(fontSize: 12, color: colors.textSecondary),
-            ),
-          ],
 
           const SizedBox(height: 32),
 

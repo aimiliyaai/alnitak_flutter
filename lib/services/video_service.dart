@@ -39,6 +39,17 @@ class VideoService {
     }
   }
 
+  /// 视频分享计数+1
+  Future<bool> shareVideo(int vid) async {
+    try {
+      final response = await _dio.post('/api/v1/archive/video/share', data: {'vid': vid});
+      return response.data['code'] == 200;
+    } catch (e) {
+      print('视频分享计数失败: $e');
+      return false;
+    }
+  }
+
   /// 获取用户操作状态（点赞、收藏、关注）
   Future<UserActionStatus?> getUserActionStatus(int vid, int authorUid) async {
     bool hasLiked = false;

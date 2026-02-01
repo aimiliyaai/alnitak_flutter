@@ -320,6 +320,14 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
       ),
     );
   }
+  /// 记录分享计数
+  void _recordShare() {
+    _videoService.shareVideo(widget.vid);
+    setState(() {
+      _stat = _stat.copyWith(share: _stat.share + 1);
+    });
+  }
+
   /// 显示分享选项
   Future<void> _showShareOptions() async {
     // 生成分享链接
@@ -348,6 +356,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
               onTap: () {
                 Clipboard.setData(ClipboardData(text: shareUrl));
                 Navigator.pop(context);
+                _recordShare();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('链接已复制到剪贴板')),
                 );
@@ -358,6 +367,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
               title: const Text('分享到其他应用'),
               onTap: () {
                 Navigator.pop(context);
+                _recordShare();
                 Share.share(
                   shareUrl,
                   subject: '分享一个有趣的视频',
@@ -369,6 +379,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
               title: const Text('生成二维码'),
               onTap: () {
                 Navigator.pop(context);
+                _recordShare();
                 _showQrCodeDialog(shareUrl);
               },
             ),

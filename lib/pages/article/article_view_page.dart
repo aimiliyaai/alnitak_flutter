@@ -482,7 +482,7 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
             top: false,
             child: ArticleActionButtons(
               aid: widget.aid,
-              initialStat: _stat ?? ArticleStat(like: 0, collect: 0),
+              initialStat: _stat ?? ArticleStat(like: 0, collect: 0, share: 0),
               initialHasLiked: _hasLiked,
               initialHasCollected: _hasCollected,
             ),

@@ -115,23 +115,27 @@ class ArticleDetailResponse {
 class ArticleStat {
   final int like;
   final int collect;
+  final int share;
 
   ArticleStat({
     required this.like,
     required this.collect,
+    required this.share,
   });
 
   factory ArticleStat.fromJson(Map<String, dynamic> json) {
     return ArticleStat(
       like: json['like'] ?? 0,
       collect: json['collect'] ?? 0,
+      share: json['share'] ?? 0,
     );
   }
 
-  ArticleStat copyWith({int? like, int? collect}) {
+  ArticleStat copyWith({int? like, int? collect, int? share}) {
     return ArticleStat(
       like: like ?? this.like,
       collect: collect ?? this.collect,
+      share: share ?? this.share,
     );
   }
 }

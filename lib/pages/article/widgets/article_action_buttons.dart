@@ -283,6 +283,14 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
     );
   }
 
+  /// 记录分享计数
+  void _recordShare() {
+    ArticleApiService.shareArticle(widget.aid);
+    setState(() {
+      _stat = _stat.copyWith(share: _stat.share + 1);
+    });
+  }
+
   /// 显示分享选项
   Future<void> _showShareOptions() async {
     final shareUrl = _getShareUrl();
@@ -310,6 +318,7 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
               onTap: () {
                 Clipboard.setData(ClipboardData(text: shareUrl));
                 Navigator.pop(context);
+                _recordShare();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('链接已复制到剪贴板')),
                 );
@@ -320,6 +329,7 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
               title: const Text('分享到其他应用'),
               onTap: () {
                 Navigator.pop(context);
+                _recordShare();
                 Share.share(
                   shareUrl,
                   subject: '分享一篇好文章',
@@ -331,6 +341,7 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
               title: const Text('生成二维码'),
               onTap: () {
                 Navigator.pop(context);
+                _recordShare();
                 _showQrCodeDialog(shareUrl);
               },
             ),
@@ -442,7 +453,7 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
             child: _buildActionButton(
               icon: Icons.share,
               label: '分享',
-              count: '',
+              count: _formatNumber(_stat.share),
               onTap: _showShareOptions,
               isActive: false,
             ),

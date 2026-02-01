@@ -104,6 +104,20 @@ class ArticleApiService {
     }
   }
 
+  /// 文章分享计数+1
+  static Future<bool> shareArticle(int aid) async {
+    try {
+      final response = await _httpClient.dio.post(
+        '/api/v1/archive/article/share',
+        data: {'aid': aid},
+      );
+      return response.data['code'] == 200;
+    } catch (e) {
+      print('文章分享计数失败: $e');
+      return false;
+    }
+  }
+
   /// 获取文章点赞状态
   static Future<bool> hasLikedArticle(int aid) async {
     try {
