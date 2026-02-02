@@ -16,10 +16,12 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
   StreamSubscription<Duration>? _durationSubscription;
 
   VideoAudioHandler(this.player) {
+    debugPrint('🎵 [AudioServiceHandler] 构造函数开始');
     // 初始化播放状态
     _initPlaybackState();
     // 监听播放器状态变化
     _setupPlayerListeners();
+    debugPrint('🎵 [AudioServiceHandler] 构造函数完成');
   }
 
   /// 初始化播放状态

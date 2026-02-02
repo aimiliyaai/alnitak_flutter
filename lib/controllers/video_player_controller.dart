@@ -54,6 +54,7 @@ class VideoPlayerController extends ChangeNotifier {
   bool _isDisposed = false;
   bool _hasTriggeredCompletion = false;
   bool _isInitializing = false; // 防止并发初始化
+  bool _hasPlaybackStarted = false; // 防止重复播放（首帧声音问题）
 
   /// 【核心】用户期望的进度位置
   /// - seek 时更新为目标位置
@@ -150,6 +151,7 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
+      _hasPlaybackStarted = false; // 重置播放状态
 
       // 并发：配置播放器 + 获取清晰度 + 加载设置
       await Future.wait([
@@ -212,6 +214,7 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
+      _hasPlaybackStarted = false; // 重置播放状态
 
       debugPrint('📹 [Controller] 使用预加载数据初始化: resourceId=$resourceId, quality=$selectedQuality');
 
@@ -331,10 +334,14 @@ class VideoPlayerController extends ChangeNotifier {
       }
       final media = await _createMedia(mediaSource);
 
-      // 打开视频
+       // 打开视频
       _isSeeking = true;
+      debugPrint('📹 [LoadInternal] 调用 player.open(play: false)');
       await player.open(media, play: false);
+      debugPrint('📹 [LoadInternal] player.open 完成，当前 playing=${player.state.playing}');
+      
       await _waitForDuration();
+      debugPrint('📹 [LoadInternal] waitForDuration 完成，当前 playing=${player.state.playing}');
 
       // 竞态检查（如果提供了检查函数）
       if (resourceIdCheck != null && !resourceIdCheck()) {
@@ -736,7 +743,7 @@ class VideoPlayerController extends ChangeNotifier {
     _tempDirs.clear();
   }
 
-  Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
+   Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
     if (player.state.duration.inSeconds > 0) return;
 
     final completer = Completer<void>();
@@ -761,39 +768,31 @@ class VideoPlayerController extends ChangeNotifier {
 
   // 【新增】标记当前资源是否已经 warmup+seek 完成，处于 paused 状态等待 resume
 
-  /// 【修复】只做 seek，不做 warmup play
+  /// 【修复】直接 seek，不做 warmup play
   ///
   /// 之前的问题：warmup 中的 play 会在位置 0 渲染一帧（因为 seek 还没完成）
-  /// 新策略：只 seek 到目标位置，让后续的 _startPlaybackIfAllowed 来播放
-  Future<void> _warmUpAndSeek(Duration targetPosition) async {
+  /// 新策略：直接 seek，让后续的 _startPlaybackIfAllowed 来播放
+   Future<void> _warmUpAndSeek(Duration targetPosition) async {
     if (_isDisposed || _currentResourceId == null) return;
 
     try {
       final targetSeconds = targetPosition.inSeconds;
       debugPrint('🔧 [WarmupSeek] 开始 seek 到 ${targetSeconds}s');
 
-      // 【修复】MPV 在未播放状态下 seek 可能不生效
-      // 先短暂播放让播放器激活
-      await player.play();
-      await Future.delayed(const Duration(milliseconds: 80));
-
-      // 发送 seek 命令（在播放状态下 seek 更可靠）
+      // 直接 seek，不先播放
       await player.seek(targetPosition);
 
       // 等待 seek 生效
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 80));
 
-      // 【关键】验证 seek 是否成功，如果失败则重试一次
+      // 验证 seek 是否成功
       final actualPos = player.state.position;
       final diff = (actualPos.inSeconds - targetSeconds).abs();
-      if (diff > 3) {
-        debugPrint('⚠️ [WarmupSeek] 位置偏差过大(${actualPos.inSeconds}s vs ${targetSeconds}s)，重试 seek');
+      if (diff > 2) {
+        debugPrint('⚠️ [WarmupSeek] 位置偏差(${actualPos.inSeconds}s vs ${targetSeconds}s)，重试 seek');
         await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 80));
       }
-
-      // 暂停，等待后续 _startPlaybackIfAllowed 恢复播放
-      await player.pause();
 
       // 最终验证
       final finalPos = player.state.position;
@@ -803,15 +802,30 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> _startPlaybackIfAllowed() async {
+   Future<void> _startPlaybackIfAllowed() async {
     if (_isDisposed) return;
+    debugPrint('📹 [Play] _startPlaybackIfAllowed 被调用，_hasPlaybackStarted=$_hasPlaybackStarted, playing=${player.state.playing}');
+    // 【关键】防止重复播放（首帧声音问题）
+    if (_hasPlaybackStarted) {
+      debugPrint('⚠️ [Play] 播放已启动，跳过重复调用');
+      return;
+    }
     if (!isSwitchingQuality.value) {
+      _hasPlaybackStarted = true;
       try {
+        debugPrint('📹 [Play] 调用 player.play() 前，playing=${player.state.playing}');
         // 记录播放前的位置
         final expectedPos = _userIntendedPosition;
 
+        // 【蓝牙模式修复】如果已在播放，先暂停再播放，防止重复
+        if (player.state.playing) {
+          debugPrint('📹 [Play] 检测到已在播放，先暂停');
+          await player.pause();
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+
         await player.play();
-        debugPrint('▶️ [Load] 开始播放');
+        debugPrint('▶️ [Load] 开始播放，playing=${player.state.playing}');
 
         // 【关键】检查播放后位置是否被重置
         if (expectedPos.inSeconds > 3) {
@@ -826,6 +840,7 @@ class VideoPlayerController extends ChangeNotifier {
         }
       } catch (e) {
         debugPrint('⚠️ [Play] 播放失败: $e');
+        _hasPlaybackStarted = false; // 重置，允许重试
       }
     }
   }
@@ -998,16 +1013,17 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> _ensureAudioServiceReady() async {
+   Future<void> _ensureAudioServiceReady() async {
     try {
       if (_audioServiceInitialized && _audioHandler != null) {
+        debugPrint('🎵 [AudioService] 已有实例，只更新 player');
         _audioHandler!.setPlayer(player);
-        // 同步元数据，确保通知栏信息更新
         _updateAudioServiceMetadata();
         return;
       }
 
       if (!_audioServiceInitialized) {
+        debugPrint('🎵 [AudioService] 开始初始化...');
         _audioHandler = await AudioService.init(
           builder: () => VideoAudioHandler(player),
           config: const AudioServiceConfig(
@@ -1019,6 +1035,7 @@ class VideoPlayerController extends ChangeNotifier {
           ),
         );
         _audioServiceInitialized = true;
+        debugPrint('🎵 [AudioService] 初始化完成');
         // 附加 player 并同步已有的媒体元数据（如果有）
         _audioHandler?.setPlayer(player);
         _updateAudioServiceMetadata();
