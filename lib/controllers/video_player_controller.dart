@@ -52,7 +52,7 @@ class VideoPlayerController extends ChangeNotifier {
   // ============ 核心状态（极简）============
   int? _currentResourceId;
   bool _isDisposed = false;
-  bool _hasTriggeredCompletion = false;
+   bool _hasTriggeredCompletion = false;
   bool _isInitializing = false; // 防止并发初始化
   bool _hasPlaybackStarted = false; // 防止重复播放（首帧声音问题）
 
@@ -311,16 +311,16 @@ class VideoPlayerController extends ChangeNotifier {
     );
   }
 
-  /// 【统一】内部加载逻辑，避免代码重复
+   /// 【统一】内部加载逻辑，避免代码重复
   Future<void> _loadMediaInternal({
     required MediaSource mediaSource,
     required String quality,
     double? initialPosition,
     required bool autoPlay,
     bool Function()? resourceIdCheck,
-  }) async {
+   }) async {
     if (_isDisposed) return;
-
+    
     try {
       _hasTriggeredCompletion = false;
       final needSeek = initialPosition != null && initialPosition > 0;
@@ -338,10 +338,9 @@ class VideoPlayerController extends ChangeNotifier {
       _isSeeking = true;
       debugPrint('📹 [LoadInternal] 调用 player.open(play: false)');
       await player.open(media, play: false);
-      debugPrint('📹 [LoadInternal] player.open 完成，当前 playing=${player.state.playing}');
-      
+      debugPrint('📹 [LoadInternal] player.open 完成');
+       
       await _waitForDuration();
-      debugPrint('📹 [LoadInternal] waitForDuration 完成，当前 playing=${player.state.playing}');
 
       // 竞态检查（如果提供了检查函数）
       if (resourceIdCheck != null && !resourceIdCheck()) {
@@ -354,27 +353,26 @@ class VideoPlayerController extends ChangeNotifier {
         debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
         await _warmUpAndSeek(targetPosition);
         _userIntendedPosition = targetPosition;
-      }
+       }
 
-      _isSeeking = false;
+       _isSeeking = false;
 
-      // 【关键】等待100ms让底层播放器完全就绪
-      debugPrint('⏳ [Load] 等待播放器就绪...');
-      await Future.delayed(const Duration(milliseconds: 70));
-      if (_isDisposed) return;
+       // 【智能等待】检测播放器真正就绪后再播放
+       debugPrint('⏳ [Load] 等待播放器就绪...');
+       await _waitForReady();
+       if (_isDisposed) return;
 
-      // 自动播放（Manager模式）
-      if (autoPlay) {
-        await _startPlaybackIfAllowed();
-      }
+       // 自动播放（Manager模式）
+       if (autoPlay && !player.state.playing) {
+         await _startPlaybackIfAllowed();
+       }
 
-      // 预加载相邻清晰度
+       // 预加载相邻清晰度
       _preloadAdjacentQualities();
 
     } catch (e) {
       _isSeeking = false;
       debugPrint('❌ [Load] 失败: $e');
-      rethrow;
     }
   }
 
@@ -746,7 +744,7 @@ class VideoPlayerController extends ChangeNotifier {
    Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
     if (player.state.duration.inSeconds > 0) return;
 
-    final completer = Completer<void>();
+     final completer = Completer<void>();
     StreamSubscription? sub;
 
     sub = player.stream.duration.listen((duration) {
@@ -760,6 +758,32 @@ class VideoPlayerController extends ChangeNotifier {
     } finally {
       await sub.cancel();
     }
+  }
+
+  /// 【完整同步】等待播放器完全就绪后再播放
+  Future<void> _waitForReady() async {
+    // 如果已在播放，直接返回
+    if (player.state.playing) {
+      debugPrint('✅ [_waitForReady] 已在播放，跳过');
+      return;
+    }
+
+    // 等待 duration 有值（最多等5秒）
+    if (player.state.duration.inSeconds == 0) {
+      debugPrint('⏳ [_waitForReady] 等待 duration...');
+      try {
+        await player.stream.duration.firstWhere((d) => d.inSeconds > 0)
+            .timeout(const Duration(seconds: 5));
+        debugPrint('✅ [_waitForReady] duration 已就绪');
+      } catch (e) {
+        debugPrint('⚠️ [_waitForReady] duration 等待超时');
+      }
+    }
+
+    // 确保 playing 状态同步
+    await Future.delayed(const Duration(milliseconds: 60));
+    
+    debugPrint('✅ [_waitForReady] 完成: playing=${player.state.playing}, duration=${player.state.duration.inSeconds}s');
   }
 
   // ============================================================

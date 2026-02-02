@@ -122,31 +122,33 @@ class VideoPlayerManager extends ChangeNotifier {
 
     debugPrint('🚀 [Manager] 开始预加载资源: resourceId=$resourceId, epoch=$myEpoch');
 
-    try {
-      // 1. 获取清晰度列表
-      final qualities = await _hlsService.getAvailableQualities(resourceId);
+     try {
+       // 1. 并行获取清晰度列表和首选清晰度
+       final qualities = await _hlsService.getAvailableQualities(resourceId);
 
-      // 检查是否已过期
-      if (_isDisposed || myEpoch != _currentEpoch) {
-        debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
-        return;
-      }
+       // 检查是否已过期
+       if (_isDisposed || myEpoch != _currentEpoch) {
+         debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
+         return;
+       }
 
-      if (qualities.isEmpty) {
-        throw Exception('没有可用的清晰度');
-      }
+       if (qualities.isEmpty) {
+         throw Exception('没有可用的清晰度');
+       }
 
-      // 2. 确定首选清晰度
-      final selectedQuality = await _getPreferredQuality(qualities);
+       final selectedQuality = await _getPreferredQuality(qualities);
 
-      // 再次检查是否过期
-      if (_isDisposed || myEpoch != _currentEpoch) {
-        debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
-        return;
-      }
+       // 再次检查是否过期
+       if (_isDisposed || myEpoch != _currentEpoch) {
+         debugPrint('⚠️ [Manager] 预加载已过期(epoch不匹配)，跳过');
+         return;
+       }
 
-      // 3. 获取媒体源
-      final mediaSource = await _hlsService.getMediaSource(resourceId, selectedQuality);
+       // 2. 并行获取媒体源和预加载相邻清晰度
+       final mediaSourceFuture = _hlsService.getMediaSource(resourceId, selectedQuality);
+       _preloadAdjacentQualitiesInBackground(resourceId, qualities, selectedQuality);
+       
+       final mediaSource = await mediaSourceFuture;
 
       // 最终检查
       if (_isDisposed || myEpoch != _currentEpoch) {
@@ -166,17 +168,15 @@ class VideoPlayerManager extends ChangeNotifier {
         initialPosition: initialPosition,
       );
 
-      isResourceReady.value = true;
-      _isPreloading = false;
+       isResourceReady.value = true;
+       _isPreloading = false;
 
-      if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
-        _preloadCompleter!.complete(_preloadedResource!);
-      }
+       if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
+         _preloadCompleter!.complete(_preloadedResource!);
+       }
 
-      // 5. 如果播放器已创建且未开始播放，立即开始播放
-      if (_controller != null && !_isStartingPlayback) {
-        await _startPlaybackWithPreloadedResource(myEpoch);
-      }
+       // 注意：不在这里触发播放，由 createController 统一处理
+       // 防止 preloadResource 和 createController 并发触发两次
 
     } catch (e) {
       // 检查是否过期
@@ -231,6 +231,13 @@ class VideoPlayerManager extends ChangeNotifier {
     // 设置视频上下文（用于进度恢复）
     if (_currentVid != null) {
       _controller!.setVideoContext(vid: _currentVid!, part: _currentPart);
+    }
+
+    // 如果资源未就绪，等待预加载完成
+    if (_preloadedResource == null && _preloadCompleter != null) {
+      debugPrint('⏳ [Manager] 等待预加载完成...');
+      await _preloadCompleter!.future;
+      debugPrint('✅ [Manager] 预加载完成，继续');
     }
 
     // 如果资源已就绪且未开始播放，立即开始播放
@@ -361,9 +368,34 @@ class VideoPlayerManager extends ChangeNotifier {
   }
 
   /// 播放控制
-  Future<void> play() async => _controller?.play();
+   Future<void> play() async => _controller?.play();
   Future<void> pause() async => _controller?.pause();
   Future<void> seek(Duration position) async => _controller?.seek(position);
+
+  /// 后台预加载相邻清晰度（不阻塞主流程）
+  void _preloadAdjacentQualitiesInBackground(int resourceId, List<String> qualities, String selectedQuality) {
+    if (_isDisposed) return;
+    
+    // 找出相邻清晰度（比当前高一级和低一级）
+    final currentIndex = qualities.indexOf(selectedQuality);
+    if (currentIndex == -1) return;
+    
+    final tasks = <Future>[];
+    
+    if (currentIndex > 0) {
+      final lowerQuality = qualities[currentIndex - 1];
+      tasks.add(_hlsService.getMediaSource(resourceId, lowerQuality).then((_) {
+        debugPrint('✅ [Manager] 后台预加载 $lowerQuality 完成');
+      }).catchError((_) {}));
+    }
+    
+    if (currentIndex < qualities.length - 1) {
+      final higherQuality = qualities[currentIndex + 1];
+      tasks.add(_hlsService.getMediaSource(resourceId, higherQuality).then((_) {
+        debugPrint('✅ [Manager] 后台预加载 $higherQuality 完成');
+      }).catchError((_) {}));
+    }
+  }
 
   /// 获取 VideoController（用于 Video widget）
   VideoController? get videoController => _controller?.videoController;
