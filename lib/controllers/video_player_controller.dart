@@ -342,32 +342,41 @@ class VideoPlayerController extends ChangeNotifier {
        
       await _waitForDuration();
 
-      // 竞态检查（如果提供了检查函数）
+       // 竞态检查（如果提供了检查函数）
       if (resourceIdCheck != null && !resourceIdCheck()) {
         _isSeeking = false;
         return;
       }
 
-      // 恢复历史进度
-      if (needSeek) {
-        debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s');
-        await _warmUpAndSeek(targetPosition);
-        _userIntendedPosition = targetPosition;
-       }
+         // 【关键修复】如果需要自动播放，先开始播放再 seek（确保 HLS 流 seek 生效）
+         // 【修复】资源切换时重置 _hasPlaybackStarted，确保播放逻辑能执行
+         _hasPlaybackStarted = false;
+         if (autoPlay && !player.state.playing) {
+           debugPrint('📹 [Load] 先启动播放，再执行 seek');
+           await _startPlaybackIfAllowed();
+         }
 
-       _isSeeking = false;
+        // 恢复历史进度
+        if (needSeek) {
+          final isPlaying = player.state.playing;
+          debugPrint('🔄 [Load] 恢复历史进度: ${targetPosition.inSeconds}s (播放状态: $isPlaying)');
+          _userIntendedPosition = targetPosition;
+          await player.seek(targetPosition);
+          await Future.delayed(const Duration(milliseconds: 100));
+          
+          // 验证 seek 是否成功
+          final actualPos = player.state.position.inSeconds;
+          final diff = (actualPos - targetPosition.inSeconds).abs();
+          if (diff > 2) {
+            debugPrint('⚠️ [Load] 位置偏差($actualPos vs ${targetPosition.inSeconds})，重试 seek');
+            await player.seek(targetPosition);
+          }
+          debugPrint('🔄 [Load] 历史进度恢复完成: ${player.state.position.inSeconds}s');
+        }
+        
+        _isSeeking = false;
 
-       // 【智能等待】检测播放器真正就绪后再播放
-       debugPrint('⏳ [Load] 等待播放器就绪...');
-       await _waitForReady();
-       if (_isDisposed) return;
-
-       // 自动播放（Manager模式）
-       if (autoPlay && !player.state.playing) {
-         await _startPlaybackIfAllowed();
-       }
-
-       // 预加载相邻清晰度
+        // 预加载相邻清晰度
       _preloadAdjacentQualities();
 
     } catch (e) {
@@ -579,16 +588,26 @@ class VideoPlayerController extends ChangeNotifier {
       // UI 始终更新
       _positionStreamController.add(position);
 
-      // seek 过程中不更新期望位置、不上报
+      // seek 过程中，不更新期望位置
       if (_isSeeking || isSwitchingQuality.value) return;
 
-      // 正常播放时，跟随实际位置
-      if (position.inSeconds > 0) {
-        _userIntendedPosition = position;
+      // 【关键修复】如果还没正式开始播放，跳过
+      // 但如果位置已经稳定且大于0，则允许（用于重播场景）
+      if (!_hasPlaybackStarted) {
+        // 首帧或位置为0时不更新不上报
+        if (position.inSeconds == 0) return;
+        // 位置大于0且不是首帧，标记为稳定并允许
+        _hasPlaybackStarted = true;
       }
+
+      // 正常播放时，跟随实际位置
+      _userIntendedPosition = position;
 
       // 节流上报（每 500ms）
       if (onProgressUpdate != null) {
+        // 【关键】位置为0时不上报
+        if (position.inSeconds == 0) return;
+        
         final diff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
         if (diff >= 500) {
           _lastReportedPosition = position;
@@ -758,73 +777,7 @@ class VideoPlayerController extends ChangeNotifier {
     } finally {
       await sub.cancel();
     }
-  }
-
-  /// 【完整同步】等待播放器完全就绪后再播放
-  Future<void> _waitForReady() async {
-    // 如果已在播放，直接返回
-    if (player.state.playing) {
-      debugPrint('✅ [_waitForReady] 已在播放，跳过');
-      return;
-    }
-
-    // 等待 duration 有值（最多等5秒）
-    if (player.state.duration.inSeconds == 0) {
-      debugPrint('⏳ [_waitForReady] 等待 duration...');
-      try {
-        await player.stream.duration.firstWhere((d) => d.inSeconds > 0)
-            .timeout(const Duration(seconds: 5));
-        debugPrint('✅ [_waitForReady] duration 已就绪');
-      } catch (e) {
-        debugPrint('⚠️ [_waitForReady] duration 等待超时');
-      }
-    }
-
-    // 确保 playing 状态同步
-    await Future.delayed(const Duration(milliseconds: 60));
-    
-    debugPrint('✅ [_waitForReady] 完成: playing=${player.state.playing}, duration=${player.state.duration.inSeconds}s');
-  }
-
-  // ============================================================
-  // 解码器预热与统一播放入口（避免重复 play/pause 和竞争）
-  // ============================================================
-
-  // 【新增】标记当前资源是否已经 warmup+seek 完成，处于 paused 状态等待 resume
-
-  /// 【修复】直接 seek，不做 warmup play
-  ///
-  /// 之前的问题：warmup 中的 play 会在位置 0 渲染一帧（因为 seek 还没完成）
-  /// 新策略：直接 seek，让后续的 _startPlaybackIfAllowed 来播放
-   Future<void> _warmUpAndSeek(Duration targetPosition) async {
-    if (_isDisposed || _currentResourceId == null) return;
-
-    try {
-      final targetSeconds = targetPosition.inSeconds;
-      debugPrint('🔧 [WarmupSeek] 开始 seek 到 ${targetSeconds}s');
-
-      // 直接 seek，不先播放
-      await player.seek(targetPosition);
-
-      // 等待 seek 生效
-      await Future.delayed(const Duration(milliseconds: 80));
-
-      // 验证 seek 是否成功
-      final actualPos = player.state.position;
-      final diff = (actualPos.inSeconds - targetSeconds).abs();
-      if (diff > 2) {
-        debugPrint('⚠️ [WarmupSeek] 位置偏差(${actualPos.inSeconds}s vs ${targetSeconds}s)，重试 seek');
-        await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
-
-      // 最终验证
-      final finalPos = player.state.position;
-      debugPrint('🔧 [WarmupSeek] 完成: target=${targetSeconds}s, actual=${finalPos.inSeconds}s');
-    } catch (e) {
-      debugPrint('⚠️ [WarmupSeek] 失败: $e');
-    }
-  }
+   }
 
    Future<void> _startPlaybackIfAllowed() async {
     if (_isDisposed) return;
@@ -835,11 +788,13 @@ class VideoPlayerController extends ChangeNotifier {
       return;
     }
     if (!isSwitchingQuality.value) {
+      // 先标记为开始，但不立即开启监听器的更新
       _hasPlaybackStarted = true;
       try {
         debugPrint('📹 [Play] 调用 player.play() 前，playing=${player.state.playing}');
         // 记录播放前的位置
         final expectedPos = _userIntendedPosition;
+        debugPrint('📹 [Play] expectedPos=${expectedPos.inSeconds}s, player.position=${player.state.position.inSeconds}s');
 
         // 【蓝牙模式修复】如果已在播放，先暂停再播放，防止重复
         if (player.state.playing) {
@@ -849,19 +804,32 @@ class VideoPlayerController extends ChangeNotifier {
         }
 
         await player.play();
-        debugPrint('▶️ [Load] 开始播放，playing=${player.state.playing}');
-
-        // 【关键】检查播放后位置是否被重置
-        if (expectedPos.inSeconds > 3) {
-          await Future.delayed(const Duration(milliseconds: 100));
-          final actualPos = player.state.position;
-          final diff = (actualPos.inSeconds - expectedPos.inSeconds).abs();
-
-          if (diff > 3) {
-            debugPrint('⚠️ [Play] 检测到位置被重置 (期望=${expectedPos.inSeconds}s, 实际=${actualPos.inSeconds}s)，重新 seek');
+        
+        // 【关键修复】等待播放器位置稳定
+        // 在 HLS 流中，play() 后的前几帧 position 可能是 0，我们需要跳过它们
+        if (expectedPos.inSeconds >= 2) {
+          debugPrint('⏳ [Play] 等待位置稳定 (期望值=${expectedPos.inSeconds}s)...');
+          int retryCount = 0;
+          while (retryCount < 10) {
+            final currentPos = player.state.position.inSeconds;
+            if ((currentPos - expectedPos.inSeconds).abs() <= 3) {
+              debugPrint('✅ [Play] 位置已稳定: ${currentPos}s');
+              break;
+            }
+            await Future.delayed(const Duration(milliseconds: 50));
+            retryCount++;
+          }
+          
+          // 如果 500ms 后还没稳定，强制 seek 一次
+          final finalPos = player.state.position.inSeconds;
+          if ((finalPos - expectedPos.inSeconds).abs() > 3) {
+            debugPrint('⚠️ [Play] 位置长时间不匹配 (${finalPos}s)，执行强制修正');
             await player.seek(expectedPos);
+            await Future.delayed(const Duration(milliseconds: 100));
           }
         }
+
+        debugPrint('▶️ [Load] 播放已启动稳定，当前 position=${player.state.position.inSeconds}s');
       } catch (e) {
         debugPrint('⚠️ [Play] 播放失败: $e');
         _hasPlaybackStarted = false; // 重置，允许重试

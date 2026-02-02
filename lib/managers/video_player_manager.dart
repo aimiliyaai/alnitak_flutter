@@ -175,8 +175,11 @@ class VideoPlayerManager extends ChangeNotifier {
          _preloadCompleter!.complete(_preloadedResource!);
        }
 
-       // 注意：不在这里触发播放，由 createController 统一处理
-       // 防止 preloadResource 和 createController 并发触发两次
+       // 如果控制器已创建，立即触发播放（分P/合集/推荐切换场景）
+       if (_controller != null && !_isStartingPlayback) {
+         debugPrint('🎬 [Manager] 控制器已存在，触发播放');
+         await _startPlaybackWithPreloadedResource(myEpoch);
+       }
 
     } catch (e) {
       // 检查是否过期
@@ -196,7 +199,7 @@ class VideoPlayerManager extends ChangeNotifier {
     }
   }
 
-  /// 创建播放器控制器（在 MediaPlayerWidget initState 时调用）
+   /// 创建播放器控制器（在 MediaPlayerWidget initState 时调用）
   ///
   /// 此方法会：
   /// 1. 立即创建 Player 和 VideoController 实例
