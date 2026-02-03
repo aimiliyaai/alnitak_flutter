@@ -6,6 +6,7 @@ import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/hls_service.dart';
 import '../../services/online_websocket_service.dart';
+import '../../services/logger_service.dart';
 import '../../managers/video_player_manager.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
@@ -194,10 +195,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         setState(() {
           _actionStatus = actionStatus;
         });
-        print('✅ 用户操作状态已刷新: hasLiked=${actionStatus.hasLiked}, hasCollected=${actionStatus.hasCollected}');
+        LoggerService.instance.logSuccess('用户操作状态已刷新: hasLiked=${actionStatus.hasLiked}, hasCollected=${actionStatus.hasCollected}', tag: 'VideoPlay');
       }
     } catch (e) {
-      print('刷新用户操作状态失败: $e');
+      LoggerService.instance.logWarning('刷新用户操作状态失败: $e', tag: 'VideoPlay');
     }
   }
 
@@ -244,7 +245,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 【关键】如果视频从未真正加载完成（duration == 0），不保存进度
     // 避免用户快速进入又退出时，用错误的进度覆盖服务器的正确记录
     if (_currentDuration <= 0) {
-      print('📊 页面关闭: 视频未加载完成(duration=0)，不保存进度以保留服务器记录');
+      LoggerService.instance.logDebug('页面关闭: 视频未加载完成(duration=0)，不保存进度以保留服务器记录', tag: 'VideoPlay');
       return;
     }
 
@@ -260,21 +261,21 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         // 只有当播放器的 duration 也有效时，才信任其 position
         if (playerDuration.inSeconds > 0 && currentPosition.inSeconds > 0) {
           progressToSave = currentPosition.inSeconds.toDouble();
-          print('📊 从播放器获取进度: ${currentPosition.inSeconds}秒');
+          LoggerService.instance.logDebug('从播放器获取进度: ${currentPosition.inSeconds}秒', tag: 'VideoPlay');
         }
       } catch (e) {
-        print('⚠️ 获取播放器进度失败: $e');
+        LoggerService.instance.logWarning('获取播放器进度失败: $e', tag: 'VideoPlay');
       }
     }
 
     if (progressToSave == null || progressToSave <= 0) {
-      print('📊 页面关闭: 无有效进度需要保存');
+      LoggerService.instance.logDebug('页面关闭: 无有效进度需要保存', tag: 'VideoPlay');
       return;
     }
 
     // 如果已经完播，退出时应该上报-1而不是总时长
     if (_hasReportedCompleted) {
-      print('📊 页面关闭前上报进度: -1 (已完播)');
+      LoggerService.instance.logDebug('页面关闭前上报进度: -1 (已完播)', tag: 'VideoPlay');
       _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
@@ -282,7 +283,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         duration: _currentDuration.toInt(),
       );
     } else {
-      print('📊 页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒, duration=${_currentDuration.toInt()}秒');
+      LoggerService.instance.logDebug('页面关闭前上报进度: ${progressToSave.toStringAsFixed(1)}秒, duration=${_currentDuration.toInt()}秒', tag: 'VideoPlay');
       _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
@@ -327,12 +328,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       if (progressData != null) {
         targetPart = progressData.part;
         progress = progressData.progress;
-        print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
+        LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
       }
 
       // 如果进度为-1，表示已看完，应该从头开始播放
       if (progress != null && progress == -1) {
-        print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
+        LoggerService.instance.logDebug('检测到视频已看完(progress=-1)，将从头开始播放', tag: 'VideoPlay');
         progress = null;
         _hasReportedCompleted = false;
       }
@@ -340,7 +341,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
       if (progress != null && progress > 2) {
         progress = progress - 2;
-        print('📺 进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s');
+        LoggerService.instance.logDebug('进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s', tag: 'VideoPlay');
       }
 
       // 获取当前分P的资源ID
@@ -397,17 +398,17 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     final futures = await Future.wait([
       // 1. 视频统计（不需要登录）
       _videoService.getVideoStat(_currentVid).catchError((e) {
-        print('❌ 获取视频统计失败: $e');
+        LoggerService.instance.logWarning('获取视频统计失败: $e', tag: 'VideoPlay');
         return null;
       }),
       // 2. 评论预览（不需要登录）
       _videoService.getComments(vid: _currentVid, page: 1, pageSize: 1).catchError((e) {
-        print('❌ 获取评论预览失败: $e');
+        LoggerService.instance.logWarning('获取评论预览失败: $e', tag: 'VideoPlay');
         return null;
       }),
       // 3. 用户操作状态（需要登录）
       _videoService.getUserActionStatus(_currentVid, authorUid).catchError((e) {
-        print('❌ 获取用户操作状态失败: $e');
+        LoggerService.instance.logWarning('获取用户操作状态失败: $e', tag: 'VideoPlay');
         return null;
       }),
     ]);
@@ -418,8 +419,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     final commentResponse = futures[1] as CommentListResponse?;
     final actionStatus = futures[2] as UserActionStatus?;
 
-    print('📺 次要数据加载完成: stat=${videoStat != null}, comments=${commentResponse != null}, action=${actionStatus != null}');
-    print('📺 用户操作状态: hasLiked=${actionStatus?.hasLiked}, hasCollected=${actionStatus?.hasCollected}');
+    LoggerService.instance.logDebug('次要数据加载完成: stat=${videoStat != null}, comments=${commentResponse != null}, action=${actionStatus != null}', tag: 'VideoPlay');
+    LoggerService.instance.logDebug('用户操作状态: hasLiked=${actionStatus?.hasLiked}, hasCollected=${actionStatus?.hasCollected}', tag: 'VideoPlay');
 
     setState(() {
       if (videoStat != null) {
@@ -452,10 +453,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               ? commentResponse.comments.first
               : null;
         });
-        print('✅ 评论预览已刷新: total=$_totalComments');
+        LoggerService.instance.logSuccess('评论预览已刷新: total=$_totalComments', tag: 'VideoPlay');
       }
     } catch (e) {
-      print('❌ 刷新评论预览失败: $e');
+      LoggerService.instance.logWarning('刷新评论预览失败: $e', tag: 'VideoPlay');
     }
   }
 
@@ -470,10 +471,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         setState(() {
           _videoDetail = videoDetail;
         });
-        print('✅ 作者信息已刷新');
+        LoggerService.instance.logSuccess('作者信息已刷新', tag: 'VideoPlay');
       }
     } catch (e) {
-      print('刷新作者信息失败: $e');
+      LoggerService.instance.logWarning('刷新作者信息失败: $e', tag: 'VideoPlay');
     }
   }
 
@@ -491,7 +492,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 在切换前，先上报当前分P的最后播放进度（参考PC端逻辑）
     if (_lastReportedPosition != null) {
-      print('📊 切换分集前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+      LoggerService.instance.logDebug('切换分集前上报进度: ${_lastReportedPosition!.inSeconds}秒', tag: 'VideoPlay');
       await _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
@@ -565,13 +566,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     // 【修复】防止并发切换
     if (_isSwitchingVideo) {
-      print('⚠️ [VideoPlayPage] 正在切换视频中，忽略重复请求');
+      LoggerService.instance.logWarning('正在切换视频中，忽略重复请求', tag: 'VideoPlay');
       return;
     }
     _isSwitchingVideo = true;
 
     final oldVid = _currentVid;
-    print('🔄 [VideoPlayPage] 切换视频: $oldVid -> $vid');
+    LoggerService.instance.logDebug('切换视频: $oldVid -> $vid', tag: 'VideoPlay');
 
     // 【修复】先更新 _currentVid，防止异步操作期间的竞态
     _currentVid = vid;
@@ -579,7 +580,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     try {
       // 1. 上报当前视频的播放进度（不阻塞，后台执行）
       if (_lastReportedPosition != null && _currentDuration > 0) {
-        print('📊 切换视频前上报进度: ${_lastReportedPosition!.inSeconds}秒');
+        LoggerService.instance.logDebug('切换视频前上报进度: ${_lastReportedPosition!.inSeconds}秒', tag: 'VideoPlay');
         // 【优化】不等待上报完成，避免阻塞切换
         _historyService.addHistory(
           vid: oldVid,
@@ -633,7 +634,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
       // 【修复】检查异步操作完成后，目标视频是否仍然是当前视频
       if (_currentVid != targetVid) {
-        print('⚠️ [VideoPlayPage] 视频已切换 ($targetVid -> $_currentVid)，丢弃旧数据');
+        LoggerService.instance.logWarning('视频已切换 ($targetVid -> $_currentVid)，丢弃旧数据', tag: 'VideoPlay');
         return;
       }
 
@@ -654,12 +655,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       if (progressData != null) {
         targetPart = progressData.part;
         progress = progressData.progress;
-        print('📺 从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒');
+        LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
       }
 
       // 如果进度为-1，表示已看完，应该从头开始播放
       if (progress != null && progress == -1) {
-        print('📺 检测到视频已看完(progress=-1)，将从头开始播放');
+        LoggerService.instance.logDebug('检测到视频已看完(progress=-1)，将从头开始播放', tag: 'VideoPlay');
         progress = null;
         _hasReportedCompleted = false;
       }
@@ -667,7 +668,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
       if (progress != null && progress > 2) {
         progress = progress - 2;
-        print('📺 进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s');
+        LoggerService.instance.logDebug('进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s', tag: 'VideoPlay');
       }
 
       // 获取当前分P的资源ID
@@ -689,7 +690,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
       // 【修复】setState 前再次检查，避免更新过期数据
       if (_currentVid != targetVid || !mounted) {
-        print('⚠️ [VideoPlayPage] setState前检测到视频已切换，跳过界面更新');
+        LoggerService.instance.logWarning('setState前检测到视频已切换，跳过界面更新', tag: 'VideoPlay');
         return;
       }
 
@@ -718,7 +719,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       _loadSecondaryData(videoDetail.author.uid);
 
     } catch (e) {
-      print('❌ 无缝加载视频失败: $e');
+      LoggerService.instance.logWarning('无缝加载视频失败: $e', tag: 'VideoPlay');
       setState(() {
         _errorMessage = '加载失败: $e';
       });
@@ -753,9 +754,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 首次上报 或 距离上次上报已经过了5秒
     if (_lastSavedSeconds == null ||
         (currentSeconds - _lastSavedSeconds!) >= 5) {
-      print(
-        '📊 上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})',
-      );
+      LoggerService.instance.logDebug('上报播放进度: $currentSeconds秒 (距上次上报: ${_lastSavedSeconds == null ? "首次" : "${currentSeconds - _lastSavedSeconds!}秒"})', tag: 'VideoPlay');
       _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
@@ -771,11 +770,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   void _onVideoEnded() {
     // 避免重复上报
     if (_hasReportedCompleted) {
-      print('📺 视频播放结束 (已上报过-1，跳过)');
+      LoggerService.instance.logDebug('视频播放结束 (已上报过-1，跳过)', tag: 'VideoPlay');
       return;
     }
 
-    print('📺 视频播放结束，上报已看完标记');
+    LoggerService.instance.logDebug('视频播放结束，上报已看完标记', tag: 'VideoPlay');
 
     // 播放完成后上报进度为 -1，表示已看完
     _historyService.addHistory(
@@ -790,7 +789,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 1. 优先检查分P自动连播（下一集）
     final nextPart = _partListKey.currentState?.getNextPart();
     if (nextPart != null) {
-      print('🔄 分P自动连播: 切换到第 $nextPart 集');
+      LoggerService.instance.logDebug('分P自动连播: 切换到第 $nextPart 集', tag: 'VideoPlay');
       _changePart(nextPart);
       return;
     }
@@ -798,7 +797,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 2. 检查合集自动连播（下一个视频）
     final nextCollectionVideo = _collectionListKey.currentState?.getNextVideo();
     if (nextCollectionVideo != null) {
-      print('🔄 合集自动连播: 切换到视频 $nextCollectionVideo');
+      LoggerService.instance.logDebug('合集自动连播: 切换到视频 $nextCollectionVideo', tag: 'VideoPlay');
       _switchToVideo(nextCollectionVideo);
       return;
     }
@@ -806,12 +805,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 3. 如果没有下一集，检查推荐列表自动连播
     final nextVideo = _recommendListKey.currentState?.getNextVideo();
     if (nextVideo != null) {
-      print('🔄 推荐列表自动连播: 切换到视频 $nextVideo');
+      LoggerService.instance.logDebug('推荐列表自动连播: 切换到视频 $nextVideo', tag: 'VideoPlay');
       _switchToVideo(nextVideo);
       return;
     }
 
-    print('✅ 播放完成，无自动连播');
+    LoggerService.instance.logDebug('播放完成，无自动连播', tag: 'VideoPlay');
   }
 
 ///头部

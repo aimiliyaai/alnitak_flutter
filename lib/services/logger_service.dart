@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 
@@ -164,15 +166,35 @@ class LoggerService {
   }
 
   /// 记录调试信息（仅控制台输出，不写入文件）
-  void logDebug(String message) {
+  void logDebug(String message, {String? tag}) {
+    if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
-    print('[$timestamp] 🔍 DEBUG: $message');
+    final tagStr = tag != null ? '[$tag] ' : '';
+    print('[$timestamp] 🔍 DEBUG: $tagStr$message');
   }
 
-  /// 记录信息（控制台输出）
-  void logInfo(String message) {
+  /// 记录信息（仅开发环境）
+  void logInfo(String message, {String? tag}) {
+    if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
-    print('[$timestamp] ℹ️ INFO: $message');
+    final tagStr = tag != null ? '[$tag] ' : '';
+    print('[$timestamp] ℹ️ INFO: $tagStr$message');
+  }
+
+  /// 记录警告（仅开发环境）
+  void logWarning(String message, {String? tag}) {
+    if (!kDebugMode) return;
+    final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
+    final tagStr = tag != null ? '[$tag] ' : '';
+    print('[$timestamp] ⚠️ WARN: $tagStr$message');
+  }
+
+  /// 记录成功信息（仅开发环境）
+  void logSuccess(String message, {String? tag}) {
+    if (!kDebugMode) return;
+    final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
+    final tagStr = tag != null ? '[$tag] ' : '';
+    print('[$timestamp] ✅ SUCCESS: $tagStr$message');
   }
 
   /// 获取日志文件路径

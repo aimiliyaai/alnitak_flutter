@@ -5,11 +5,13 @@ import 'pages/main_page.dart';
 import 'pages/settings_page.dart';
 import 'theme/app_theme.dart';
 import 'services/theme_service.dart';
+import 'services/logger_service.dart';
 import 'config/api_config.dart';
 import 'utils/http_client.dart';
 import 'utils/token_manager.dart';
 import 'utils/auth_state_manager.dart';
 import 'utils/screen_adapter.dart';
+import 'widgets/error_boundary.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,7 +28,7 @@ void main() async {
   // 初始化登录状态管理器
   await AuthStateManager().initialize();
   // 初始化屏幕适配器（在第一个 MaterialApp 构建时）
-  print('🌐 API 基础地址: ${ApiConfig.baseUrl}');
+  LoggerService.instance.logInfo('API 基础地址: ${ApiConfig.baseUrl}', tag: 'App');
   runApp(const MyApp());
 }
 
@@ -57,6 +59,50 @@ class _MyAppState extends State<MyApp> {
     setState(() {});
   }
 
+  Widget _defaultErrorWidget(BuildContext context, Object error) {
+    return Material(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Colors.red[400],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '出了点问题',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error.toString(),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const MainPage()),
+                    (route) => false,
+                  );
+                },
+                icon: const Icon(Icons.home),
+                label: const Text('返回首页'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Builder(
@@ -81,7 +127,10 @@ class _MyAppState extends State<MyApp> {
             Locale('en', 'US'), // 英文
           ],
           locale: const Locale('zh', 'CN'), // 默认使用简体中文
-          home: const MainPage(),
+          home: ErrorBoundary(
+            child: const MainPage(),
+            errorBuilder: (context, error, stack) => _defaultErrorWidget(context, error),
+          ),
           routes: {
             '/settings': (context) => const SettingsPage(),
           },

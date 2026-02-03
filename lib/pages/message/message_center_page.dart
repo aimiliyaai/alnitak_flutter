@@ -100,6 +100,7 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
   }
 
   Future<void> _navigateToAndMarkRead(String category, Widget page) async {
+    final navigator = Navigator.of(context);
     final latestId = _latestIds[category] ?? 0;
     print('📬 标记已读: category=$category, latestId=$latestId');
     if (latestId > 0) {
@@ -107,14 +108,12 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
       final verify = await MessageReadStatus.getLastReadId(category);
       print('📬 验证写入: category=$category, savedId=$verify');
     }
-    if (mounted) {
-      setState(() => _unreadStatus[category] = false);
-    }
-    await Navigator.push(
-      context,
+    if (!mounted) return;
+    setState(() => _unreadStatus[category] = false);
+    await navigator.push(
       MaterialPageRoute(builder: (context) => page),
     );
-    // 返回后重新检测
+    if (!mounted) return;
     _checkUnreadStatus();
   }
 

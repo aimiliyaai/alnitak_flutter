@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../config/api_config.dart';
+import 'logger_service.dart';
 
 /// 媒体源信息（用于播放器加载）
 class MediaSource {
@@ -379,20 +380,16 @@ class HlsService {
     }
   }
 
-  /// 清理所有临时缓存（退出播放时调用）
+   /// 清理所有临时缓存（退出播放时调用）
   ///
   /// 包括：HLS临时文件 + MPV缓存文件
   Future<void> cleanupAllTempCache() async {
     try {
-      // 1. 清理HLS临时文件
       await cleanupTempFiles();
-
-      // 2. 清理MPV缓存
       await cleanupMpvCache();
-
-      print('🗑️  播放器缓存已清理完成');
+      LoggerService.instance.logSuccess('播放器缓存已清理完成', tag: 'HLSService');
     } catch (e) {
-      print('❌ 清理播放器缓存错误: $e');
+      LoggerService.instance.logWarning('清理播放器缓存错误: $e', tag: 'HLSService');
     }
   }
 

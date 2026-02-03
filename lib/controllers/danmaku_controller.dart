@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/danmaku.dart';
 import '../services/danmaku_service.dart';
+import '../services/logger_service.dart';
 
 /// 弹幕显示项（包含运行时状态）
 class DanmakuItem {
@@ -82,6 +83,7 @@ class DanmakuFilter {
 class DanmakuController extends ChangeNotifier {
   /// 弹幕服务
   final DanmakuService _danmakuService = DanmakuService();
+  final LoggerService _logger = LoggerService.instance;
 
   /// 原始弹幕数据（按时间排序）
   List<Danmaku> _danmakuList = [];
@@ -195,41 +197,41 @@ class DanmakuController extends ChangeNotifier {
         scrollDuration: Duration(milliseconds: (8000 / speedMultiplier).toInt()),
       );
 
-      notifyListeners();
-    } catch (e) {
-      debugPrint('加载弹幕设置失败: $e');
-    }
-  }
+       notifyListeners();
+     } catch (e) {
+       _logger.logWarning('加载弹幕设置失败: $e', tag: 'Danmaku');
+     }
+   }
 
-  /// 保存设置
-  Future<void> _saveSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+   /// 保存设置
+   Future<void> _saveSettings() async {
+     try {
+       final prefs = await SharedPreferences.getInstance();
 
-      // 保存弹幕显示开关
-      await prefs.setBool('danmaku_visible', _isVisible);
+       // 保存弹幕显示开关
+       await prefs.setBool('danmaku_visible', _isVisible);
 
-      // 保存屏蔽类型
-      await prefs.setString('danmaku_disabled_types', _filter.disabledTypes.join(','));
+       // 保存屏蔽类型
+       await prefs.setString('danmaku_disabled_types', _filter.disabledTypes.join(','));
 
-      // 保存屏蔽等级
-      await prefs.setInt('danmaku_disable_level', _filter.disableLevel);
+       // 保存屏蔽等级
+       await prefs.setInt('danmaku_disable_level', _filter.disableLevel);
 
-      // 保存透明度
-      await prefs.setDouble('danmaku_opacity', _config.opacity);
+       // 保存透明度
+       await prefs.setDouble('danmaku_opacity', _config.opacity);
 
-      // 保存字体大小
-      await prefs.setDouble('danmaku_font_size', _config.fontSize);
+       // 保存字体大小
+       await prefs.setDouble('danmaku_font_size', _config.fontSize);
 
-      // 保存显示区域
-      await prefs.setDouble('danmaku_display_area', _config.displayArea);
+       // 保存显示区域
+       await prefs.setDouble('danmaku_display_area', _config.displayArea);
 
-      // 保存速度
-      await prefs.setDouble('danmaku_speed', _config.speedMultiplier);
-    } catch (e) {
-      debugPrint('保存弹幕设置失败: $e');
-    }
-  }
+       // 保存速度
+       await prefs.setDouble('danmaku_speed', _config.speedMultiplier);
+     } catch (e) {
+       _logger.logWarning('保存弹幕设置失败: $e', tag: 'Danmaku');
+     }
+   }
 
   /// 加载弹幕数据
   Future<void> loadDanmaku({
@@ -252,15 +254,15 @@ class DanmakuController extends ChangeNotifier {
       // 应用过滤
       _applyFilter();
 
-      // 重置状态
-      _reset();
+       // 重置状态
+       _reset();
 
-      debugPrint('📝 弹幕加载完成: ${_filteredDanmakuList.length}/${list.length}条');
-      notifyListeners();
-    } catch (e) {
-      debugPrint('📝 弹幕加载失败: $e');
-    }
-  }
+       _logger.logDebug('弹幕加载完成: ${_filteredDanmakuList.length}/${list.length}条', tag: 'Danmaku');
+       notifyListeners();
+     } catch (e) {
+       _logger.logWarning('弹幕加载失败: $e', tag: 'Danmaku');
+     }
+   }
 
   /// 应用弹幕过滤
   void _applyFilter() {
@@ -305,9 +307,9 @@ class DanmakuController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 处理进度跳跃
-  void _onSeek(double newTime) {
-    debugPrint('📝 弹幕 seek: ${_currentTime.toStringAsFixed(1)}s -> ${newTime.toStringAsFixed(1)}s');
+   /// 处理进度跳跃
+   void _onSeek(double newTime) {
+     _logger.logDebug('弹幕 seek: ${_currentTime.toStringAsFixed(1)}s -> ${newTime.toStringAsFixed(1)}s', tag: 'Danmaku');
 
     // 清空当前显示的弹幕
     _activeDanmakus.clear();
@@ -455,16 +457,24 @@ class DanmakuController extends ChangeNotifier {
   void _cleanExpiredDanmakus() {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    _activeDanmakus.removeWhere((item) {
+    int expiredCount = 0;
+    for (int i = _activeDanmakus.length - 1; i >= 0; i--) {
+      final item = _activeDanmakus[i];
       final type = item.danmaku.danmakuType;
       final duration = type == DanmakuType.scroll
           ? _config.scrollDuration.inMilliseconds
           : _config.fixedDuration.inMilliseconds;
 
-      // 计算实际经过的时间（考虑暂停）
       final elapsed = item.elapsedWhenPaused + (now - item.startTime);
-      return elapsed > duration;
-    });
+      if (elapsed > duration) {
+        _activeDanmakus.removeAt(i);
+        expiredCount++;
+      }
+    }
+
+    if (expiredCount > 0) {
+      notifyListeners();
+    }
   }
 
   /// 开始播放
@@ -658,15 +668,15 @@ class DanmakuController extends ChangeNotifier {
       _applyFilter();
 
       // 这里不重置 _activeDanmakus，让本地发送的弹幕继续飞完
-      // 只需更新 _lastProcessedIndex 以匹配新列表位置
-      _lastProcessedIndex = _findStartIndex(_currentTime);
+       // 只需更新 _lastProcessedIndex 以匹配新列表位置
+       _lastProcessedIndex = _findStartIndex(_currentTime);
 
-      debugPrint('📝 弹幕刷新完成: ${_filteredDanmakuList.length}/${list.length}条');
-      notifyListeners();
-    } catch (e) {
-      debugPrint('📝 弹幕刷新失败: $e');
-    }
-  }
+       _logger.logDebug('弹幕刷新完成: ${_filteredDanmakuList.length}/${list.length}条', tag: 'Danmaku');
+       notifyListeners();
+     } catch (e) {
+       _logger.logWarning('弹幕刷新失败: $e', tag: 'Danmaku');
+     }
+   }
 
   /// 清空弹幕
   void clear() {
