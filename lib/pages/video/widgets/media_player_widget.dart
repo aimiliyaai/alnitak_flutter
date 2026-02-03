@@ -166,6 +166,11 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   @override
   void didUpdateWidget(MediaPlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    debugPrint('📹 [Widget] didUpdateWidget 被调用');
+    debugPrint('📹 [Widget]   oldWidget.manager: ${oldWidget.manager?.hashCode}');
+    debugPrint('📹 [Widget]   widget.manager: ${widget.manager?.hashCode}');
+    debugPrint('📹 [Widget]   oldWidget.onVideoEnd: ${oldWidget.onVideoEnd?.hashCode}');
+    debugPrint('📹 [Widget]   widget.onVideoEnd: ${widget.onVideoEnd?.hashCode}');
 
     // Manager 模式下，资源切换由 Manager 处理
     if (_isUsingManager) {
@@ -241,24 +246,34 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     super.dispose();
   }
 
+  int _buildCount = 0;
+
   @override
   Widget build(BuildContext context) {
+    _buildCount++;
+    debugPrint('🎬 [Widget] build() 被调用 (#$_buildCount)');
     // Controller 未就绪时显示加载界面
     if (_controller == null) {
+      debugPrint('🎬 [Widget] 显示加载界面: _controller == null (#$_buildCount)');
       return _buildLoadingWidget();
     }
 
     return ValueListenableBuilder<bool>(
       valueListenable: _controller!.isPlayerInitialized,
       builder: (context, isInitialized, _) {
+        debugPrint('🎬 [Widget] isInitialized 变化: $isInitialized (#$_buildCount)');
         if (!isInitialized) {
+          debugPrint('🎬 [Widget] 显示加载界面: isInitialized = false');
           return _buildLoadingWidget();
         }
+
+        debugPrint('🎬 [Widget] 显示播放器: isInitialized = true');
 
         return ValueListenableBuilder<String?>(
           valueListenable: _controller!.errorMessage,
           builder: (context, error, _) {
             if (error != null && error.isNotEmpty) {
+              debugPrint('🎬 [Widget] 显示错误界面: $error');
               return _buildErrorWidget(error);
             }
             return _buildPlayerWithGestures();

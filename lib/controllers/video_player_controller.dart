@@ -173,8 +173,8 @@ class VideoPlayerController extends ChangeNotifier {
       // 加载视频
       await _loadVideo(currentQuality.value!, initialPosition: initialPosition);
 
-      isLoading.value = false;
-      isPlayerInitialized.value = true;
+      // 注意：isLoading=false 和 isPlayerInitialized=true 会在 _loadMediaInternal() 中设置
+      // 这里不需要重复设置，避免 ValueListenableBuilder 多次触发
     } catch (e) {
       _logger.logError(message: '初始化失败', error: e, stackTrace: StackTrace.current);
       isLoading.value = false;
@@ -209,9 +209,15 @@ class VideoPlayerController extends ChangeNotifier {
     _isInitializing = true;
     debugPrint('📹 [Controller] 开始初始化: resourceId=$resourceId, initialPos=$initialPosition');
 
+    // 【关键】立即设置 isPlayerInitialized=false，避免中间状态
+    debugPrint('📹 [Controller] isPlayerInitialized=false (立即)');
+    isPlayerInitialized.value = false;
+
     try {
       _currentResourceId = resourceId;
+      debugPrint('📹 [Controller] isLoading=true (Manager模式)');
       isLoading.value = true;
+      debugPrint('📹 [Controller] errorMessage=null');
       errorMessage.value = null;
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
       _hasPlaybackStarted = false; // 重置播放状态
@@ -240,9 +246,8 @@ class VideoPlayerController extends ChangeNotifier {
         initialPosition: initialPosition,
       );
 
-      isLoading.value = false;
-      isPlayerInitialized.value = true;
-
+      // 注意：isLoading=false 和 isPlayerInitialized=true 会在 _loadMediaInternal() 中设置
+      // 这里不需要重复设置，避免 ValueListenableBuilder 多次触发
       debugPrint('✅ [Controller] 预加载初始化完成');
     } catch (e) {
       _logger.logError(message: '预加载初始化失败', error: e, stackTrace: StackTrace.current);
@@ -365,7 +370,8 @@ class VideoPlayerController extends ChangeNotifier {
           _userIntendedPosition = targetPosition;
         }
 
-        await _waitForDuration();
+        // 【移除 _waitForDuration】HLS 流的 duration 会在播放后自动可用，不需要额外等待
+        // await _waitForDuration();
 
         // 竞态检查（如果提供了检查函数）
         if (resourceIdCheck != null && !resourceIdCheck()) {
@@ -374,12 +380,23 @@ class VideoPlayerController extends ChangeNotifier {
         }
 
         // 自动播放
+        debugPrint('📹 [Load] autoPlay=$autoPlay, playing=${player.state.playing}');
         if (autoPlay && !player.state.playing) {
           debugPrint('📹 [Load] 调用 player.play()');
           await player.play();
+          debugPrint('📹 [Load] player.play() 完成，playing=${player.state.playing}');
+        } else {
+          debugPrint('📹 [Load] 跳过 player.play()');
         }
 
-       // 验证位置
+        debugPrint('📹 [Load] 准备完成，设置 isLoading=false');
+        debugPrint('📹 [Controller] isLoading=false');
+        isLoading.value = false;
+        debugPrint('📹 [Controller] isPlayerInitialized=true');
+        isPlayerInitialized.value = true;
+        debugPrint('✅ [Controller] ===== 预加载初始化完成 =====');
+
+        // 验证位置
        if (needSeek) {
          await Future.delayed(const Duration(milliseconds: 200));
          final actualPos = player.state.position.inSeconds;
@@ -396,10 +413,11 @@ class VideoPlayerController extends ChangeNotifier {
        // 预加载相邻清晰度
        _preloadAdjacentQualities();
 
-    } catch (e) {
-      _isSeeking = false;
-      debugPrint('❌ [Load] 失败: $e');
-    }
+     } catch (e) {
+       _isSeeking = false;
+       debugPrint('❌ [Load] 失败: $e');
+       debugPrint('❌ [Load] 堆栈: ${StackTrace.current}');
+     }
   }
 
   // ============================================================
@@ -777,23 +795,32 @@ class VideoPlayerController extends ChangeNotifier {
     _tempDirs.clear();
   }
 
-   Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
-    if (player.state.duration.inSeconds > 0) return;
+    Future<void> _waitForDuration({Duration timeout = const Duration(seconds: 5)}) async {
+     debugPrint('📹 [_waitForDuration] 开始检查 duration，当前: ${player.state.duration.inSeconds}s');
+     if (player.state.duration.inSeconds > 0) {
+       debugPrint('📹 [_waitForDuration] duration 已存在，立即返回');
+       return;
+     }
 
-     final completer = Completer<void>();
-    StreamSubscription? sub;
+      final completer = Completer<void>();
+      StreamSubscription? sub;
 
-    sub = player.stream.duration.listen((duration) {
-      if (duration.inSeconds > 0 && !completer.isCompleted) {
-        completer.complete();
+      sub = player.stream.duration.listen((duration) {
+        debugPrint('📹 [_waitForDuration] 收到 duration 事件: ${duration.inSeconds}s');
+        if (duration.inSeconds > 0 && !completer.isCompleted) {
+          completer.complete();
+        }
+      });
+
+      try {
+        debugPrint('📹 [_waitForDuration] 等待 duration (超时: ${timeout.inSeconds}s)...');
+        await completer.future.timeout(timeout, onTimeout: () {
+          debugPrint('📹 [_waitForDuration] 超时，duration 仍未可用 (当前: ${player.state.duration.inSeconds}s)');
+        });
+        debugPrint('📹 [_waitForDuration] 完成');
+      } finally {
+        await sub.cancel();
       }
-    });
-
-    try {
-      await completer.future.timeout(timeout, onTimeout: () {});
-    } finally {
-      await sub.cancel();
-    }
     }
 
     Future<void> _configurePlayer() async {
