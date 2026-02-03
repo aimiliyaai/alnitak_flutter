@@ -336,32 +336,48 @@ class VideoPlayerController extends ChangeNotifier {
        // 【方案B】创建 Media（不带 start），open 后立即 seek
        final media = await _createMedia(mediaSource);
 
-       // 打开视频
-       _isSeeking = true;
-       debugPrint('📹 [LoadInternal] 调用 player.open(play: false)');
-       await player.open(media, play: false);
-       debugPrint('📹 [LoadInternal] player.open 完成');
+        // 打开视频
+        _isSeeking = true;
+        debugPrint('📹 [LoadInternal] 调用 player.open(play: false)');
+        await player.open(media, play: false);
+        debugPrint('📹 [LoadInternal] player.open 完成');
 
-       // 【关键】open 后立即 seek（比后续逻辑先执行）
-       if (needSeek) {
-         debugPrint('🔄 [Load] open 后立即 seek 到 ${targetPosition.inSeconds}s');
-         await player.seek(targetPosition);
-         _userIntendedPosition = targetPosition;
-       }
+        // 【关键】等待缓冲完成（最多500ms）
+        debugPrint('📹 [LoadInternal] 等待缓冲完成...');
+        int waitCount = 0;
+        while (player.state.buffering && waitCount < 10) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          waitCount++;
+        }
+        debugPrint('📹 [LoadInternal] 缓冲完成 (等待了${waitCount * 50}ms)');
 
-       await _waitForDuration();
+        // 【关键】明确暂停，确保播放器处于稳定暂停状态
+        if (player.state.playing) {
+          debugPrint('📹 [LoadInternal] 明确暂停播放器');
+          await player.pause();
+          await Future.delayed(const Duration(milliseconds: 30));
+        }
 
-       // 竞态检查（如果提供了检查函数）
-       if (resourceIdCheck != null && !resourceIdCheck()) {
-         _isSeeking = false;
-         return;
-       }
+        // 【关键】open 后立即 seek（比后续逻辑先执行）
+        if (needSeek) {
+          debugPrint('🔄 [Load] open 后立即 seek 到 ${targetPosition.inSeconds}s');
+          await player.seek(targetPosition);
+          _userIntendedPosition = targetPosition;
+        }
 
-       // 自动播放
-       if (autoPlay && !player.state.playing) {
-         debugPrint('📹 [Load] 调用 player.play()');
-         await player.play();
-       }
+        await _waitForDuration();
+
+        // 竞态检查（如果提供了检查函数）
+        if (resourceIdCheck != null && !resourceIdCheck()) {
+          _isSeeking = false;
+          return;
+        }
+
+        // 自动播放
+        if (autoPlay && !player.state.playing) {
+          debugPrint('📹 [Load] 调用 player.play()');
+          await player.play();
+        }
 
        // 验证位置
        if (needSeek) {
@@ -780,39 +796,49 @@ class VideoPlayerController extends ChangeNotifier {
     }
     }
 
-   Future<void> _configurePlayer() async {
-    if (kIsWeb) return;
+    Future<void> _configurePlayer() async {
+     if (kIsWeb) return;
 
-    try {
-      final nativePlayer = player.platform as NativePlayer?;
-      if (nativePlayer == null) return;
+     try {
+       final nativePlayer = player.platform as NativePlayer?;
+       if (nativePlayer == null) return;
 
-      // 缓冲配置
-      await nativePlayer.setProperty('cache', 'yes');
-      await nativePlayer.setProperty('cache-secs', '120');
-      await nativePlayer.setProperty('demuxer-readahead-secs', '120');
-      await nativePlayer.setProperty('demuxer-max-bytes', '500M');
-      await nativePlayer.setProperty('demuxer-max-back-bytes', '50M');
-      await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+       // 【关键】激进的缓冲配置
+       await nativePlayer.setProperty('cache', 'yes');
+       await nativePlayer.setProperty('cache-secs', '300');        // 缓存300秒
+       await nativePlayer.setProperty('demuxer-readahead-secs', '120'); // 预读120秒
+       await nativePlayer.setProperty('demuxer-max-bytes', '1G');  // 最大1GB缓存
+       await nativePlayer.setProperty('demuxer-max-back-bytes', '500M'); // 后向缓存500MB
+       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
 
-      // HLS 分片加载重试配置
-      await nativePlayer.setProperty('stream-lavf-o',
-          'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
-          'reconnect_delay_max=30');
-      await nativePlayer.setProperty('network-timeout', '60');
+       // 【关键】降低缓冲阈值，更快开始播放
+       await nativePlayer.setProperty('video-latency-hack', 'yes'); // 降低视频延迟
+       await nativePlayer.setProperty('video-queue', 'yes');        // 启用视频队列
+       await nativePlayer.setProperty('video-queue-max-bytes', '100M'); // 视频队列100MB
 
-      // 精确跳转
-      await nativePlayer.setProperty('hr-seek', 'absolute');
-      await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+       // 【关键】HLS 激进的并行下载配置
+       await nativePlayer.setProperty('stream-lavf-o',
+           'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+           'reconnect_delay_max=30,'
+           'threads=6'); // 4线程并行下载
+       await nativePlayer.setProperty('network-timeout', '30');
 
-      // 解码模式
-      await nativePlayer.setProperty('hwdec', _currentDecodeMode);
+       // 【关键】减少缓冲延迟
+       await nativePlayer.setProperty('hls-bitrate', 'max'); // 优先最高码率
+       await nativePlayer.setProperty('initial-byte-range', 'yes'); // 启用字节范围请求
 
-      debugPrint('✅ MPV 配置完成');
-    } catch (e) {
-      debugPrint('⚠️ MPV 配置失败: $e');
-    }
-  }
+       // 精确跳转
+       await nativePlayer.setProperty('hr-seek', 'absolute');
+       await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+
+       // 解码模式
+       await nativePlayer.setProperty('hwdec', _currentDecodeMode);
+
+       debugPrint('✅ MPV 激缓存配置完成');
+     } catch (e) {
+       debugPrint('⚠️ MPV 配置失败: $e');
+     }
+   }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
