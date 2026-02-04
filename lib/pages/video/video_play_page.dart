@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/video_detail.dart';
 import '../../models/comment.dart';
-import '../../models/history_models.dart';
 import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/hls_service.dart';
@@ -294,6 +293,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 加载视频数据
+  /// 【优化】先加载视频，再异步获取进度，不阻塞播放
   Future<void> _loadVideoData({int? part}) async {
     setState(() {
       _isLoading = true;
@@ -301,17 +301,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     });
 
     try {
-      // 【性能优化】并发请求视频详情和历史记录
-      final initialResults = await Future.wait([
-        _videoService.getVideoDetail(_currentVid),
-        _historyService.getProgress(
-          vid: _currentVid,
-          part: part, // 如果指定了分P则获取该分P进度，否则获取最后观看的
-        ),
-      ]);
-
-      final videoDetail = initialResults[0] as VideoDetail?;
-      final progressData = initialResults[1] as PlayProgressData?;
+      // 【优化】先加载视频（优先保证能播放）
+      final videoDetail = await _videoService.getVideoDetail(_currentVid);
 
       if (videoDetail == null) {
         setState(() {
@@ -321,77 +312,98 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 解析历史记录
-      int targetPart = part ?? 1;
-      double? progress;
-
-      if (progressData != null && progressData.progress > 0) {
-        targetPart = progressData.part;
-        progress = progressData.progress;
-        LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
-      }
-
-      // 如果进度为-1，表示已看完，应该从头开始播放
-      if (progress != null && progress == -1) {
-        LoggerService.instance.logDebug('检测到视频已看完(progress=-1)，将从头开始播放', tag: 'VideoPlay');
-        progress = null;
-        _hasReportedCompleted = false;
-      }
-
-      // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
-      if (progress != null && progress > 2) {
-        progress = progress - 2;
-        LoggerService.instance.logDebug('进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s', tag: 'VideoPlay');
-      }
-
-      // 获取当前分P的资源ID
-      final currentResource = videoDetail.resources[targetPart - 1];
-
-      // 【关键优化】立即开始预加载 HLS 资源（不阻塞UI渲染）
-      _playerManager.preloadResource(
-        resourceId: currentResource.id,
-        initialPosition: progress,
-      );
-
-      // 设置视频元数据（用于后台播放通知）
-      _playerManager.setMetadata(
-        title: currentResource.title,
-        author: videoDetail.author.name,
-        coverUrl: videoDetail.cover,
-      );
-
-      // 【新增】设置视频上下文（用于进度恢复）
-      _playerManager.setVideoContext(vid: _currentVid, part: targetPart);
-
-      // 【关键优化】先设置基础数据，让UI立即渲染（播放器可以开始加载）
+      // 【优化】立即渲染界面，让用户能尽快看到内容
       setState(() {
         _videoDetail = videoDetail;
-        _currentPart = targetPart;
-        _videoStat = VideoStat(like: 0, collect: 0, share: 0); // 临时默认值
-        _actionStatus = UserActionStatus(
-          hasLiked: false,
-          hasCollected: false,
-          relationStatus: 0,
-        );
-        _isLoading = false; // 立即结束加载状态
+        _currentPart = part ?? 1;
+        _videoStat = VideoStat(like: 0, collect: 0, share: 0);
+        _actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
+        _isLoading = false;
       });
 
-      // 【新增】加载弹幕数据
-      _danmakuController.loadDanmaku(vid: _currentVid, part: targetPart);
+       // 【关键优化】异步获取进度，不阻塞UI
+      _fetchProgressAndRestore(part: part);
 
-      // 【新增】连接在线人数 WebSocket
-      _onlineWebSocketService.connect(_currentVid);
-
-      // 【后台加载】并发请求次要数据（不阻塞主UI）
+      // 【新增】后台加载次要数据（统计、操作状态、评论预览）
       _loadSecondaryData(videoDetail.author.uid);
+
     } catch (e) {
+      LoggerService.instance.logWarning('加载视频失败: $e', tag: 'VideoPlay');
       setState(() {
-        _errorMessage = '加载失败: $e';
+        _errorMessage = '加载失败，请重试';
         _isLoading = false;
       });
     }
   }
 
+  /// 【新增】异步获取进度并恢复播放
+  /// 网络不好时不会阻塞播放，而是后台静默重试
+  Future<void> _fetchProgressAndRestore({int? part}) async {
+    try {
+      // 获取进度（内部有重试和降级逻辑）
+      final progressData = await _historyService.getProgress(
+        vid: _currentVid,
+        part: part,
+      );
+
+      if (progressData == null) {
+        // 服务端无记录，直接从头播放
+        LoggerService.instance.logDebug('服务端无历史记录，从头播放', tag: 'VideoPlay');
+        _startPlayback(part ?? 1, null);
+        return;
+      }
+
+      final progress = progressData.progress;
+
+      // 如果进度为-1，表示已看完，从头开始
+      if (progress == -1) {
+        LoggerService.instance.logDebug('视频已看完(progress=-1)，从头开始', tag: 'VideoPlay');
+        _startPlayback(progressData.part, null);
+        return;
+      }
+
+      // 有进度（>=0），恢复到对应分P和进度
+      final targetPart = progressData.part;
+      LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
+
+      // 回退2秒避免HLS边界
+      final adjustedProgress = progress > 2 ? progress - 2 : progress;
+      if (adjustedProgress != progress) {
+        LoggerService.instance.logDebug('进度回退2秒: ${progress.toStringAsFixed(1)}s -> ${adjustedProgress.toStringAsFixed(1)}s', tag: 'VideoPlay');
+      }
+
+      _startPlayback(targetPart, adjustedProgress);
+
+    } catch (e) {
+      LoggerService.instance.logWarning('获取进度失败: $e', tag: 'VideoPlay');
+      // 获取失败则从头播放
+      _startPlayback(part ?? 1, null);
+    }
+  }
+
+  /// 【新增】开始播放（统一入口）
+  void _startPlayback(int part, double? position) {
+    if (!mounted) return;
+
+    final currentResource = _videoDetail!.resources[part - 1];
+
+    _playerManager.preloadResource(
+      resourceId: currentResource.id,
+      initialPosition: position,
+    );
+
+    _playerManager.setMetadata(
+      title: currentResource.title,
+      author: _videoDetail!.author.name,
+      coverUrl: _videoDetail!.cover,
+    );
+
+    _playerManager.setVideoContext(vid: _currentVid, part: part);
+
+    setState(() {
+      _currentPart = part;
+    });
+  }
   /// 后台加载次要数据（统计、操作状态、评论预览）
   Future<void> _loadSecondaryData(int authorUid) async {
     // 【优化】并发请求所有次要数据，每个请求独立处理错误
@@ -621,25 +633,20 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 无缝加载视频数据（不显示 loading，用于切换推荐视频）
+  /// 【优化】先加载视频，再异步获取进度，不阻塞切换
   Future<void> _loadVideoDataSeamless() async {
     // 【修复】记录当前要加载的视频ID，用于防止竞态
     final targetVid = _currentVid;
 
     try {
-      // 并发请求视频详情和历史记录
-      final initialResults = await Future.wait([
-        _videoService.getVideoDetail(targetVid),
-        _historyService.getProgress(vid: targetVid, part: null),
-      ]);
+      // 【优化】先加载视频详情（优先保证能播放）
+      final videoDetail = await _videoService.getVideoDetail(targetVid);
 
       // 【修复】检查异步操作完成后，目标视频是否仍然是当前视频
       if (_currentVid != targetVid) {
         LoggerService.instance.logWarning('视频已切换 ($targetVid -> $_currentVid)，丢弃旧数据', tag: 'VideoPlay');
         return;
       }
-
-      final videoDetail = initialResults[0] as VideoDetail?;
-      final progressData = initialResults[1] as PlayProgressData?;
 
       if (videoDetail == null) {
         setState(() {
@@ -648,82 +655,92 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 解析历史记录
-      int targetPart = 1;
-      double? progress;
-
-      if (progressData != null && progressData.progress > 0) {
-        targetPart = progressData.part;
-        progress = progressData.progress;
-        LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
-      }
-
-      // 如果进度为-1，表示已看完，应该从头开始播放
-      if (progress != null && progress == -1) {
-        LoggerService.instance.logDebug('检测到视频已看完(progress=-1)，将从头开始播放', tag: 'VideoPlay');
-        progress = null;
-        _hasReportedCompleted = false;
-      }
-
-      // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
-      if (progress != null && progress > 2) {
-        progress = progress - 2;
-        LoggerService.instance.logDebug('进度回退2秒: ${(progress + 2).toStringAsFixed(1)}s -> ${progress.toStringAsFixed(1)}s', tag: 'VideoPlay');
-      }
-
-      // 获取当前分P的资源ID
-      final currentResource = videoDetail.resources[targetPart - 1];
-
-      // 【关键】使用 Manager 切换资源（无缝切换播放器）
-      _playerManager.setMetadata(
-        title: currentResource.title,
-        author: videoDetail.author.name,
-        coverUrl: videoDetail.cover,
-      );
-      _playerManager.switchResource(
-        resourceId: currentResource.id,
-        initialPosition: progress,
-      );
-
-      // 【新增】设置视频上下文（用于进度恢复）
-      _playerManager.setVideoContext(vid: targetVid, part: targetPart);
-
-      // 【修复】setState 前再次检查，避免更新过期数据
-      if (_currentVid != targetVid || !mounted) {
-        LoggerService.instance.logWarning('setState前检测到视频已切换，跳过界面更新', tag: 'VideoPlay');
-        return;
-      }
-
-      // 更新界面数据（一次性更新，避免多次 setState）
+      // 【优化】立即更新界面，让用户看到新视频
       setState(() {
         _videoDetail = videoDetail;
-        _currentPart = targetPart;
-        _videoStat = VideoStat(like: 0, collect: 0, share: 0); // 临时默认值
-        _actionStatus = UserActionStatus(
-          hasLiked: false,
-          hasCollected: false,
-          relationStatus: 0,
-        );
+        _currentPart = 1;
+        _videoStat = VideoStat(like: 0, collect: 0, share: 0);
+        _actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
         _totalComments = 0;
         _latestComment = null;
         _errorMessage = null;
       });
 
-      // 【新增】切换视频时重新加载弹幕
-      _danmakuController.loadDanmaku(vid: targetVid, part: targetPart);
+       // 加载弹幕
+      _danmakuController.loadDanmaku(vid: targetVid, part: 1);
+      _onlineWebSocketService.connect(targetVid);
 
-      // 【新增】切换视频时重新连接在线人数 WebSocket
-      _onlineWebSocketService.switchVideo(targetVid);
-
-      // 后台加载次要数据（统计、评论、用户操作状态）
+      // 后台加载次要数据
       _loadSecondaryData(videoDetail.author.uid);
+
+      // 【优化】后台异步获取进度并恢复
+      _fetchProgressAndRestoreSeamless(targetVid: targetVid, videoDetail: videoDetail);
 
     } catch (e) {
       LoggerService.instance.logWarning('无缝加载视频失败: $e', tag: 'VideoPlay');
-      setState(() {
-        _errorMessage = '加载失败: $e';
-      });
     }
+  }
+
+  /// 【新增】无缝加载时异步获取进度
+  Future<void> _fetchProgressAndRestoreSeamless({required int targetVid, required VideoDetail videoDetail}) async {
+    try {
+      final progressData = await _historyService.getProgress(vid: targetVid, part: null);
+
+      if (_currentVid != targetVid) return;
+
+      if (progressData == null) {
+        LoggerService.instance.logDebug('服务端无历史记录，从头播放', tag: 'VideoPlay');
+        _startPlaybackSeamless(videoDetail, 1, null);
+        return;
+      }
+
+      final progress = progressData.progress;
+
+      if (progress == -1) {
+        LoggerService.instance.logDebug('视频已看完(progress=-1)，从头开始', tag: 'VideoPlay');
+        _startPlaybackSeamless(videoDetail, progressData.part, null);
+        return;
+      }
+
+      // 有进度（>=0），恢复到对应分P
+      final targetPart = progressData.part;
+      LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
+
+      final adjustedProgress = progress > 2 ? progress - 2 : progress;
+      if (adjustedProgress != progress) {
+        LoggerService.instance.logDebug('进度回退2秒: ${progress.toStringAsFixed(1)}s -> ${adjustedProgress.toStringAsFixed(1)}s', tag: 'VideoPlay');
+      }
+
+      _startPlaybackSeamless(videoDetail, targetPart, adjustedProgress);
+
+    } catch (e) {
+      LoggerService.instance.logWarning('获取进度失败: $e', tag: 'VideoPlay');
+      _startPlaybackSeamless(videoDetail, 1, null);
+    }
+  }
+
+  /// 【新增】无缝模式开始播放
+  void _startPlaybackSeamless(VideoDetail videoDetail, int part, double? position) {
+    if (!mounted || _currentVid != videoDetail.vid) return;
+
+    final currentResource = videoDetail.resources[part - 1];
+
+    _playerManager.setMetadata(
+      title: currentResource.title,
+      author: videoDetail.author.name,
+      coverUrl: videoDetail.cover,
+    );
+
+    _playerManager.switchResource(
+      resourceId: currentResource.id,
+      initialPosition: position,
+    );
+
+    _playerManager.setVideoContext(vid: videoDetail.vid, part: part);
+
+    setState(() {
+      _currentPart = part;
+    });
   }
 
   /// 播放状态变化回调（控制弹幕播放/暂停）

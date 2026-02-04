@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
 import '../models/history_models.dart';
@@ -6,8 +7,7 @@ import '../models/history_models.dart';
 /// 历史记录服务
 ///
 /// 【关键修复】Token 刷新逻辑已移至 HttpClient 统一处理
-/// 当收到 code=3000 时，AuthInterceptor 会自动刷新 Token 并重试请求
-/// 【新增】在请求前检查登录状态，避免无效请求
+/// 【新增】本地缓存+重试机制，确保网络不好时也能恢复进度
 class HistoryService {
   static final HistoryService _instance = HistoryService._internal();
   factory HistoryService() => _instance;
@@ -22,6 +22,82 @@ class HistoryService {
   double? _lastSuccessfulProgress;
   int? _lastSuccessfulVid;
   int? _lastSuccessfulPart;
+
+  /// 【新增】获取本地缓存的进度
+  Future<PlayProgressData?> _getLocalProgress(int vid, int? part) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = part != null ? 'progress_${vid}_$part' : 'progress_${vid}_latest';
+      final jsonStr = prefs.getString(key);
+      if (jsonStr != null) {
+        return PlayProgressData.fromJson({'vid': vid, 'part': part ?? 1, 'progress': double.parse(jsonStr)});
+      }
+    } catch (e) {
+      print('❌ 读取本地进度缓存失败: $e');
+    }
+    return null;
+  }
+
+  /// 【新增】保存进度到本地缓存
+  Future<void> _saveLocalProgress(int vid, int part, double progress) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'progress_${vid}_$part';
+      await prefs.setString(key, progress.toStringAsFixed(1));
+    } catch (e) {
+      print('❌ 保存本地进度缓存失败: $e');
+    }
+  }
+
+  /// 【新增】带重试的获取进度请求
+  Future<PlayProgressData?> _fetchProgressWithRetry({
+    required int vid,
+    int? part,
+    int maxRetries = 3,
+    Duration initialDelay = const Duration(milliseconds: 500),
+  }) async {
+    int attempt = 0;
+    Duration delay = initialDelay;
+
+    while (attempt < maxRetries) {
+      attempt++;
+      try {
+        final queryParams = <String, dynamic>{'vid': vid};
+        if (part != null) {
+          queryParams['part'] = part;
+        }
+
+        final response = await _dio.get(
+          '/api/v1/history/video/getProgress',
+          queryParameters: queryParams,
+        );
+
+        final code = response.data['code'];
+
+        if (code == 200) {
+          final progress = PlayProgressData.fromJson(response.data['data']);
+          print('✅ 获取服务端进度成功 (#$attempt): vid=$vid, part=${progress.part}');
+          return progress;
+        } else if (code == 404) {
+          print('ℹ️ 服务端无历史记录: vid=$vid');
+          return null;
+        } else {
+          print('⚠️ 获取播放进度失败: code=$code, msg=${response.data['msg']}');
+        }
+      } catch (e) {
+        print('❌ 获取播放进度异常 (#$attempt/$maxRetries): $e');
+      }
+
+      if (attempt < maxRetries) {
+        print('⏳ 等待 ${delay.inMilliseconds}ms 后重试...');
+        await Future.delayed(delay);
+        delay *= 2; // 指数退避
+      }
+    }
+
+    print('⚠️ 获取进度失败，已重试 $maxRetries 次');
+    return null;
+  }
 
   /// 添加历史记录
   /// [vid] 视频ID
@@ -106,9 +182,11 @@ class HistoryService {
   /// 获取播放进度
   /// [vid] 视频ID
   /// [part] 分P（可选）
+  /// 【优化】添加重试机制和本地缓存降级，确保网络不好时也能恢复
   Future<PlayProgressData?> getProgress({
     required int vid,
     int? part,
+    bool useCache = true,
   }) async {
     // 【新增】检查是否可以进行认证请求
     if (!_tokenManager.canMakeAuthenticatedRequest) {
@@ -116,37 +194,34 @@ class HistoryService {
       return null;
     }
 
-    try {
-      final queryParams = <String, dynamic>{'vid': vid};
-      if (part != null) {
-        queryParams['part'] = part;
+    // 【新增】优先尝试本地缓存（立即返回，不阻塞）
+    if (useCache) {
+      final localProgress = await _getLocalProgress(vid, part);
+      if (localProgress != null) {
+        print('📍 [缓存] 获取本地进度: vid=$vid, part=${localProgress.part}, progress=${localProgress.progress.toStringAsFixed(1)}s');
       }
-
-      final response = await _dio.get(
-        '/api/v1/history/video/getProgress',
-        queryParameters: queryParams,
-      );
-
-      final code = response.data['code'];
-
-      if (code == 200) {
-        final progress = PlayProgressData.fromJson(response.data['data']);
-        print(
-          '📍 获取服务端进度: '
-          'vid=$vid, part=${progress.part}, progress=${progress.progress.toStringAsFixed(1)}s',
-        );
-        return progress;
-      } else if (code == 404) {
-        print('ℹ️ 服务端无历史记录: vid=$vid${part != null ? ", part=$part" : ""}');
-        return null;
-      } else {
-        print('⚠️ 获取播放进度失败: code=$code, msg=${response.data['msg']}');
-        return null;
-      }
-    } catch (e) {
-      print('❌ 获取播放进度异常: $e');
-      return null;
     }
+
+    // 【优化】发起带重试的网络请求
+    final serverProgress = await _fetchProgressWithRetry(vid: vid, part: part);
+
+    // 【优化】服务端成功则更新本地缓存
+    if (serverProgress != null) {
+      await _saveLocalProgress(vid, serverProgress.part, serverProgress.progress);
+      return serverProgress;
+    }
+
+    // 【降级】网络失败时，返回本地缓存
+    if (useCache) {
+      final localProgress = await _getLocalProgress(vid, part);
+      if (localProgress != null) {
+        print('📍 [降级] 网络失败，使用本地缓存: vid=$vid, progress=${localProgress.progress.toStringAsFixed(1)}s');
+        return localProgress;
+      }
+    }
+
+    print('⚠️ 获取进度失败，无可用缓存');
+    return null;
   }
 
   /// 获取历史记录列表
