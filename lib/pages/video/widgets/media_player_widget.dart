@@ -173,16 +173,27 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
      _logger.logDebug('[Widget]   oldWidget.onVideoEnd: ${oldWidget.onVideoEnd?.hashCode}', tag: 'MediaPlayer');
      _logger.logDebug('[Widget]   widget.onVideoEnd: ${widget.onVideoEnd?.hashCode}', tag: 'MediaPlayer');
 
-    // Manager 模式下，资源切换由 Manager 处理
-    if (_isUsingManager) {
-      // 更新回调绑定
-      if (widget.manager != null) {
-        widget.manager!.onVideoEnd = widget.onVideoEnd;
-        widget.manager!.onProgressUpdate = widget.onProgressUpdate;
-        widget.manager!.onQualityChanged = widget.onQualityChanged;
-      }
-      return;
-    }
+     // Manager 模式下，资源切换由 Manager 处理
+     if (_isUsingManager) {
+       // 更新回调绑定
+       if (widget.manager != null) {
+         widget.manager!.onVideoEnd = widget.onVideoEnd;
+         widget.manager!.onProgressUpdate = widget.onProgressUpdate;
+         widget.manager!.onQualityChanged = widget.onQualityChanged;
+       }
+
+       // 【新增】处理 Manager 模式下的初始进度恢复
+       // 当 initialPosition 从 null 变为有值时（异步获取进度完成），需要 seek
+       if (!_hasAppliedInitialPosition &&
+           widget.initialPosition != null &&
+           oldWidget.initialPosition == null) {
+         _logger.logDebug('[didUpdateWidget] Manager模式: 历史进度加载完成: ${widget.initialPosition}s，执行 seek', tag: 'MediaPlayer');
+         _hasAppliedInitialPosition = true;
+         _controller?.seek(Duration(seconds: widget.initialPosition!.toInt()));
+       }
+
+       return;
+     }
 
     // ============ 传统模式逻辑 ============
     if (_controller == null) return;

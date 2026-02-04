@@ -212,11 +212,19 @@ class VideoPlayerController extends ChangeNotifier {
 
     _logger.logDebug('[Controller][$loadId] 开始初始化: resourceId=$resourceId, initialPos=$initialPosition', tag: 'PlayerController');
 
-    // 如果已经初始化过同一个资源且播放器正常，跳过
+    // 如果已经初始化过同一个资源且播放器正常，检查 initialPosition 是否变化
     if (isPlayerInitialized.value && _currentResourceId == resourceId && errorMessage.value == null) {
-      _logger.logWarning('[Controller][$loadId] 资源已初始化且正常，跳过', tag: 'PlayerController');
-      _currentLoadId = '';
-      return;
+      // 如果 initialPosition 没变或没有，跳过
+      final currentPosition = _userIntendedPosition.inSeconds;
+      final newPosition = initialPosition?.toInt() ?? 0;
+      if (currentPosition == newPosition || newPosition == 0) {
+        _logger.logWarning('[Controller][$loadId] 资源已初始化且正常，位置未变化，跳过', tag: 'PlayerController');
+        _currentLoadId = '';
+        return;
+      }
+      // 位置变了，需要重新加载
+      _logger.logDebug('[Controller][$loadId] 资源已初始化，但位置变化: $currentPosition -> $newPosition，重新加载', tag: 'PlayerController');
+      isPlayerInitialized.value = false;
     }
 
     // 【关键】立即设置 isPlayerInitialized=false，避免中间状态
