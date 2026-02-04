@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/carousel_model.dart';
 import '../services/carousel_service.dart';
 import '../utils/image_utils.dart';
@@ -130,10 +131,10 @@ class _CarouselWidgetState extends State<CarouselWidget> {
       onPanCancel: () => _startAutoPlay(),
       onPanEnd: (_) => _startAutoPlay(),
       child: Container(
-        height: 220,
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+height: 220.h,
+margin: EdgeInsets.symmetric(horizontal: 10.w, vertical: 8.h),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+borderRadius: BorderRadius.circular(12.r),
           child: Stack(
             children: [
               // 轮播图内容（无限循环）
@@ -196,7 +197,7 @@ class _CarouselWidgetState extends State<CarouselWidget> {
               left: 0,
               right: 0,
               bottom: 0,
-              height: 80,
+              height: 80.h,
               child: Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -233,9 +234,9 @@ class _CarouselWidgetState extends State<CarouselWidget> {
       ),
       child: Text(
         currentItem.title,
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
-          fontSize: 14,
+          fontSize: 14.sp,
           fontWeight: FontWeight.w500,
           shadows: [
             Shadow(
@@ -263,11 +264,11 @@ class _CarouselWidgetState extends State<CarouselWidget> {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: isActive ? 16 : 6,
-            height: 6,
+            width: isActive ? 16.w : 6.w,
+            height: 6.h,
             decoration: BoxDecoration(
               color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(3.r),
             ),
           ),
         );

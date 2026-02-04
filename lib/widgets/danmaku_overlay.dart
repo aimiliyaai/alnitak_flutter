@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/danmaku.dart';
 import '../controllers/danmaku_controller.dart';
 import '../utils/token_manager.dart';
@@ -323,7 +324,7 @@ class DanmakuSettingsPanel extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(8.r),
           ),
           child: SingleChildScrollView(
             child: Column(
@@ -336,20 +337,20 @@ class DanmakuSettingsPanel extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const Text(
+                        Text(
                           '弹幕设置',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 14,
+                            fontSize: 14.sp,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(width: 8),
+SizedBox(width: 8.w),
                         Text(
                           '${controller.totalCount}条',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 12,
+fontSize: 12.sp,
                           ),
                         ),
                       ],
@@ -361,7 +362,7 @@ class DanmakuSettingsPanel extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+SizedBox(height: 12.h),
 
                 // 弹幕类型屏蔽
                 _buildSectionTitle('屏蔽类型'),
@@ -477,13 +478,13 @@ class DanmakuSettingsPanel extends StatelessWidget {
           child: GestureDetector(
             onTap: () => controller.toggleTypeFilter(type),
             child: Container(
-              margin: EdgeInsets.only(right: type < 3 ? 6 : 0),
+              margin: EdgeInsets.only(right: type < 3 ? 6.w : 0),
               padding: const EdgeInsets.symmetric(vertical: 6),
               decoration: BoxDecoration(
                 color: isDisabled
                     ? Colors.blue.withValues(alpha: 0.3)
                     : Colors.white.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
+borderRadius: BorderRadius.circular(4.r),
                 border: Border.all(
                   color: isDisabled ? Colors.blue : Colors.white24,
                   width: 1,
@@ -517,7 +518,7 @@ class DanmakuSettingsPanel extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 56,
+          width: 56.w,
           child: Text(
             label,
             style: TextStyle(
@@ -547,7 +548,7 @@ class DanmakuSettingsPanel extends StatelessWidget {
         ),
         if (showValue && valueFormat != null)
           SizedBox(
-            width: 40,
+            width: 40.w,
             child: Text(
               valueFormat(value),
               textAlign: TextAlign.right,
@@ -676,7 +677,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
 
   Widget _buildInputBar() {
     return Container(
-      height: 40,
+      height: 40.h,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
@@ -709,7 +710,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
               child: Icon(
                 Icons.text_fields,
                 color: _showStylePanel ? Colors.blue : Colors.white70,
-                size: 20,
+size: 20.sp,
               ),
             ),
           ),
@@ -731,7 +732,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
                   hintText: '发个弹幕呗~',
                   hintStyle: TextStyle(
                     color: Colors.white.withValues(alpha: 0.4),
-                    fontSize: 13,
+                    fontSize: 13.sp,
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                   border: InputBorder.none,
@@ -748,25 +749,25 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
           GestureDetector(
             onTap: _isSending ? null : _sendDanmaku,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 6.h),
               decoration: BoxDecoration(
                 color: _isSending ? Colors.grey : Colors.blue,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: _isSending
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
+                  ? SizedBox(
+width: 14.w,
+                height: 14.h,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : const Text(
+                  : Text(
                       '发送',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 12,
+fontSize: 12.sp,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -816,8 +817,8 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
               const Spacer(),
               // 当前颜色预览
               Container(
-                width: 20,
-                height: 20,
+                width: 20.w,
+                height: 20.h,
                 decoration: BoxDecoration(
                   color: Color(int.parse('FF$_danmakuColor', radix: 16)),
                   shape: BoxShape.circle,
@@ -829,8 +830,8 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
           const SizedBox(height: 8),
           // 颜色选择
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 8.w,
+            runSpacing: 8.h,
             children: _presetColors.map((color) {
               final isSelected = color == _danmakuColor;
               // 白色或浅色需要用深色勾选图标
@@ -839,7 +840,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
                 onTap: () => setState(() => _danmakuColor = color),
                 child: Container(
                   width: 28,
-                  height: 28,
+height: 28.h,
                   decoration: BoxDecoration(
                     color: Color(int.parse('FF$color', radix: 16)),
                     shape: BoxShape.circle,
@@ -889,7 +890,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: isSelected ? Colors.blue.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(4.r),
             border: Border.all(
               color: isSelected ? Colors.blue : Colors.white24,
             ),

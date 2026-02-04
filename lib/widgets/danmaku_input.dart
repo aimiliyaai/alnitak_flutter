@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../controllers/danmaku_controller.dart';
 
 /// 弹幕输入组件
@@ -104,7 +105,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
   /// 紧凑模式输入框（全屏播放时使用）
   Widget _buildCompactInput() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
       child: Row(
         children: [
           // 弹幕开关
@@ -114,10 +115,10 @@ class _DanmakuInputState extends State<DanmakuInput> {
           // 输入框
           Expanded(
             child: Container(
-              height: 32,
+              height: 32.h,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(16.r),
               ),
               child: TextField(
                 controller: _textController,
@@ -130,12 +131,12 @@ class _DanmakuInputState extends State<DanmakuInput> {
                   hintText: '发个弹幕...',
                   hintStyle: TextStyle(
                     color: Colors.white.withValues(alpha: 0.5),
-                    fontSize: 13,
+fontSize: 13.sp,
                   ),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12.w,
+                    vertical: 8.h,
                   ),
                   isDense: true,
                 ),
@@ -163,7 +164,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
       children: [
         // 输入行
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
             border: Border(
@@ -181,12 +182,12 @@ class _DanmakuInputState extends State<DanmakuInput> {
               // 输入框
               Expanded(
                 child: Container(
-                  height: 36,
+                  height: 36.h,
                   decoration: BoxDecoration(
                     color: Theme.of(context).brightness == Brightness.dark
                         ? Colors.white.withValues(alpha: 0.1)
                         : Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(18.r),
                   ),
                   child: TextField(
                     controller: _textController,
@@ -196,13 +197,13 @@ class _DanmakuInputState extends State<DanmakuInput> {
                       hintText: '发个弹幕吧~',
                       hintStyle: TextStyle(
                         color: Theme.of(context).hintColor,
-                        fontSize: 14,
+                        fontSize: 14.sp,
                       ),
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
+contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16.w,
+                      vertical: 10.h,
+                    ),
                       isDense: true,
                     ),
                     onSubmitted: (_) => _sendDanmaku(),
@@ -239,12 +240,12 @@ class _DanmakuInputState extends State<DanmakuInput> {
         return GestureDetector(
           onTap: () => widget.controller.toggleVisibility(),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
             decoration: BoxDecoration(
               color: isVisible
                   ? Colors.blue.withValues(alpha: 0.2)
                   : Colors.grey.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
+borderRadius: BorderRadius.circular(4.r),
             ),
             child: Text(
               '弹',
@@ -276,7 +277,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
         ),
         child: Icon(
           Icons.tune,
-          size: 20,
+          size: 20.sp,
           color: _showOptions
               ? Colors.blue
               : (widget.compact ? Colors.white70 : Colors.grey),
@@ -291,17 +292,17 @@ class _DanmakuInputState extends State<DanmakuInput> {
       onTap: _isSending ? null : _sendDanmaku,
       child: Container(
         padding: EdgeInsets.symmetric(
-          horizontal: compact ? 12 : 16,
-          vertical: compact ? 6 : 8,
+          horizontal: compact ? 12.w : 16.w,
+          vertical: compact ? 6.h : 8.h,
         ),
         decoration: BoxDecoration(
           color: _isSending ? Colors.grey : Colors.blue,
-          borderRadius: BorderRadius.circular(compact ? 14 : 18),
+          borderRadius: BorderRadius.circular(compact ? 14.r : 18.r),
         ),
         child: _isSending
             ? SizedBox(
-                width: compact ? 14 : 16,
-                height: compact ? 14 : 16,
+                width: compact ? 14.w : 16.w,
+                height: compact ? 14.h : 16.h,
                 child: const CircularProgressIndicator(
                   strokeWidth: 2,
                   color: Colors.white,
@@ -311,7 +312,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
                 '发送',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: compact ? 12 : 14,
+                  fontSize: compact ? 12.sp : 14.sp,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -347,7 +348,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
               const SizedBox(width: 12),
               Expanded(
                 child: Wrap(
-                  spacing: 8,
+                  spacing: 8.w,
                   children: _presetColors.map((color) {
                     final isSelected = color == _selectedColor;
                     Color displayColor;
@@ -361,8 +362,8 @@ class _DanmakuInputState extends State<DanmakuInput> {
                     return GestureDetector(
                       onTap: () => setState(() => _selectedColor = color),
                       child: Container(
-                        width: 24,
-                        height: 24,
+width: 24.w,
+                  height: 24.h,
                         decoration: BoxDecoration(
                           color: displayColor,
                           shape: BoxShape.circle,
@@ -378,7 +379,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12.h),
 
           // 类型选择
           Row(
@@ -408,7 +409,7 @@ class _DanmakuInputState extends State<DanmakuInput> {
                         color: isSelected
                             ? Colors.blue.withValues(alpha: 0.2)
                             : Colors.grey.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
+borderRadius: BorderRadius.circular(4.r),
                         border: Border.all(
                           color: isSelected ? Colors.blue : Colors.transparent,
                         ),
@@ -418,14 +419,14 @@ class _DanmakuInputState extends State<DanmakuInput> {
                         children: [
                           Icon(
                             typeInfo['icon'],
-                            size: 14,
+                            size: 14.sp,
                             color: isSelected ? Colors.blue : Colors.grey,
                           ),
-                          const SizedBox(width: 4),
+SizedBox(width: 4.w),
                           Text(
                             typeInfo['label'],
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 12.sp,
                               color: isSelected ? Colors.blue : Colors.grey,
                             ),
                           ),
@@ -470,7 +471,7 @@ class DanmakuInputDialog extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
         ),
         child: SafeArea(
           child: DanmakuInput(

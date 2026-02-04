@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/video_item.dart';
 import '../theme/theme_extensions.dart';
 import '../pages/user/user_space_page.dart';
@@ -21,7 +22,7 @@ class VideoCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: colors.card,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(10.r),
         boxShadow: [
           BoxShadow(
             color: colors.shadow,
@@ -34,13 +35,12 @@ class VideoCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(10.r),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 封面图片
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(10.r)),
                 child: Stack(
                   children: [
                     AspectRatio(
@@ -51,24 +51,23 @@ class VideoCard extends StatelessWidget {
                         cacheKey: 'video_cover_${video.id}',
                       ),
                     ),
-                    // 时长标签
                     Positioned(
                       bottom: 6,
                       right: 6,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 6.w,
+                          vertical: 2.h,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.75),
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(4.r),
                         ),
                         child: Text(
                           video.duration,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 11.sp,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -77,33 +76,29 @@ class VideoCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // 内容区域
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // 标题 - 固定2行高度，确保下方内容位置一致
                     SizedBox(
-                      height: 13 * 1.2 * 2, // fontSize * height * 2行
+                      height: 13 * 1.2 * 2,
                       child: Text(
                         video.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 13.sp,
                           fontWeight: FontWeight.w500,
                           height: 1.2,
                           color: colors.textPrimary,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    // UP主信息行
+                    SizedBox(height: 4.h),
                     Row(
                       children: [
-                        // UP主头像（可点击）
                         if (video.authorAvatar != null)
                           GestureDetector(
                             onTap: video.authorUid != null
@@ -118,12 +113,11 @@ class VideoCard extends StatelessWidget {
                                 : null,
                             child: CachedCircleAvatar(
                               imageUrl: video.authorAvatar!,
-                              radius: 8,
+                              radius: 8.r,
                               cacheKey: video.authorUid != null ? 'user_avatar_${video.authorUid}' : null,
                             ),
                           ),
-                        if (video.authorAvatar != null) const SizedBox(width: 4),
-                        // UP主名称（可点击）
+                        SizedBox(width: 4.w),
                         Expanded(
                           child: GestureDetector(
                             onTap: video.authorUid != null
@@ -141,7 +135,7 @@ class VideoCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 11.sp,
                                 color: colors.textSecondary,
                               ),
                             ),
@@ -149,36 +143,33 @@ class VideoCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    // 播放量和弹幕数行
+                    SizedBox(height: 2.h),
                     Row(
                       children: [
-                        // 播放次数
                         Icon(
                           Icons.play_circle_outline,
-                          size: 11,
+                          size: 11.sp,
                           color: colors.textTertiary,
                         ),
-                        const SizedBox(width: 2),
+                        SizedBox(width: 2.w),
                         Text(
                           video.formattedPlayCount,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 10.sp,
                             color: colors.textTertiary,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        // 弹幕数量
+                        SizedBox(width: 10.w),
                         Icon(
                           Icons.chat_bubble_outline,
-                          size: 11,
+                          size: 11.sp,
                           color: colors.textTertiary,
                         ),
-                        const SizedBox(width: 2),
+                        SizedBox(width: 2.w),
                         Text(
                           video.formattedDanmakuCount,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 10.sp,
                             color: colors.textTertiary,
                           ),
                         ),

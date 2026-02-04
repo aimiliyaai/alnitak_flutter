@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import '../models/captcha_models.dart';
@@ -130,7 +131,7 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
       child: Container(
         padding: const EdgeInsets.all(20),
         constraints: const BoxConstraints(maxWidth: 400),
@@ -140,11 +141,11 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
             // 标题
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     '安全验证',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 18.sp,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -194,7 +195,7 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
             Text(
               '拖动滑块完成拼图',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 12.sp,
                 color: Colors.grey[600],
               ),
             ),
@@ -250,7 +251,7 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
               print('   - 滑块缩放尺寸: ${scaledSliderWidth}x$scaledSliderHeight');
 
               return ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(8.r),
                 child: SizedBox(
                   width: containerWidth,
                   height: scaledHeight,
@@ -373,8 +374,8 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
                           _validateSlider(originalX);
                         },
                         child: Container(
-                          width: 50,
-                          height: 50,
+                          width: 50.w,
+height: 50.h,
                           decoration: BoxDecoration(
                             color: _isValidating ? Colors.grey : Colors.white,
                             borderRadius: BorderRadius.circular(25),
@@ -387,10 +388,10 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
                             ],
                           ),
                           child: _isValidating
-                              ? const Center(
+                              ? Center(
                                   child: SizedBox(
-                                    width: 20,
-                                    height: 20,
+width: 20.w,
+                height: 20.h,
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   ),
                                 )

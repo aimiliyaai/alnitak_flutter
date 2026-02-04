@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'pages/main_page.dart';
 import 'pages/settings_page.dart';
 import 'theme/app_theme.dart';
@@ -10,7 +11,6 @@ import 'config/api_config.dart';
 import 'utils/http_client.dart';
 import 'utils/token_manager.dart';
 import 'utils/auth_state_manager.dart';
-import 'utils/screen_adapter.dart';
 import 'widgets/error_boundary.dart';
 
 void main() async {
@@ -27,7 +27,8 @@ void main() async {
   await HttpClient().init();
   // 初始化登录状态管理器
   await AuthStateManager().initialize();
-  // 初始化屏幕适配器（在第一个 MaterialApp 构建时）
+  // 确保屏幕尺寸可用
+  await ScreenUtil.ensureScreenSize();
   LoggerService.instance.logInfo('API 基础地址: ${ApiConfig.baseUrl}', tag: 'App');
   runApp(const MyApp());
 }
@@ -105,30 +106,29 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return Builder(
-      builder: (context) {
-        // 初始化屏幕适配器
-        ScreenAdapter().init(context);
+    return ScreenUtilInit(
+      designSize: const Size(375, 812), // 设计稿尺寸（iPhone X 基准）
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, child) {
         return MaterialApp(
           title: 'Alnitak Flutter',
           debugShowCheckedModeBanner: false,
-          // 使用自定义主题
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: _themeService.flutterThemeMode,
-          // 添加中文本地化支持
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
           supportedLocales: const [
-            Locale('zh', 'CN'), // 简体中文
-            Locale('en', 'US'), // 英文
+            Locale('zh', 'CN'),
+            Locale('en', 'US'),
           ],
-          locale: const Locale('zh', 'CN'), // 默认使用简体中文
+          locale: const Locale('zh', 'CN'),
           home: ErrorBoundary(
-            child: const MainPage(),
+            child: child!,
             errorBuilder: (context, error, stack) => _defaultErrorWidget(context, error),
           ),
           routes: {
@@ -136,6 +136,7 @@ class _MyAppState extends State<MyApp> {
           },
         );
       },
+      child: const MainPage(),
     );
   }
 }

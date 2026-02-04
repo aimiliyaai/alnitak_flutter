@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../services/logger_service.dart';
 
 typedef ErrorWidgetBuilder = Widget Function(BuildContext context, Object error, StackTrace stackTrace);
@@ -89,47 +90,47 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
   Widget _defaultErrorWidget() {
     return Material(
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+child: Padding(
+          padding: EdgeInsets.all(24.r),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.error_outline,
-                size: 64,
+                size: 64.sp,
                 color: Colors.red[400],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               Text(
                 '出了点问题',
                 style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
+),
+              SizedBox(height: 8.h),
               Text(
                 _error.toString(),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey[600],
                     ),
                 textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
+),
+              SizedBox(height: 24.h),
               ElevatedButton.icon(
                 onPressed: _resetError,
                 icon: const Icon(Icons.refresh),
                 label: const Text('重试'),
               ),
               if (kDebugMode) ...[
-                const SizedBox(height: 16),
+SizedBox(height: 16.h),
                 ExpansionTile(
                   title: const Text('错误详情'),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(8.0),
+                      padding: EdgeInsets.all(8.r),
                       child: SelectableText(
                         _stackTrace.toString(),
                         style: TextStyle(
                           fontFamily: 'monospace',
-                          fontSize: 12,
+                          fontSize: 12.sp,
                           color: Colors.grey[800],
                         ),
                       ),
@@ -190,30 +191,30 @@ class _AsyncErrorBoundaryState extends State<AsyncErrorBoundary> {
   Widget _defaultErrorWidget() {
     return Material(
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+child: Padding(
+          padding: EdgeInsets.all(24.r),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.cloud_off_outlined,
-                size: 64,
+                size: 64.sp,
                 color: Colors.orange[400],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               Text(
                 '加载失败',
                 style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
+),
+              SizedBox(height: 8.h),
               Text(
                 _error?.toString() ?? '未知错误',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey[600],
                     ),
                 textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
+),
+              SizedBox(height: 24.h),
               ElevatedButton.icon(
                 onPressed: _retry,
                 icon: const Icon(Icons.refresh),

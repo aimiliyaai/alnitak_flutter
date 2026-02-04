@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/collection_models.dart';
 import '../services/collection_api_service.dart';
 
@@ -158,9 +159,9 @@ class _CollectionDialogState extends State<CollectionDialog> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.7,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -169,10 +170,10 @@ class _CollectionDialogState extends State<CollectionDialog> {
           Container(
             margin: const EdgeInsets.only(top: 12),
             width: 40,
-            height: 4,
+            height: 4.h,
             decoration: BoxDecoration(
               color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(2.r),
             ),
           ),
           // 标题栏
@@ -180,10 +181,10 @@ class _CollectionDialogState extends State<CollectionDialog> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                const Text(
+                Text(
                   '添加到收藏夹',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 18.sp,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -191,9 +192,9 @@ class _CollectionDialogState extends State<CollectionDialog> {
                 TextButton(
                   onPressed: _isSaving ? null : _saveChanges,
                   child: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
+                      ? SizedBox(
+width: 20.w,
+                  height: 20.h,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('完成'),
@@ -264,10 +265,10 @@ class _CollectionDialogState extends State<CollectionDialog> {
               child: const Icon(Icons.add, color: Colors.blue),
             ),
             const SizedBox(width: 14),
-            const Text(
+            Text(
               '新建收藏夹',
               style: TextStyle(
-                fontSize: 15,
+                fontSize: 15.sp,
                 color: Colors.blue,
                 fontWeight: FontWeight.w500,
               ),
@@ -291,18 +292,18 @@ class _CollectionDialogState extends State<CollectionDialog> {
               decoration: InputDecoration(
                 hintText: '输入收藏夹名称',
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+borderRadius: BorderRadius.circular(8.r),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12.w,
+                  vertical: 10.h,
                 ),
                 counterText: '',
               ),
               onSubmitted: (_) => _createCollection(),
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: 12.w),
           TextButton(
             onPressed: () {
               _newNameController.clear();
@@ -351,8 +352,8 @@ class _CollectionDialogState extends State<CollectionDialog> {
                 children: [
                   Text(
                     collection.name,
-                    style: const TextStyle(
-                      fontSize: 15,
+                    style: TextStyle(
+fontSize: 15.sp,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
@@ -363,7 +364,7 @@ class _CollectionDialogState extends State<CollectionDialog> {
                     Text(
                       collection.desc,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.sp,
                         color: Colors.grey[500],
                       ),
                       maxLines: 1,
@@ -382,7 +383,7 @@ class _CollectionDialogState extends State<CollectionDialog> {
                 });
               },
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(4.r),
               ),
             ),
           ],

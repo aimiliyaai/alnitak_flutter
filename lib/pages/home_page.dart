@@ -2,6 +2,7 @@ import 'package:alnitak_flutter/models/partition.dart';
 import 'package:alnitak_flutter/services/partition_api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../models/video_item.dart';
 import '../models/carousel_model.dart';
 import '../models/article_list_model.dart';
@@ -467,17 +468,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
-              const SizedBox(height: 16),
+              Icon(Icons.error_outline, size: 64.sp, color: colors.iconSecondary),
+              SizedBox(height: 16.h),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
+                padding: EdgeInsets.symmetric(horizontal: 32.w),
                 child: Text(
                   _errorMessage!,
                   style: TextStyle(color: colors.textSecondary),
                   textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               ElevatedButton(
                 onPressed: _reloadContent,
                 style: ElevatedButton.styleFrom(
@@ -563,22 +564,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       children: [
                         Icon(
                           Icons.article_outlined,
-                          size: 64,
+                          size: 64.sp,
                           color: colors.iconSecondary,
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16.h),
                         Text(
                           '暂无专栏内容',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 16.sp,
                             color: colors.textSecondary,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8.h),
                         Text(
                           '快去发布第一篇专栏吧',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 14.sp,
                             color: colors.textTertiary,
                           ),
                         ),
@@ -589,7 +590,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               else
                 // 文章列表
                 SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -601,10 +602,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
               // 加载更多指示器
               if (isLoading && !isEmpty)
-                const SliverToBoxAdapter(
+                SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Center(
+                    padding: EdgeInsets.all(16.w),
+                    child: const Center(
                       child: CircularProgressIndicator(),
                     ),
                   ),
@@ -622,9 +623,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-              // 底部占位，防止最后一行被遮挡
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 16),
+                // 底部占位，防止最后一行被遮挡
+              SliverToBoxAdapter(
+                child: SizedBox(height: 16.h),
               ),
             ],
           ),
@@ -649,24 +650,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: EdgeInsets.only(bottom: 12.h),
         decoration: BoxDecoration(
           color: colors.surface,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(8.r),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 封面图
             ClipRRect(
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(8),
-                bottomLeft: Radius.circular(8),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(8.r),
+                bottomLeft: Radius.circular(8.r),
               ),
               child: CachedImage(
                 imageUrl: article.cover,
-                width: 120,
-                height: 80,
+                width: 120.w,
+                height: 80.h,
                 fit: BoxFit.cover,
                 cacheKey: 'article_cover_${article.aid}',
               ),
@@ -674,7 +675,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             // 文章信息
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.all(10),
+                padding: EdgeInsets.all(10.w),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -684,12 +685,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 14.sp,
                         fontWeight: FontWeight.w500,
                         color: colors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8.h),
                     // 作者信息
                     Row(
                       children: [
@@ -697,13 +698,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ClipOval(
                           child: CachedImage(
                             imageUrl: article.author.avatar,
-                            width: 20,
-                            height: 20,
+                            width: 20.w,
+                            height: 20.h,
                             fit: BoxFit.cover,
                             cacheKey: 'user_avatar_${article.author.uid}',
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6.w),
                         // 作者名
                         Expanded(
                           child: Text(
@@ -711,7 +712,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 12.sp,
                               color: colors.textSecondary,
                             ),
                           ),
@@ -719,14 +720,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         // 点击量
                         Icon(
                           Icons.remove_red_eye_outlined,
-                          size: 14,
+                          size: 14.sp,
                           color: colors.textTertiary,
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4.w),
                         Text(
                           _formatCount(article.clicks),
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 12.sp,
                             color: colors.textTertiary,
                           ),
                         ),
@@ -826,7 +827,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     scale: 0.8 + 0.2 * opacity,
                     child: _buildCollapsedSearchButton(),
                   ),
-                  const SizedBox(width: 12),
+                   SizedBox(width: 12.w),
                 ],
               ),
             ),
@@ -841,23 +842,23 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final colors = context.colors;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 8.h),
       child: GestureDetector(
         onTap: _navigateToSearch,
         child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          height: 36.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
           decoration: BoxDecoration(
             color: colors.inputBackground,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(18.r),
           ),
           child: Row(
             children: [
-              Icon(Icons.search, size: 20, color: colors.textTertiary),
-              const SizedBox(width: 8),
+              Icon(Icons.search, size: 20.sp, color: colors.textTertiary),
+              SizedBox(width: 8.w),
               Text(
                 '搜索视频、UP主',
-                style: TextStyle(color: colors.textTertiary, fontSize: 14),
+                style: TextStyle(color: colors.textTertiary, fontSize: 14.sp),
               ),
             ],
           ),
@@ -873,13 +874,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       children: [
         // 视频/专栏切换
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
           child: Row(
             children: [
               _buildSwitchItemWithExpand('视频', 0, _isVideoTagsExpanded, () {
                 setState(() => _isVideoTagsExpanded = !_isVideoTagsExpanded);
               }),
-              const SizedBox(width: 32),
+              SizedBox(width: 32.w),
               _buildSwitchItemWithExpand('专栏', 1, _isArticleTagsExpanded, () {
                 setState(() => _isArticleTagsExpanded = !_isArticleTagsExpanded);
               }),
@@ -929,18 +930,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: isSelected ? 18 : 15,
+                  fontSize: isSelected ? 18.sp : 15.sp,
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   color: isSelected ? colors.textPrimary : colors.textSecondary,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4.h),
               Container(
-                width: 20,
-                height: 3,
+                width: 20.w,
+                height: 3.h,
                 decoration: BoxDecoration(
                   color: isSelected ? colors.accentColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(1.5),
+                  borderRadius: BorderRadius.circular(1.5.r),
                 ),
               ),
             ],
@@ -950,13 +951,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             GestureDetector(
               onTap: onExpandTap,
               child: Padding(
-                padding: const EdgeInsets.only(left: 4),
+                padding: EdgeInsets.only(left: 4.w),
                 child: AnimatedRotation(
                   turns: isExpanded ? 0.5 : 0,
                   duration: const Duration(milliseconds: 200),
                   child: Icon(
                     Icons.keyboard_arrow_down,
-                    size: 20,
+                    size: 20.sp,
                     color: colors.textSecondary,
                   ),
                 ),
@@ -1010,15 +1011,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
         decoration: BoxDecoration(
           color: isSelected ? colors.accentColor : colors.inputBackground,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(16.r),
         ),
         child: Text(
           name,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 13.sp,
             color: isSelected ? Colors.white : colors.textSecondary,
             fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
           ),
@@ -1030,11 +1031,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// 构建紧凑版视频/专栏切换（固定顶栏用）
   Widget _buildContentTypeSwitchCompact() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
       child: Row(
         children: [
           _buildCompactSwitchItem('视频', 0),
-          const SizedBox(width: 24),
+          SizedBox(width: 24.w),
           _buildCompactSwitchItem('专栏', 1),
         ],
       ),
@@ -1063,7 +1064,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       child: Text(
         title,
         style: TextStyle(
-          fontSize: isSelected ? 16 : 14,
+          fontSize: isSelected ? 16.sp : 14.sp,
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           color: isSelected ? colors.textPrimary : colors.textSecondary,
         ),
@@ -1078,13 +1079,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return GestureDetector(
       onTap: _navigateToSearch,
       child: Container(
-        width: 36,
-        height: 36,
+        width: 36.w,
+        height: 36.h,
         decoration: BoxDecoration(
           color: colors.inputBackground,
           shape: BoxShape.circle,
         ),
-        child: Icon(Icons.search, size: 20, color: colors.textSecondary),
+        child: Icon(Icons.search, size: 20.sp, color: colors.textSecondary),
       ),
     );
   }
