@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import 'logger_service.dart';
 
 /// 主题服务
 /// 管理应用主题模式，支持持久化存储
 class ThemeService extends ChangeNotifier {
   static const String _themeModeKey = 'theme_mode';
+  static final ThemeService _instance = ThemeService._internal();
+  static final LoggerService _logger = LoggerService.instance;
 
   AppThemeMode _themeMode = AppThemeMode.system;
 
-  /// 当前主题模式
   AppThemeMode get themeMode => _themeMode;
-
-  /// 单例模式
-  static final ThemeService _instance = ThemeService._internal();
 
   factory ThemeService() => _instance;
 
@@ -34,7 +33,7 @@ class ThemeService extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('加载主题模式失败: $e');
+      _logger.logWarning('[ThemeService] 加载主题模式失败: $e', tag: 'ThemeService');
     }
   }
 
@@ -49,7 +48,7 @@ class ThemeService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_themeModeKey, mode.index);
     } catch (e) {
-      debugPrint('保存主题模式失败: $e');
+      _logger.logWarning('[ThemeService] 保存主题模式失败: $e', tag: 'ThemeService');
     }
   }
 

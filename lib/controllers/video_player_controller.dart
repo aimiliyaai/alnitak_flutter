@@ -13,6 +13,7 @@ import '../services/hls_service.dart';
 import '../services/history_service.dart';
 import '../services/logger_service.dart';
 import '../services/audio_service_handler.dart';
+import '../services/video_heart_beat_service.dart';
 import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
 import '../utils/error_handler.dart';
@@ -27,6 +28,7 @@ import '../utils/quality_utils.dart';
 class VideoPlayerController extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
   final LoggerService _logger = LoggerService.instance;
+  final VideoHeartBeatService _heartBeatService = VideoHeartBeatService();
   late final Player player;
   late final VideoController videoController;
 
@@ -67,6 +69,12 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// Player 完全释放的 completer
   Completer<void>? _playerDisposeCompleter;
+
+  /// 当前加载的唯一标识符
+  String _currentLoadId = '';
+
+  /// 上次获取进度的时间戳（用于防抖）
+  int? _lastProgressFetchTime;
 
   // ============ 切换清晰度 ============
   Timer? _qualityDebounceTimer;
@@ -150,6 +158,7 @@ class VideoPlayerController extends ChangeNotifier {
     _isInitializing = true;
 
     try {
+      _qualityCache.clear();
       _currentResourceId = resourceId;
       isLoading.value = true;
       errorMessage.value = null;
@@ -169,6 +178,7 @@ class VideoPlayerController extends ChangeNotifier {
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
       // 后台启动 AudioService
+      _logger.logDebug('[Controller] backgroundPlayEnabled=${backgroundPlayEnabled.value}，决定是否启动 AudioService', tag: 'PlayerController');
       if (backgroundPlayEnabled.value) {
         _ensureAudioServiceReady().catchError((_) {});
       }
@@ -197,26 +207,24 @@ class VideoPlayerController extends ChangeNotifier {
     required MediaSource mediaSource,
     double? initialPosition,
   }) async {
-    // 防止并发初始化
-    if (_isInitializing) {
-      _logger.logWarning('[Controller] 正在初始化中，跳过资源 $resourceId 的重复调用', tag: 'PlayerController');
-      return;
-    }
+    final loadId = '${DateTime.now().millisecondsSinceEpoch}_${resourceId}_${initialPosition?.toInt() ?? 0}';
+    _currentLoadId = loadId;
+
+    _logger.logDebug('[Controller][$loadId] 开始初始化: resourceId=$resourceId, initialPos=$initialPosition', tag: 'PlayerController');
 
     // 如果已经初始化过同一个资源且播放器正常，跳过
     if (isPlayerInitialized.value && _currentResourceId == resourceId && errorMessage.value == null) {
-      _logger.logWarning('[Controller] 资源 $resourceId 已初始化且正常，跳过', tag: 'PlayerController');
+      _logger.logWarning('[Controller][$loadId] 资源已初始化且正常，跳过', tag: 'PlayerController');
+      _currentLoadId = '';
       return;
     }
 
-    _isInitializing = true;
-    _logger.logDebug('[Controller] 开始初始化: resourceId=$resourceId, initialPos=$initialPosition', tag: 'PlayerController');
-
     // 【关键】立即设置 isPlayerInitialized=false，避免中间状态
-    _logger.logDebug('[Controller] isPlayerInitialized=false (立即)', tag: 'PlayerController');
+    _logger.logDebug('[Controller][$loadId] isPlayerInitialized=false', tag: 'PlayerController');
     isPlayerInitialized.value = false;
 
     try {
+      _qualityCache.clear();
       _currentResourceId = resourceId;
       _logger.logDebug('[Controller] isLoading=true (Manager模式)', tag: 'PlayerController');
       isLoading.value = true;
@@ -238,6 +246,7 @@ class VideoPlayerController extends ChangeNotifier {
       currentQuality.value = selectedQuality;
 
       // 后台启动 AudioService
+      _logger.logDebug('[Controller] backgroundPlayEnabled=${backgroundPlayEnabled.value}，决定是否启动 AudioService', tag: 'PlayerController');
       if (backgroundPlayEnabled.value) {
         _ensureAudioServiceReady().catchError((_) {});
       }
@@ -319,198 +328,266 @@ class VideoPlayerController extends ChangeNotifier {
     );
   }
 
-   /// 【统一】内部加载逻辑，避免代码重复
-  Future<void> _loadMediaInternal({
-    required MediaSource mediaSource,
-    required String quality,
-    double? initialPosition,
-    required bool autoPlay,
-    bool Function()? resourceIdCheck,
-    }) async {
-     if (_isDisposed) return;
-     
-      try {
-        _hasTriggeredCompletion = false;
-        final needSeek = initialPosition != null && initialPosition > 0;
-        final targetPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
+    /// 【统一】内部加载逻辑，避免代码重复
+   Future<void> _loadMediaInternal({
+     required MediaSource mediaSource,
+     required String quality,
+     double? initialPosition,
+     required bool autoPlay,
+     bool Function()? resourceIdCheck,
+   }) async {
+     final loadId = _currentLoadId;
+     if (loadId.isEmpty) return;
 
-        _logger.logDebug('[LoadInternal] 开始: quality=$quality, needSeek=$needSeek, autoPlay=$autoPlay, target=${targetPosition.inSeconds}s', tag: 'PlayerController');
+     try {
+       _hasTriggeredCompletion = false;
+       final needSeek = initialPosition != null && initialPosition > 0;
+       final targetPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
 
-       // 缓存媒体源
+       _logger.logDebug('[LoadInternal][$loadId] 开始: quality=$quality, needSeek=$needSeek, autoPlay=$autoPlay, target=${targetPosition.inSeconds}s', tag: 'PlayerController');
+
        if (!mediaSource.isDirectUrl) {
          _qualityCache[quality] = mediaSource;
        }
 
-        // 【方案B】创建 Media（不带 start），open 后立即 seek
-        final media = await _createMedia(mediaSource);
+       final media = await _createMedia(mediaSource);
 
-         // 打开视频
-          _isSeeking = true;
-          _logger.logDebug('[LoadInternal] 调用 player.open(play: false)', tag: 'PlayerController');
-          await player.open(media, play: false);
-          _logger.logDebug('[LoadInternal] player.open 完成', tag: 'PlayerController');
+       _isSeeking = true;
+       _logger.logDebug('[LoadInternal][$loadId] 调用 player.open', tag: 'PlayerController');
+       await player.open(media, play: false);
+       _logger.logDebug('[LoadInternal][$loadId] player.open 完成', tag: 'PlayerController');
 
-          // 【关键】等待视频轨道就绪（解决音视频同步问题）
-          await _waitForVideoTrack();
+       await _waitForVideoTrack();
 
-          // 【关键】等待缓冲完成（最多500ms）
-          _logger.logDebug('[LoadInternal] 等待缓冲完成...', tag: 'PlayerController');
-          int waitCount = 0;
-          while (player.state.buffering && waitCount < 10) {
-            await Future.delayed(const Duration(milliseconds: 50));
-            waitCount++;
-          }
-          _logger.logDebug('[LoadInternal] 缓冲完成 (等待了${waitCount * 50}ms)', tag: 'PlayerController');
+       _logger.logDebug('[LoadInternal][$loadId] 等待缓冲...', tag: 'PlayerController');
+       int waitCount = 0;
+       while (player.state.buffering && waitCount < 10) {
+         await Future.delayed(const Duration(milliseconds: 50));
+         waitCount++;
+       }
+       _logger.logDebug('[LoadInternal][$loadId] 缓冲完成 (${waitCount * 50}ms)', tag: 'PlayerController');
 
-          // 【关键】明确暂停，确保播放器处于稳定暂停状态
-          if (player.state.playing) {
-            _logger.logDebug('[LoadInternal] 明确暂停播放器', tag: 'PlayerController');
-            await player.pause();
-            await Future.delayed(const Duration(milliseconds: 30));
-          }
+       if (player.state.playing) {
+         _logger.logDebug('[LoadInternal][$loadId] 暂停播放器', tag: 'PlayerController');
+         await player.pause();
+         await Future.delayed(const Duration(milliseconds: 30));
+       }
 
-          // 【关键】open 后立即 seek（比后续逻辑先执行）
-          if (needSeek) {
-            _logger.logDebug('[Load] open 后立即 seek 到 ${targetPosition.inSeconds}s', tag: 'PlayerController');
-            await player.seek(targetPosition);
-            _userIntendedPosition = targetPosition;
-          }
+       if (needSeek) {
+         _logger.logDebug('[LoadInternal][$loadId] seek 到 ${targetPosition.inSeconds}s', tag: 'PlayerController');
+         _userIntendedPosition = targetPosition;
+         
+         _logger.logDebug('[LoadInternal][$loadId] 播放让数据流动...', tag: 'PlayerController');
+         await player.play();
+         await Future.delayed(const Duration(milliseconds: 80));
+         await player.pause();
+         
+         await player.seek(targetPosition);
+         await Future.delayed(const Duration(milliseconds: 100));
+         
+         final actualPos = player.state.position.inSeconds;
+         _logger.logDebug('[LoadInternal][$loadId] seek 验证: 目标=${targetPosition.inSeconds}s, 实际=$actualPos', tag: 'PlayerController');
+         
+         if ((actualPos - targetPosition.inSeconds).abs() > 1) {
+           _logger.logWarning('[LoadInternal][$loadId] seek 未生效，再次尝试', tag: 'PlayerController');
+           await player.seek(targetPosition);
+           await Future.delayed(const Duration(milliseconds: 100));
+           final retryPos = player.state.position.inSeconds;
+           _logger.logDebug('[LoadInternal][$loadId] 重试后位置: $retryPos', tag: 'PlayerController');
+         }
+       }
 
-        // 【移除 _waitForDuration】HLS 流的 duration 会在播放后自动可用，不需要额外等待
-        // await _waitForDuration();
+       if (resourceIdCheck != null && !resourceIdCheck()) {
+         _logger.logWarning('[LoadInternal][$loadId] 竞态检查失败，跳过', tag: 'PlayerController');
+         _isSeeking = false;
+         return;
+       }
 
-        // 竞态检查（如果提供了检查函数）
-        if (resourceIdCheck != null && !resourceIdCheck()) {
-          _isSeeking = false;
-          return;
-        }
+       _logger.logDebug('[LoadInternal][$loadId] autoPlay=$autoPlay, playing=${player.state.playing}', tag: 'PlayerController');
+       if (autoPlay && !player.state.playing) {
+         _logger.logDebug('[LoadInternal][$loadId] 调用 player.play()', tag: 'PlayerController');
+         try {
+           await player.play();
 
-        // 自动播放
-        _logger.logDebug('[Load] autoPlay=$autoPlay, playing=${player.state.playing}', tag: 'PlayerController');
-        if (autoPlay && !player.state.playing) {
-          _logger.logDebug('[Load] 调用 player.play()', tag: 'PlayerController');
-          await player.play();
+           int waitPlaying = 0;
+           while (!player.state.playing && waitPlaying < 20) {
+             await Future.delayed(const Duration(milliseconds: 50));
+             waitPlaying++;
+           }
 
-          // 【关键】等待 playing 状态真正变为 true（最多1秒）
-          int waitPlaying = 0;
-          while (!player.state.playing && waitPlaying < 20) {
-            await Future.delayed(const Duration(milliseconds: 50));
-            waitPlaying++;
-          }
-          _logger.logDebug('[Load] player.play() 完成，playing=${player.state.playing} (等待${waitPlaying * 50}ms)', tag: 'PlayerController');
+           _logger.logDebug('[LoadInternal][$loadId] player.play() 完成, playing=${player.state.playing} (${waitPlaying * 50}ms)', tag: 'PlayerController');
+         } catch (e) {
+           _logger.logWarning('[LoadInternal][$loadId] player.play() 异常: $e', tag: 'PlayerController');
+         }
+       }
 
-          // 【关键】额外等待视频渲染（解决音视频同步问题）
-          await Future.delayed(const Duration(milliseconds: 100));
-        } else {
-          _logger.logDebug('[Load] 跳过 player.play()', tag: 'PlayerController');
-        }
+       await Future.delayed(const Duration(milliseconds: 100));
 
-        // 【关键】只有在 playing 状态下才设置初始化完成
-        if (player.state.playing) {
-          _logger.logDebug('[Load] 视频已开始播放，设置 isLoading=false', tag: 'PlayerController');
-          _logger.logDebug('[Controller] isLoading=false', tag: 'PlayerController');
-          isLoading.value = false;
-          _logger.logDebug('[Controller] isPlayerInitialized=true', tag: 'PlayerController');
-          isPlayerInitialized.value = true;
-          _logger.logSuccess('[Controller] ===== 预加载初始化完成 =====', tag: 'PlayerController');
-        } else {
-          _logger.logDebug('[Load] 视频未开始播放，保持 loading 状态', tag: 'PlayerController');
-        }
+       if (player.state.playing) {
+         _logger.logDebug('[LoadInternal][$loadId] 视频开始播放，设置 isLoading=false', tag: 'PlayerController');
+         isLoading.value = false;
+         isPlayerInitialized.value = true;
+         _logger.logSuccess('[Controller][$loadId] 预加载初始化完成', tag: 'PlayerController');
+         _currentLoadId = '';
+       } else {
+         _logger.logDebug('[LoadInternal][$loadId] 未开始播放，保持 loading', tag: 'PlayerController');
+       }
 
-        // 验证位置
-        if (needSeek) {
-          await Future.delayed(const Duration(milliseconds: 200));
-          final actualPos = player.state.position.inSeconds;
-          final diff = (actualPos - targetPosition.inSeconds).abs();
-          if (diff > 2) {
-            _logger.logWarning('[Load] 位置偏差($actualPos vs ${targetPosition.inSeconds})，重试 seek', tag: 'PlayerController');
-            await player.seek(targetPosition);
-          }
-          _logger.logDebug('[Load] 历史进度恢复完成: ${player.state.position.inSeconds}s', tag: 'PlayerController');
-        }
+       if (needSeek) {
+         await Future.delayed(const Duration(milliseconds: 200));
+         final actualPos = player.state.position.inSeconds;
+         final diff = (actualPos - targetPosition.inSeconds).abs();
+         if (diff > 2) {
+           _logger.logWarning('[LoadInternal][$loadId] 位置偏差($actualPos vs ${targetPosition.inSeconds})，重试', tag: 'PlayerController');
+           await player.seek(targetPosition);
+         }
+         _logger.logDebug('[LoadInternal][$loadId] 进度恢复完成: ${player.state.position.inSeconds}s', tag: 'PlayerController');
+       }
 
        _isSeeking = false;
-
-       // 预加载相邻清晰度
        _preloadAdjacentQualities();
 
-      } catch (e) {
-        _isSeeking = false;
-        _logger.logWarning('[Load] 失败: $e', tag: 'PlayerController');
-        _logger.logWarning('[Load] 堆栈: ${StackTrace.current}', tag: 'PlayerController');
-      }
-  }
+     } catch (e) {
+       _isSeeking = false;
+       _logger.logWarning('[LoadInternal][$loadId] 失败: $e', tag: 'PlayerController');
+       isLoading.value = false;
+       errorMessage.value = e.toString();
+       _currentLoadId = '';
+     }
+   }
 
   // ============================================================
   // 核心：Seek
   // ============================================================
 
+  Timer? _seekTimer;
+
   Future<void> seek(Duration position) async {
+    if (position < Duration.zero) position = Duration.zero;
     _logger.logDebug('[Seek] 目标: ${position.inSeconds}s', tag: 'PlayerController');
 
-    // 【关键】立即更新用户期望位置
     _userIntendedPosition = position;
     _isSeeking = true;
 
     try {
-      await player.seek(position);
-      // 短暂等待让播放器响应
-      await Future.delayed(const Duration(milliseconds: 100));
+      if (player.state.duration.inSeconds != 0) {
+        await player.seek(position);
+        await Future.delayed(const Duration(milliseconds: 100));
+      } else {
+        _seekTimer?.cancel();
+        _seekTimer = _startSeekTimer(position);
+      }
     } finally {
       _isSeeking = false;
     }
+  }
+
+  Timer? _startSeekTimer(Duration position) {
+    return Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
+      if (player.state.duration.inSeconds != 0) {
+        await player.stream.buffer.first;
+        await player.seek(position);
+        t.cancel();
+        _seekTimer = null;
+      }
+    });
   }
 
   /// 从服务端获取并恢复播放进度
   ///
   /// 使用内部的 _currentVid 和 _currentPart，无需外部传参
   /// 典型场景：用户登录后调用此方法同步服务端进度
+  /// 【关键】只能在播放器就绪后才能调用，否则 seek 可能被丢弃
   Future<void> fetchAndRestoreProgress() async {
     if (_isDisposed) return;
 
-     // 检查视频上下文是否已设置
-     if (_currentVid == null) {
-       _logger.logWarning('[Progress] 视频上下文未设置，跳过进度恢复', tag: 'PlayerController');
-       return;
-     }
+    // 【防抖】500ms内重复调用直接跳过
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastProgressFetchTime != null && now - _lastProgressFetchTime! < 500) {
+      _logger.logDebug('[Progress] 500ms内重复调用，跳过', tag: 'PlayerController');
+      return;
+    }
+    _lastProgressFetchTime = now;
 
-     // 【关键】记录请求时的 vid/part，用于防止竞态
-     final requestVid = _currentVid!;
-     final requestPart = _currentPart;
+    // 检查视频上下文是否已设置
+    if (_currentVid == null) {
+      _logger.logWarning('[Progress] 视频上下文未设置，跳过进度恢复', tag: 'PlayerController');
+      return;
+    }
 
-     try {
-       _logger.logDebug('[Progress] 开始获取服务端进度: vid=$requestVid, part=$requestPart', tag: 'PlayerController');
-       final historyService = HistoryService();
-       final progressData = await historyService.getProgress(vid: requestVid, part: requestPart);
+    // 【关键】检查播放器是否已就绪
+    if (!isPlayerInitialized.value) {
+      _logger.logDebug('[Progress] 播放器未就绪，设置延迟恢复', tag: 'PlayerController');
+      // 延迟等待播放器就绪
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        if (!_isDisposed && _currentVid != null) {
+          _logger.logDebug('[Progress] 播放器已就绪，尝试恢复进度', tag: 'PlayerController');
+          await _doFetchAndRestoreProgress();
+        }
+      });
+      return;
+    }
 
-       // 【关键】检查视频是否已切换
-       if (_isDisposed || _currentVid != requestVid || _currentPart != requestPart) {
-         _logger.logWarning('[Progress] 视频已切换 (请求: vid=$requestVid/part=$requestPart, 当前: vid=$_currentVid/part=$_currentPart)，丢弃旧数据', tag: 'PlayerController');
-         return;
-       }
+    await _doFetchAndRestoreProgress();
+  }
 
-       if (progressData == null) {
-         _logger.logDebug('[Progress] 无历史进度数据', tag: 'PlayerController');
-         return;
-       }
+  /// 实际执行进度恢复的内部方法
+  Future<void> _doFetchAndRestoreProgress() async {
+    // 检查视频上下文
+    if (_currentVid == null) return;
 
-       final progress = progressData.progress;
-       _logger.logDebug('[Progress] 获取到进度: $progress', tag: 'PlayerController');
+    // 【防抖】再次检查
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastProgressFetchTime != null && now - _lastProgressFetchTime! < 500) {
+      _logger.logDebug('[Progress] 500ms内重复调用，跳过', tag: 'PlayerController');
+      return;
+    }
+    _lastProgressFetchTime = now;
 
+    // 【关键】检查视频是否已切换
+    final requestVid = _currentVid!;
+    final requestPart = _currentPart;
 
-       final currentPos = player.state.position.inSeconds;
-       final targetPos = progress.toInt();
+    try {
+      _logger.logDebug('[Progress] 开始获取服务端进度: vid=$requestVid, part=$requestPart', tag: 'PlayerController');
+      final historyService = HistoryService();
+      final progressData = await historyService.getProgress(vid: requestVid, part: requestPart);
 
-       // 只有当服务端进度明显不同时才 seek（差异超过3秒）
-       if ((targetPos - currentPos).abs() > 3) {
-         _logger.logDebug('[Progress] 恢复服务端进度: $currentPos -> $targetPos 秒', tag: 'PlayerController');
-         await seek(Duration(seconds: targetPos));
-       } else {
-         _logger.logDebug('[Progress] 进度差异小于3秒，无需 seek', tag: 'PlayerController');
-       }
-     } catch (e) {
-       _logger.logWarning('恢复历史进度失败: $e', tag: 'PlayerController');
-     }
+      // 【关键】检查视频是否已切换
+      if (_isDisposed || _currentVid != requestVid || _currentPart != requestPart) {
+        _logger.logWarning('[Progress] 视频已切换 (请求: vid=$requestVid/part=$requestPart, 当前: vid=$_currentVid/part=$_currentPart)，丢弃旧数据', tag: 'PlayerController');
+        return;
+      }
+
+      if (progressData == null) {
+        _logger.logDebug('[Progress] 无历史进度数据', tag: 'PlayerController');
+        return;
+      }
+
+      final progress = progressData.progress;
+      _logger.logDebug('[Progress] 获取到进度: $progress', tag: 'PlayerController');
+
+      final currentPos = player.state.position.inSeconds;
+      final targetPos = progress.toInt();
+
+      // 只有当服务端进度明显不同时才 seek（差异超过3秒）
+      if ((targetPos - currentPos).abs() > 3) {
+        _logger.logDebug('[Progress] 恢复服务端进度: $currentPos -> $targetPos 秒', tag: 'PlayerController');
+        
+        // 【关键】HLS 流在暂停状态下 seek 不生效，需要先播放一下
+        if (!player.state.playing) {
+          await player.play();
+          await Future.delayed(const Duration(milliseconds: 80));
+          await player.pause();
+        }
+        
+        await seek(Duration(seconds: targetPos));
+      } else {
+        _logger.logDebug('[Progress] 进度差异小于3秒，无需 seek', tag: 'PlayerController');
+      }
+    } catch (e) {
+      _logger.logWarning('[Progress] 恢复历史进度失败: $e', tag: 'PlayerController');
+    }
   }
 
   // ============================================================
@@ -592,47 +669,41 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-   /// 【新增】带重试的 seek 方法，确保切换清晰度时进度恢复成功
-  Future<void> _seekWithRetry(Duration targetPosition, {int maxRetries = 3}) async {
-    final targetSeconds = targetPosition.inSeconds;
-    _logger.logDebug('[SeekRetry] 开始 seek 到 ${targetSeconds}s，最多重试 $maxRetries 次', tag: 'PlayerController');
+    /// 【简化】带重试的 seek 方法，确保切换清晰度时进度恢复成功
+   Future<void> _seekWithRetry(Duration targetPosition, {int maxRetries = 3}) async {
+     final targetSeconds = targetPosition.inSeconds;
+     _logger.logDebug('[SeekRetry] 开始 seek 到 ${targetSeconds}s', tag: 'PlayerController');
 
-    for (int attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        // 先短暂播放让播放器就绪（HLS 流在暂停状态下 seek 可能不生效）
-        await player.play();
-        await Future.delayed(const Duration(milliseconds: 80));
-        await player.pause();
+     for (int attempt = 1; attempt <= maxRetries; attempt++) {
+       try {
+         await player.play();
+         await Future.delayed(const Duration(milliseconds: 80));
+         await player.pause();
 
-        // 执行 seek
-        await player.seek(targetPosition);
-        await Future.delayed(const Duration(milliseconds: 200));
+         await player.seek(targetPosition);
+         await Future.delayed(const Duration(milliseconds: 200));
 
-        // 验证位置
-        final actualPos = player.state.position;
-        final diff = (actualPos.inSeconds - targetSeconds).abs();
+         final actualPos = player.state.position.inSeconds;
+         final diff = (actualPos - targetSeconds).abs();
 
-        if (diff <= 3) {
-          _logger.logSuccess('[SeekRetry] 第 $attempt 次 seek 成功: 目标=${targetSeconds}s, 实际=${actualPos.inSeconds}s', tag: 'PlayerController');
-          return;
-        }
+         if (diff <= 3) {
+           _logger.logSuccess('[SeekRetry] seek 成功: $actualPos/$targetSeconds', tag: 'PlayerController');
+           return;
+         }
 
-        _logger.logWarning('[SeekRetry] 第 $attempt 次 seek 偏差过大: 目标=${targetSeconds}s, 实际=${actualPos.inSeconds}s', tag: 'PlayerController');
+         _logger.logWarning('[SeekRetry] 偏差: $actualPos/$targetSeconds');
+         if (attempt < maxRetries) {
+           await Future.delayed(const Duration(milliseconds: 100));
+         }
+       } catch (e) {
+         _logger.logWarning('[SeekRetry] 第 $attempt 次异常: $e', tag: 'PlayerController');
+         if (attempt == maxRetries) rethrow;
+       }
+     }
 
-        // 如果还有重试机会，等待一下再试
-        if (attempt < maxRetries) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-      } catch (e) {
-        _logger.logWarning('[SeekRetry] 第 $attempt 次 seek 异常: $e', tag: 'PlayerController');
-        if (attempt == maxRetries) rethrow;
-      }
-    }
-
-    // 最后一次尝试：直接 seek 不验证
-    _logger.logWarning('[SeekRetry] 所有重试失败，执行最终 seek', tag: 'PlayerController');
-    await player.seek(targetPosition);
-  }
+     _logger.logWarning('[SeekRetry] 重试失败，直接 seek', tag: 'PlayerController');
+     await player.seek(targetPosition);
+   }
 
   // ============================================================
   // 监听器
@@ -676,11 +747,12 @@ class VideoPlayerController extends ChangeNotifier {
     _completedSubscription = player.stream.completed.listen((completed) {
       if (completed && !_hasTriggeredCompletion && !_isSeeking) {
         _hasTriggeredCompletion = true;
+        _heartBeatService.onCompleted(duration: player.state.duration.inSeconds);
         _handlePlaybackEnd();
       }
     });
 
-    // 播放状态监听 + Wakelock
+    // 播放状态监听 + Wakelock + 心跳
     _playingSubscription = player.stream.playing.listen((playing) {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
@@ -691,10 +763,12 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (playing) {
         WakelockManager.enable();
+        _heartBeatService.onPlaying(progress: player.state.position.inSeconds);
       } else {
         Future.delayed(const Duration(milliseconds: 200), () {
           if (!player.state.playing) {
             WakelockManager.disable();
+            _heartBeatService.onPaused(progress: player.state.position.inSeconds);
           }
         });
       }
@@ -856,12 +930,13 @@ class VideoPlayerController extends ChangeNotifier {
        final completer = Completer<void>();
        StreamSubscription? sub;
 
-       sub = player.stream.duration.listen((duration) {
-         _logger.logDebug('[_waitForDuration] 收到 duration 事件: ${duration.inSeconds}s', tag: 'PlayerController');
-         if (duration.inSeconds > 0 && !completer.isCompleted) {
-           completer.complete();
-         }
-       });
+        sub = player.stream.duration.listen((duration) {
+          _logger.logDebug('[_waitForDuration] 收到 duration 事件: ${duration.inSeconds}s', tag: 'PlayerController');
+          if (duration.inSeconds > 0 && !completer.isCompleted) {
+            _heartBeatService.updateDuration(duration.inSeconds);
+            completer.complete();
+          }
+        });
 
        try {
          _logger.logDebug('[_waitForDuration] 等待 duration (超时: ${timeout.inSeconds}s)...', tag: 'PlayerController');
@@ -874,40 +949,39 @@ class VideoPlayerController extends ChangeNotifier {
        }
      }
 
-    Future<void> _configurePlayer() async {
-     if (kIsWeb) return;
+     Future<void> _configurePlayer() async {
+      if (kIsWeb) return;
 
-     try {
-       final nativePlayer = player.platform as NativePlayer?;
-       if (nativePlayer == null) return;
+      try {
+        final nativePlayer = player.platform as NativePlayer?;
+        if (nativePlayer == null) return;
 
-       // 【关键】激进的缓冲配置
-       await nativePlayer.setProperty('cache', 'yes');
-       await nativePlayer.setProperty('cache-secs', '300');        // 缓存300秒
-       await nativePlayer.setProperty('demuxer-readahead-secs', '120'); // 预读120秒
-       await nativePlayer.setProperty('demuxer-max-bytes', '1G');  // 最大1GB缓存
-       await nativePlayer.setProperty('demuxer-max-back-bytes', '500M'); // 后向缓存500MB
-       await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+        await nativePlayer.setProperty('cache', 'yes');
+        await nativePlayer.setProperty('cache-secs', '60');
+        await nativePlayer.setProperty('demuxer-readahead-secs', '30');
+        await nativePlayer.setProperty('demuxer-max-bytes', '512M');
+        await nativePlayer.setProperty('demuxer-max-back-bytes', '200M');
+        await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
 
-       // 【关键】降低缓冲阈值，更快开始播放
-       await nativePlayer.setProperty('video-latency-hack', 'yes'); // 降低视频延迟
-       await nativePlayer.setProperty('video-queue', 'yes');        // 启用视频队列
-       await nativePlayer.setProperty('video-queue-max-bytes', '100M'); // 视频队列100MB
+        await nativePlayer.setProperty('video-latency-hack', 'yes');
+        await nativePlayer.setProperty('video-queue', 'yes');
+        await nativePlayer.setProperty('video-queue-max-bytes', '50M');
+        await nativePlayer.setProperty('video-queue-min-bytes', '1M');
 
-       // 【关键】HLS 激进的并行下载配置
-       await nativePlayer.setProperty('stream-lavf-o',
-           'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
-           'reconnect_delay_max=30,'
-           'threads=6'); // 4线程并行下载
-       await nativePlayer.setProperty('network-timeout', '30');
+        await nativePlayer.setProperty('stream-lavf-o',
+            'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+            'reconnect_delay_max=10,'
+            'threads=4');
+        await nativePlayer.setProperty('network-timeout', '15');
 
-       // 【关键】减少缓冲延迟
-       await nativePlayer.setProperty('hls-bitrate', 'max'); // 优先最高码率
-       await nativePlayer.setProperty('initial-byte-range', 'yes'); // 启用字节范围请求
+        await nativePlayer.setProperty('hls-bitrate', 'max');
+        await nativePlayer.setProperty('initial-byte-range', 'yes');
 
-       // 精确跳转
-       await nativePlayer.setProperty('hr-seek', 'absolute');
-       await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+        await nativePlayer.setProperty('hr-seek', 'absolute');
+        await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+
+        await nativePlayer.setProperty('video-buffer-time', '5');
+        await nativePlayer.setProperty('audio-buffer-time', '2');
 
         // 解码模式
         await nativePlayer.setProperty('hwdec', _currentDecodeMode);
@@ -922,6 +996,7 @@ class VideoPlayerController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     loopMode.value = LoopModeExtension.fromString(prefs.getString(_loopModeKey));
     backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
+    _logger.logDebug('[Settings] backgroundPlayEnabled=${backgroundPlayEnabled.value}', tag: 'PlayerController');
     _currentDecodeMode = prefs.getString(_decodeModeKey) ?? 'no';
 
      // 在视频播放前预先设置音量，避免初始化时音量过大
@@ -1053,13 +1128,14 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
     Future<void> _ensureAudioServiceReady() async {
-     try {
-       if (_audioServiceInitialized && _audioHandler != null) {
-         _logger.logDebug('[AudioService] 已有实例，只更新 player', tag: 'PlayerController');
-         _audioHandler!.setPlayer(player);
-         _updateAudioServiceMetadata();
-         return;
-       }
+      _logger.logDebug('[AudioService] _ensureAudioServiceReady() 被调用', tag: 'PlayerController');
+      try {
+        if (_audioServiceInitialized && _audioHandler != null) {
+          _logger.logDebug('[AudioService] 已有实例，只更新 player', tag: 'PlayerController');
+          _audioHandler!.setPlayer(player);
+          _updateAudioServiceMetadata();
+          return;
+        }
 
        if (!_audioServiceInitialized) {
          _logger.logDebug('[AudioService] 开始初始化...', tag: 'PlayerController');
@@ -1091,14 +1167,20 @@ class VideoPlayerController extends ChangeNotifier {
     _updateAudioServiceMetadata();
   }
 
-   /// 设置视频上下文（用于进度恢复）
-   ///
-   /// 在切换视频/分P时调用，让 Controller 知道当前播放的是哪个视频
-   void setVideoContext({required int vid, int part = 1}) {
-     _currentVid = vid;
-     _currentPart = part;
-     _logger.logDebug('[Controller] 设置视频上下文: vid=$vid, part=$part', tag: 'PlayerController');
-   }
+    /// 设置视频上下文（用于进度恢复和心跳上报）
+    ///
+    /// 在切换视频/分P时调用，让 Controller 知道当前播放的是哪个视频
+    void setVideoContext({required int vid, int part = 1}) {
+      _currentVid = vid;
+      _currentPart = part;
+      _logger.logDebug('[Controller] 设置视频上下文: vid=$vid, part=$part', tag: 'PlayerController');
+      _heartBeatService.startHeartBeat(
+        vid: vid,
+        part: part,
+        duration: player.state.duration.inSeconds,
+        enableHeart: true,
+      );
+    }
 
   /// 更新 AudioService 的媒体信息
   void _updateAudioServiceMetadata() {
@@ -1126,16 +1208,19 @@ class VideoPlayerController extends ChangeNotifier {
     if (isPaused) {
       _wasPlayingBeforeBackground = player.state.playing;
       if (backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
+        // 开关打开 → 切后台时继续播放
         WakelockManager.enable();
         _audioHandler?.updatePlaybackState(
           playing: true,
           position: player.state.position,
         );
       } else if (_wasPlayingBeforeBackground) {
+        // 开关关闭 → 切后台时暂停
         player.pause();
       }
     } else {
-      if (!backgroundPlayEnabled.value && _wasPlayingBeforeBackground) {
+      // 切回前台时：之前在播放就恢复
+      if (_wasPlayingBeforeBackground) {
         player.play();
       }
       _wasPlayingBeforeBackground = false;
@@ -1212,7 +1297,9 @@ class VideoPlayerController extends ChangeNotifier {
     _callStateSubscription?.cancel();
     _callStateHandler?.dispose();
 
-    _positionStreamController.close();
+    if (!_positionStreamController.isClosed) {
+      _positionStreamController.close();
+    }
 
     _qualityCache.clear();
     WakelockManager.disable();
@@ -1252,6 +1339,9 @@ class VideoPlayerController extends ChangeNotifier {
     _qualityDebounceTimer?.cancel();
     _stalledTimer?.cancel();
     _preloadTimer?.cancel();
+    _seekTimer?.cancel();
+
+    _heartBeatService.stopHeartBeat();
 
     availableQualities.dispose();
     currentQuality.dispose();

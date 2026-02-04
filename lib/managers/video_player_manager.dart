@@ -89,6 +89,7 @@ class VideoPlayerManager extends ChangeNotifier {
   int _currentEpoch = 0; // 资源版本号，每次加载新资源时递增
   bool _isPreloading = false; // 是否正在预加载
   bool _isStartingPlayback = false; // 是否正在启动播放
+  Completer<void>? _playbackInitCompleter; // 确保只有一个播放初始化
 
   VideoPlayerManager();
 
@@ -179,8 +180,8 @@ class VideoPlayerManager extends ChangeNotifier {
         }
 
         if (_externalControllerBound && _controller != null && !_isStartingPlayback) {
-          _logger.logDebug('[Manager] 外部 Controller 已绑定，开始播放', tag: 'PlayerManager');
-          await _startPlaybackWithPreloadedResource(myEpoch);
+          _logger.logDebug('[Manager] 外部 Controller 已绑定，启动播放', tag: 'PlayerManager');
+          _startPlaybackWithPreloadedResource(myEpoch);
         }
 
      } catch (e) {
@@ -288,6 +289,7 @@ class VideoPlayerManager extends ChangeNotifier {
     Future<void> waitForReady() async {
       if (_preloadedResource != null) {
         _logger.logDebug('[Manager] 资源已预加载，直接返回', tag: 'PlayerManager');
+        _startPlaybackIfNeeded();
         return;
       }
 
@@ -298,57 +300,81 @@ class VideoPlayerManager extends ChangeNotifier {
       }
     }
 
+    /// 如果需要，启动播放
+    void _startPlaybackIfNeeded() {
+      if (_preloadedResource != null && _controller != null && !_isStartingPlayback) {
+        _logger.logDebug('[Manager] 启动播放 (内部检查)', tag: 'PlayerManager');
+        _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
+      }
+    }
+
     /// 使用预加载的资源开始播放
-   Future<void> _startPlaybackWithPreloadedResource(int expectedEpoch) async {
-     // 【关键】多重防护
-     if (_isStartingPlayback) {
-       _logger.logWarning('[Manager] 正在启动播放中，跳过重复调用', tag: 'PlayerManager');
-       return;
-     }
-     if (_controller == null || _preloadedResource == null || _isDisposed) {
-       _logger.logWarning('[Manager] 条件不满足，跳过播放', tag: 'PlayerManager');
-       return;
-     }
-     // 检查 epoch 是否匹配
-     if (_preloadedResource!.epoch != expectedEpoch || expectedEpoch != _currentEpoch) {
-       _logger.logWarning('[Manager] epoch 不匹配 (resource=${_preloadedResource!.epoch}, expected=$expectedEpoch, current=$_currentEpoch)，跳过播放', tag: 'PlayerManager');
-       return;
-     }
+    Future<void> _startPlaybackWithPreloadedResource(int expectedEpoch) async {
+      // 【关键】使用 Completer 确保只有一个播放初始化在进行
+      if (_playbackInitCompleter != null) {
+        _logger.logDebug('[Manager] 播放初始化已在进行中，等待完成', tag: 'PlayerManager');
+        await _playbackInitCompleter!.future;
+        // 如果初始化已完成但 epoch 已变化，不再继续
+        if (expectedEpoch != _currentEpoch) {
+          _logger.logWarning('[Manager] epoch 已变化，跳过', tag: 'PlayerManager');
+          return;
+        }
+        return;
+      }
 
-     _isStartingPlayback = true;
-     final resource = _preloadedResource!;
-     _logger.logDebug('[Manager] 使用预加载资源开始播放, epoch=$expectedEpoch', tag: 'PlayerManager');
+      // 【关键】多重防护
+      if (_isStartingPlayback) {
+        _logger.logWarning('[Manager] 正在启动播放中，跳过重复调用', tag: 'PlayerManager');
+        return;
+      }
+      if (_controller == null || _preloadedResource == null || _isDisposed) {
+        _logger.logWarning('[Manager] 条件不满足，跳过播放', tag: 'PlayerManager');
+        return;
+      }
+      // 检查 epoch 是否匹配
+      if (_preloadedResource!.epoch != expectedEpoch || expectedEpoch != _currentEpoch) {
+        _logger.logWarning('[Manager] epoch 不匹配 (resource=${_preloadedResource!.epoch}, expected=$expectedEpoch, current=$_currentEpoch)，跳过播放', tag: 'PlayerManager');
+        return;
+      }
 
-    try {
-      // 使用预加载的数据初始化播放器
-      await _controller!.initializeWithPreloadedData(
-        resourceId: resource.resourceId,
-        qualities: resource.qualities,
-        selectedQuality: resource.selectedQuality,
-        mediaSource: resource.mediaSource,
-        initialPosition: resource.initialPosition,
-      );
+      _isStartingPlayback = true;
+      _playbackInitCompleter = Completer<void>();
+      final resource = _preloadedResource!;
+      _logger.logDebug('[Manager] 使用预加载资源开始播放, epoch=$expectedEpoch', tag: 'PlayerManager');
 
-       // 再次检查 epoch，确保播放完成时资源未被切换
-       if (expectedEpoch == _currentEpoch && !_isDisposed) {
-         playbackState.value = PlaybackState.playing;
-         _logger.logSuccess('[Manager] 播放已启动', tag: 'PlayerManager');
-       } else {
-         // 【修复】epoch 不匹配时也重置标志，为新资源让路
-         _isStartingPlayback = false;
-       }
+      try {
+        // 使用预加载的数据初始化播放器
+        await _controller!.initializeWithPreloadedData(
+          resourceId: resource.resourceId,
+          qualities: resource.qualities,
+          selectedQuality: resource.selectedQuality,
+          mediaSource: resource.mediaSource,
+          initialPosition: resource.initialPosition,
+        );
 
-     } catch (e) {
-       _logger.logWarning('[Manager] 播放失败: $e', tag: 'PlayerManager');
-       if (expectedEpoch == _currentEpoch && !_isDisposed) {
-         playbackState.value = PlaybackState.error;
-         errorMessage.value = '播放视频失败: $e';
-       }
-       _isStartingPlayback = false; // 【修复】始终重置，允许重试
-     }
-   }
+        // 再次检查 epoch，确保播放完成时资源未被切换
+        if (expectedEpoch == _currentEpoch && !_isDisposed) {
+          playbackState.value = PlaybackState.playing;
+          _logger.logSuccess('[Manager] 播放已启动', tag: 'PlayerManager');
+        } else {
+          _logger.logWarning('[Manager] epoch 不匹配，放弃启动', tag: 'PlayerManager');
+        }
+      } catch (e) {
+        _logger.logWarning('[Manager] 播放失败: $e', tag: 'PlayerManager');
+        if (expectedEpoch == _currentEpoch && !_isDisposed) {
+          playbackState.value = PlaybackState.error;
+          errorMessage.value = '播放视频失败: $e';
+        }
+      } finally {
+        _isStartingPlayback = false;
+        if (!_playbackInitCompleter!.isCompleted) {
+          _playbackInitCompleter!.complete();
+        }
+        _playbackInitCompleter = null;
+      }
+    }
 
-   /// 切换到新的资源（分P切换时调用）
+    /// 切换到新的资源（分P切换时调用）
    Future<void> switchResource({
      required int resourceId,
      double? initialPosition,

@@ -9,6 +9,7 @@ import 'reset_password_page.dart';
 import '../services/auth_service.dart';
 import '../services/hls_service.dart';
 import '../services/theme_service.dart';
+import '../services/logger_service.dart';
 import '../controllers/video_player_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
@@ -24,6 +25,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final LoggerService _logger = LoggerService.instance;
   final AuthService _authService = AuthService();
   final HlsService _hlsService = HlsService();
   final ThemeService _themeService = ThemeService();
@@ -266,16 +268,16 @@ class _SettingsPageState extends State<SettingsPage> {
         final logFile = File('${docDir.path}/error_log.txt');
         if (await logFile.exists()) {
           await logFile.delete();
-          debugPrint('🗑️ 已删除日志文件');
+          _logger.logDebug('[Settings] 已删除日志文件', tag: 'Settings');
         }
         // 清理归档日志目录
         final logsDir = Directory('${docDir.path}/logs');
         if (await logsDir.exists()) {
           await logsDir.delete(recursive: true);
-          debugPrint('🗑️ 已删除归档日志目录');
+          _logger.logDebug('[Settings] 已删除归档日志目录', tag: 'Settings');
         }
       } catch (e) {
-        debugPrint('⚠️ 清理日志文件失败: $e');
+        _logger.logWarning('[Settings] 清理日志文件失败: $e', tag: 'Settings');
       }
 
       if (mounted) {
@@ -346,11 +348,11 @@ class _SettingsPageState extends State<SettingsPage> {
       final maxSizeBytes = _maxCacheSizeMB * 1024 * 1024;
 
       if (totalSize > maxSizeBytes) {
-        debugPrint('缓存超过限制 (${(totalSize / (1024 * 1024)).toStringAsFixed(1)}MB > ${_maxCacheSizeMB}MB)，自动清理...');
+        _logger.logDebug('[Settings] 缓存超过限制 (${(totalSize / (1024 * 1024)).toStringAsFixed(1)}MB > ${_maxCacheSizeMB}MB)，自动清理...', tag: 'Settings');
         await _clearAllCache();
       }
     } catch (e) {
-      debugPrint('自动清理缓存失败: $e');
+      _logger.logWarning('[Settings] 自动清理缓存失败: $e', tag: 'Settings');
     }
   }
 

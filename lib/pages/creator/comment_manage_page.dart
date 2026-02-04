@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/comment_manage.dart';
 import '../../services/comment_manage_service.dart';
+import '../../services/logger_service.dart';
 import '../../theme/theme_extensions.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../utils/time_utils.dart';
@@ -17,6 +18,7 @@ class CommentManagePage extends StatefulWidget {
 
 class _CommentManagePageState extends State<CommentManagePage>
     with SingleTickerProviderStateMixin {
+  final LoggerService _logger = LoggerService.instance;
   final CommentManageService _commentService = CommentManageService();
   final ScrollController _videoScrollController = ScrollController();
   final ScrollController _articleScrollController = ScrollController();
@@ -168,7 +170,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         });
       }
     } catch (e) {
-      debugPrint('加载视频评论列表失败: $e');
+      _logger.logWarning('[CommentManage] 加载视频评论列表失败: $e', tag: 'CommentManage');
       if (mounted) {
         setState(() {
           _isLoadingVideo = false;
@@ -206,7 +208,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         });
       }
     } catch (e) {
-      debugPrint('加载更多视频评论失败: $e');
+      _logger.logWarning('[CommentManage] 加载更多视频评论失败: $e', tag: 'CommentManage');
       if (mounted) {
         setState(() {
           _videoPage--;
@@ -246,7 +248,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         });
       }
     } catch (e) {
-      debugPrint('加载文章评论列表失败: $e');
+      _logger.logWarning('[CommentManage] 加载文章评论列表失败: $e', tag: 'CommentManage');
       if (mounted) {
         setState(() {
           _isLoadingArticle = false;
@@ -284,7 +286,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         });
       }
     } catch (e) {
-      debugPrint('加载更多文章评论失败: $e');
+      _logger.logWarning('[CommentManage] 加载更多文章评论失败: $e', tag: 'CommentManage');
       if (mounted) {
         setState(() {
           _articlePage--;

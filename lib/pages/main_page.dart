@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'home_page.dart';
 import 'profile_page.dart';
 import '../services/hls_service.dart';
+import '../services/logger_service.dart';
 import '../widgets/cached_image_widget.dart';
 
 class MainPage extends StatefulWidget {
@@ -17,6 +18,7 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> {
+  final LoggerService _logger = LoggerService.instance;
   int _currentIndex = 0;
   final HlsService _hlsService = HlsService();
   bool _hasCleaned = false; // 是否已清理过缓存
@@ -121,7 +123,7 @@ class _MainPageState extends State<MainPage> {
           }
         }
       } catch (e) {
-        debugPrint('⚠️ 清理临时目录失败: $e');
+        _logger.logWarning('[MainPage] 清理临时目录失败: $e', tag: 'MainPage');
       }
 
       // 5. 清理日志文件
@@ -136,18 +138,18 @@ class _MainPageState extends State<MainPage> {
           await logsDir.delete(recursive: true);
         }
       } catch (e) {
-        debugPrint('⚠️ 清理日志文件失败: $e');
+        _logger.logWarning('[MainPage] 清理日志文件失败: $e', tag: 'MainPage');
       }
 
-      debugPrint('🗑️ 缓存清理完成');
+      _logger.logDebug('[MainPage] 缓存清理完成', tag: 'MainPage');
     } catch (e) {
-      debugPrint('⚠️ 缓存清理异常: $e');
+      _logger.logWarning('[MainPage] 缓存清理异常: $e', tag: 'MainPage');
     }
   }
 
   /// 退出应用
   Future<void> _exitApp() async {
-    debugPrint('👋 退出应用');
+    _logger.logDebug('[MainPage] 退出应用', tag: 'MainPage');
     // 彻底退出应用（使用 exit(0) 确保进程终止）
     if (Platform.isAndroid || Platform.isIOS) {
       exit(0);

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:flutter/foundation.dart';
+import 'logger_service.dart';
 
 /// AudioService Handler - 处理后台播放
 ///
@@ -10,18 +10,17 @@ import 'package:flutter/foundation.dart';
 /// - iOS: MPNowPlayingInfoCenter + MPRemoteCommandCenter
 /// - macOS/Web: 自动支持
 class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
+  final LoggerService _logger = LoggerService.instance;
   Player player;
   StreamSubscription<bool>? _playingSubscription;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
 
   VideoAudioHandler(this.player) {
-    debugPrint('🎵 [AudioServiceHandler] 构造函数开始');
-    // 初始化播放状态
+    _logger.logDebug('[AudioServiceHandler] 构造函数开始', tag: 'AudioService');
     _initPlaybackState();
-    // 监听播放器状态变化
     _setupPlayerListeners();
-    debugPrint('🎵 [AudioServiceHandler] 构造函数完成');
+    _logger.logDebug('[AudioServiceHandler] 构造函数完成', tag: 'AudioService');
   }
 
   /// 初始化播放状态
@@ -67,7 +66,7 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// 切换播放器实例
   void setPlayer(Player newPlayer) {
-    debugPrint('🎵 [AudioService] Swapping player instance in handler.');
+    _logger.logDebug('[AudioService] Swapping player instance', tag: 'AudioService');
     disposeListeners();
     player = newPlayer;
     _setupPlayerListeners();
@@ -88,7 +87,7 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
       duration: duration ?? player.state.duration,
       artUri: artUri,
     ));
-    debugPrint('🎵 [AudioService] 设置媒体信息: $title');
+    _logger.logDebug('[AudioService] 设置媒体信息: $title', tag: 'AudioService');
   }
 
   /// 内部更新播放状态
@@ -122,19 +121,19 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
-    debugPrint('🎵 [AudioService] Play command');
+    _logger.logDebug('[AudioService] Play command', tag: 'AudioService');
     await player.play();
   }
 
   @override
   Future<void> pause() async {
-    debugPrint('🎵 [AudioService] Pause command');
+    _logger.logDebug('[AudioService] Pause command', tag: 'AudioService');
     await player.pause();
   }
 
   @override
   Future<void> stop() async {
-    debugPrint('🎵 [AudioService] Stop command');
+    _logger.logDebug('[AudioService] Stop command', tag: 'AudioService');
     await player.pause();
 
     // 停止时发送idle状态，这会让通知栏消失
@@ -149,13 +148,13 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> seek(Duration position) async {
-    debugPrint('🎵 [AudioService] Seek to $position');
+    _logger.logDebug('[AudioService] Seek to $position', tag: 'AudioService');
     await player.seek(position);
   }
 
   @override
   Future<void> fastForward() async {
-    debugPrint('🎵 [AudioService] Fast forward 10s');
+    _logger.logDebug('[AudioService] Fast forward 10s', tag: 'AudioService');
     final newPos = player.state.position + const Duration(seconds: 10);
     final maxPos = player.state.duration;
     await player.seek(newPos > maxPos ? maxPos : newPos);
@@ -163,21 +162,19 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> rewind() async {
-    debugPrint('🎵 [AudioService] Rewind 10s');
+    _logger.logDebug('[AudioService] Rewind 10s', tag: 'AudioService');
     final newPos = player.state.position - const Duration(seconds: 10);
     await player.seek(newPos < Duration.zero ? Duration.zero : newPos);
   }
 
   @override
   Future<void> skipToNext() async {
-    debugPrint('🎵 [AudioService] Skip to next');
-    // 由外部实现（如果有多P视频）
+    _logger.logDebug('[AudioService] Skip to next', tag: 'AudioService');
   }
 
   @override
   Future<void> skipToPrevious() async {
-    debugPrint('🎵 [AudioService] Skip to previous');
-    // 由外部实现（如果有多P视频）
+    _logger.logDebug('[AudioService] Skip to previous', tag: 'AudioService');
   }
 
   /// 清理监听器
@@ -185,6 +182,6 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     _playingSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
-    debugPrint('🎵 [AudioService] Handler listeners disposed.');
+    _logger.logDebug('[AudioService] Handler listeners disposed', tag: 'AudioService');
   }
 }

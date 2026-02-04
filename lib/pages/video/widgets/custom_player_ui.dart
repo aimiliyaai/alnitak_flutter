@@ -4,6 +4,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../controllers/video_player_controller.dart';
 import '../../../controllers/danmaku_controller.dart';
+import '../../../services/logger_service.dart';
 import '../../../widgets/danmaku_overlay.dart';
 
 /// 自定义播放器 UI (V8 完整版)
@@ -38,9 +39,9 @@ class CustomPlayerUI extends StatefulWidget {
 }
 
 class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProviderStateMixin {
-  // ============ SharedPreferences Keys ============
   static const String _volumeKey = 'player_volume';
   static const String _brightnessKey = 'player_brightness';
+  final LoggerService _logger = LoggerService.instance;
 
   // ============ UI 状态 ============
   bool _showControls = true;
@@ -126,16 +127,16 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       // 恢复音量（默认 100%）
       final savedVolume = prefs.getDouble(_volumeKey) ?? 100.0;
       widget.controller.player.setVolume(savedVolume);
-      debugPrint('✅ 恢复音量设置: ${savedVolume.toInt()}%');
+      _logger.logDebug('[CustomPlayer] 恢复音量设置: ${savedVolume.toInt()}%', tag: 'PlayerUI');
 
       // 恢复亮度（默认 100%）
       final savedBrightness = prefs.getDouble(_brightnessKey) ?? 1.0;
       setState(() {
         _playerBrightness = savedBrightness;
       });
-      debugPrint('✅ 恢复亮度设置: ${(savedBrightness * 100).toInt()}%');
+      _logger.logDebug('[CustomPlayer] 恢复亮度设置: ${(savedBrightness * 100).toInt()}%', tag: 'PlayerUI');
     } catch (e) {
-      debugPrint('⚠️ 加载播放器设置失败: $e');
+      _logger.logWarning('[CustomPlayer] 加载播放器设置失败: $e', tag: 'PlayerUI');
     }
   }
 
@@ -145,7 +146,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_volumeKey, volume);
     } catch (e) {
-      debugPrint('⚠️ 保存音量设置失败: $e');
+      _logger.logWarning('[CustomPlayer] 保存音量设置失败: $e', tag: 'PlayerUI');
     }
   }
 
@@ -155,7 +156,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_brightnessKey, brightness);
     } catch (e) {
-      debugPrint('⚠️ 保存亮度设置失败: $e');
+      _logger.logWarning('[CustomPlayer] 保存亮度设置失败: $e', tag: 'PlayerUI');
     }
   }
 
@@ -313,11 +314,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
       // 音量调节结束，保存设置
       final currentVolume = widget.controller.player.state.volume;
       _saveVolume(currentVolume);
-      debugPrint('💾 保存音量设置: ${currentVolume.toInt()}%');
+      _logger.logDebug('[CustomPlayer] 保存音量设置: ${currentVolume.toInt()}%', tag: 'PlayerUI');
     } else if (_gestureType == 2) {
       // 亮度调节结束，保存设置
       _saveBrightness(_playerBrightness);
-      debugPrint('💾 保存亮度设置: ${(_playerBrightness * 100).toInt()}%');
+      _logger.logDebug('[CustomPlayer] 保存亮度设置: ${(_playerBrightness * 100).toInt()}%', tag: 'PlayerUI');
     }
     _gestureType = 0;
 

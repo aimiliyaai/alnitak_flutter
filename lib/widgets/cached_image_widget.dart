@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../utils/redirect_http_service.dart';
+import '../services/logger_service.dart';
 
 /// 自定义缓存管理器 - 使用稳定的缓存 key 避免重复缓存
 ///
@@ -11,6 +12,7 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
   static const key = 'smartImageCache';
 
   static final SmartCacheManager _instance = SmartCacheManager._();
+  static final LoggerService _logger = LoggerService.instance;
   factory SmartCacheManager() => _instance;
 
   SmartCacheManager._() : super(
@@ -31,7 +33,7 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
       await _instance.getSingleFile(url, key: effectiveKey);
     } catch (e) {
       // 预加载失败不影响主流程
-      debugPrint('预加载图片失败: $e');
+      _logger.logWarning('[CachedImage] 预加载图片失败: $e', tag: 'Cache');
     }
   }
 
