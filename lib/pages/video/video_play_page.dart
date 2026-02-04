@@ -325,7 +325,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       int targetPart = part ?? 1;
       double? progress;
 
-      if (progressData != null) {
+      if (progressData != null && progressData.progress > 0) {
         targetPart = progressData.part;
         progress = progressData.progress;
         LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
@@ -652,7 +652,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       int targetPart = 1;
       double? progress;
 
-      if (progressData != null) {
+      if (progressData != null && progressData.progress > 0) {
         targetPart = progressData.part;
         progress = progressData.progress;
         LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
