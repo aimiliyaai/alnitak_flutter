@@ -67,6 +67,12 @@ class VideoPlayerController extends ChangeNotifier {
   /// 【新增】待执行的 seek 位置（用于兜底 seek）
   double? _pendingSeekPosition;
 
+  /// 【新增】进度校验的目标位置
+  double? _validationTargetPosition;
+
+  /// 【新增】是否已校验过（防止重复校验）
+  bool _progressValidated = false;
+
   /// 是否正在执行 seek（用于防止 seek 过程中的进度上报）
   bool _isSeeking = false;
 
@@ -555,9 +561,55 @@ class VideoPlayerController extends ChangeNotifier {
   void setPendingSeekPosition(double? position) {
     if (position != null && position > 0) {
       _pendingSeekPosition = position;
+      _validationTargetPosition = position;  // 设置校验目标
+      _progressValidated = false;  // 重置校验状态
       _userIntendedPosition = Duration(seconds: position.toInt());
       _logger.logDebug('[PendingSeek] 设置待执行 seek: $position', tag: 'PlayerController');
     }
+  }
+
+  /// 【新增】播放时校验进度
+  ///
+  /// 当真正开始播放时，检查当前位置是否与目标进度一致
+  /// 如果偏差大于2秒，执行 seek 校正
+  Future<void> _validateProgressOnPlayback() async {
+    if (_validationTargetPosition == null || _isDisposed) return;
+
+    final currentPosition = player.state.position.inSeconds;
+    final targetPosition = _validationTargetPosition!;
+    final diff = (currentPosition - targetPosition).abs();
+
+    _logger.logDebug('[ProgressValidate] 开始校验: 当前=$currentPosition, 目标=$targetPosition, 偏差=${diff.toStringAsFixed(1)}s', tag: 'PlayerController');
+
+    // 偏差大于2秒，需要校正
+    if (diff > 2) {
+      _logger.logWarning('[ProgressValidate] 进度偏差大($currentPosition vs $targetPosition)，执行 seek', tag: 'PlayerController');
+      await player.seek(Duration(seconds: targetPosition.toInt()));
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final newPosition = player.state.position.inSeconds;
+      final newDiff = (newPosition - targetPosition).abs();
+
+      if (newDiff <= 2) {
+        _logger.logSuccess('[ProgressValidate] 校验成功: $newPosition', tag: 'PlayerController');
+        _progressValidated = true;
+      } else {
+        _logger.logWarning('[ProgressValidate] 校验失败: $newPosition，重试', tag: 'PlayerController');
+        // 再试一次
+        await player.seek(Duration(seconds: targetPosition.toInt()));
+        await Future.delayed(const Duration(milliseconds: 100));
+        final retryPosition = player.state.position.inSeconds;
+        _logger.logDebug('[ProgressValidate] 重试后: $retryPosition', tag: 'PlayerController');
+        _progressValidated = true;
+      }
+    } else {
+      // 偏差在可接受范围内，标记为已校验
+      _logger.logSuccess('[ProgressValidate] 校验通过: 当前=$currentPosition (偏差=${diff.toStringAsFixed(1)}s)', tag: 'PlayerController');
+      _progressValidated = true;
+    }
+
+    // 清除校验目标
+    _validationTargetPosition = null;
   }
 
   /// 从服务端获取并恢复播放进度
@@ -820,13 +872,18 @@ class VideoPlayerController extends ChangeNotifier {
     });
 
     // 播放状态监听 + Wakelock + 心跳
-    _playingSubscription = player.stream.playing.listen((playing) {
+    _playingSubscription = player.stream.playing.listen((playing) async {
       if (playing && _hasTriggeredCompletion) {
         _hasTriggeredCompletion = false;
       }
 
       // 通知播放状态变化
       onPlayingStateChanged?.call(playing);
+
+      // 【新增】进度校验：真正播放时检查进度是否正确
+      if (playing && _validationTargetPosition != null && !_progressValidated) {
+        await _validateProgressOnPlayback();
+      }
 
       if (playing) {
         WakelockManager.enable();
