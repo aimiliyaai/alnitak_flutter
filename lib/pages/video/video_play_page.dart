@@ -327,6 +327,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       // 【新增】后台加载次要数据（统计、操作状态、评论预览）
       _loadSecondaryData(videoDetail.author.uid);
 
+      // 【新增】连接在线人数 WebSocket
+      _onlineWebSocketService.connect(_currentVid);
+
     } catch (e) {
       LoggerService.instance.logWarning('加载视频失败: $e', tag: 'VideoPlay');
       setState(() {
