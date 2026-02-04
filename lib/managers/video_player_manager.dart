@@ -408,7 +408,7 @@ class VideoPlayerManager extends ChangeNotifier {
     );
   }
 
-  /// 设置视频上下文（用于进度恢复）
+   /// 设置视频上下文（用于进度恢复）
   ///
   /// 在加载/切换视频时调用，让 Manager 和 Controller 都知道当前视频
   void setVideoContext({required int vid, int part = 1}) {
@@ -418,6 +418,14 @@ class VideoPlayerManager extends ChangeNotifier {
      // 如果控制器已创建，同步更新
      _controller?.setVideoContext(vid: vid, part: part);
      _logger.logDebug('[Manager] 设置视频上下文: vid=$vid, part=$part', tag: 'PlayerManager');
+   }
+
+  /// 【新增】设置待执行的 seek 位置（用于异步进度恢复）
+  ///
+  /// 当进度是异步获取时，先设置待执行位置，等播放器就绪后自动 seek
+  void setPendingSeekPosition(double? position) {
+    _controller?.setPendingSeekPosition(position);
+    _logger.logDebug('[Manager] 设置待执行 seek: $position', tag: 'PlayerManager');
    }
 
   /// 获取首选清晰度

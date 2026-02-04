@@ -390,6 +390,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     final currentResource = _videoDetail!.resources[part - 1];
 
+    // 【新增】先设置待执行 seek，确保播放器就绪后一定执行
+    _playerManager.setPendingSeekPosition(position);
+
     _playerManager.preloadResource(
       resourceId: currentResource.id,
       initialPosition: position,
@@ -727,6 +730,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     if (!mounted || _currentVid != videoDetail.vid) return;
 
     final currentResource = videoDetail.resources[part - 1];
+
+    // 【新增】先设置待执行 seek，确保播放器就绪后一定执行
+    _playerManager.setPendingSeekPosition(position);
 
     _playerManager.setMetadata(
       title: currentResource.title,

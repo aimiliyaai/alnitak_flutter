@@ -64,6 +64,9 @@ class VideoPlayerController extends ChangeNotifier {
   /// - 上报进度时使用此值
   Duration _userIntendedPosition = Duration.zero;
 
+  /// 【新增】待执行的 seek 位置（用于兜底 seek）
+  double? _pendingSeekPosition;
+
   /// 是否正在执行 seek（用于防止 seek 过程中的进度上报）
   bool _isSeeking = false;
 
@@ -429,15 +432,18 @@ class VideoPlayerController extends ChangeNotifier {
          }
        }
 
-       await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 100));
 
-       if (player.state.playing) {
-         _logger.logDebug('[LoadInternal][$loadId] 视频开始播放，设置 isLoading=false', tag: 'PlayerController');
-         isLoading.value = false;
-         isPlayerInitialized.value = true;
-         _logger.logSuccess('[Controller][$loadId] 预加载初始化完成', tag: 'PlayerController');
-         _currentLoadId = '';
-       } else {
+        if (player.state.playing) {
+          _logger.logDebug('[LoadInternal][$loadId] 视频开始播放，设置 isLoading=false', tag: 'PlayerController');
+          isLoading.value = false;
+          isPlayerInitialized.value = true;
+          _logger.logSuccess('[Controller][$loadId] 预加载初始化完成', tag: 'PlayerController');
+          _currentLoadId = '';
+
+          // 【新增】兜底 seek：确保进度恢复成功
+          await _ensureSeekPosition();
+        } else {
          _logger.logDebug('[LoadInternal][$loadId] 未开始播放，保持 loading', tag: 'PlayerController');
        }
 
@@ -499,6 +505,59 @@ class VideoPlayerController extends ChangeNotifier {
         _seekTimer = null;
       }
     });
+  }
+
+  /// 【新增】兜底 seek：确保进度恢复成功
+  ///
+  /// 当播放器就绪后，检查是否有待执行的 seek 位置
+  /// 如果有，执行 seek 并验证，偏差大于1秒则重试
+  Future<void> _ensureSeekPosition() async {
+    if (_pendingSeekPosition == null) return;
+    if (_isDisposed) return;
+
+    final targetPosition = _pendingSeekPosition!;
+    _pendingSeekPosition = null; // 清除待执行标记
+
+    _logger.logDebug('[EnsureSeek] 开始兜底 seek: $targetPosition', tag: 'PlayerController');
+
+    try {
+      // 【修复】如果当前正在播放，保持播放状态；否则只 seek 不播放
+      final wasPlaying = player.state.playing;
+
+      // 直接 seek，不调用 play/pause 避免影响自动播放
+      await player.seek(Duration(seconds: targetPosition.toInt()));
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final actualPos = player.state.position.inSeconds;
+      final diff = (actualPos - targetPosition).abs();
+
+      if (diff > 1) {
+        _logger.logWarning('[EnsureSeek] 位置偏差($actualPos vs $targetPosition)，重试', tag: 'PlayerController');
+        await player.seek(Duration(seconds: targetPosition.toInt()));
+        await Future.delayed(const Duration(milliseconds: 100));
+        final retryPos = player.state.position.inSeconds;
+        _logger.logDebug('[EnsureSeek] 重试后位置: $retryPos', tag: 'PlayerController');
+      } else {
+        _logger.logDebug('[EnsureSeek] 成功: $actualPos', tag: 'PlayerController');
+      }
+
+      // 【修复】如果之前是播放状态，恢复播放
+      if (wasPlaying && !player.state.playing) {
+        await player.play();
+        _logger.logDebug('[EnsureSeek] 恢复播放', tag: 'PlayerController');
+      }
+    } catch (e) {
+      _logger.logWarning('[EnsureSeek] 失败: $e', tag: 'PlayerController');
+    }
+  }
+
+  /// 【新增】设置待执行的 seek 位置（用于异步进度恢复）
+  void setPendingSeekPosition(double? position) {
+    if (position != null && position > 0) {
+      _pendingSeekPosition = position;
+      _userIntendedPosition = Duration(seconds: position.toInt());
+      _logger.logDebug('[PendingSeek] 设置待执行 seek: $position', tag: 'PlayerController');
+    }
   }
 
   /// 从服务端获取并恢复播放进度
