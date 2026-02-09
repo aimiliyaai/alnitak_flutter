@@ -365,7 +365,20 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 有进度（>=0），恢复到对应分P和进度
+      // 【新增】如果进度接近视频末尾（减2秒后剩余不足3秒），直接从头开始
+      // 避免在视频末尾恢复时出现加载问题
+      if (progressData.duration > 0) {
+        // 先减2秒（与下面seek逻辑一致）
+        final adjustedProgressForCheck = progress > 2 ? progress - 2 : progress;
+        final remainingAfterSeek = progressData.duration - adjustedProgressForCheck;
+        if (remainingAfterSeek <= 3) {
+          LoggerService.instance.logDebug('进度接近末尾(减2秒后剩余${remainingAfterSeek.toStringAsFixed(1)}秒)，从头开始', tag: 'VideoPlay');
+          _startPlayback(progressData.part, null);
+          return;
+        }
+      }
+
+      // 有进度（>=0且不接近末尾），恢复到对应分P和进度
       final targetPart = progressData.part;
       LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
 
@@ -708,7 +721,18 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 有进度（>=0），恢复到对应分P
+      // 【新增】如果进度接近视频末尾（减2秒后剩余不足3秒），直接从头开始
+      if (progressData.duration > 0) {
+        final adjustedProgressForCheck = progress > 2 ? progress - 2 : progress;
+        final remainingAfterSeek = progressData.duration - adjustedProgressForCheck;
+        if (remainingAfterSeek <= 3) {
+          LoggerService.instance.logDebug('进度接近末尾(减2秒后剩余${remainingAfterSeek.toStringAsFixed(1)}秒)，从头开始', tag: 'VideoPlay');
+          _startPlaybackSeamless(videoDetail, progressData.part, null);
+          return;
+        }
+      }
+
+      // 有进度（>=0且不接近末尾），恢复到对应分P
       final targetPart = progressData.part;
       LoggerService.instance.logDebug('从历史记录恢复: 分P=$targetPart, 进度=${progress.toStringAsFixed(1)}秒', tag: 'VideoPlay');
 

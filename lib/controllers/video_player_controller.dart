@@ -54,14 +54,11 @@ class VideoPlayerController extends ChangeNotifier {
   // ============ 核心状态（极简）============
   int? _currentResourceId;
   bool _isDisposed = false;
-   bool _hasTriggeredCompletion = false;
+    bool _hasTriggeredCompletion = false;
   bool _isInitializing = false; // 防止并发初始化
   bool _hasPlaybackStarted = false; // 防止重复播放（首帧声音问题）
 
   /// 【核心】用户期望的进度位置
-  /// - seek 时更新为目标位置
-  /// - 播放时跟随实际位置
-  /// - 上报进度时使用此值
   Duration _userIntendedPosition = Duration.zero;
 
   /// 【新增】待执行的 seek 位置（用于兜底 seek）
@@ -70,8 +67,11 @@ class VideoPlayerController extends ChangeNotifier {
   /// 【新增】进度校验的目标位置
   double? _validationTargetPosition;
 
-  /// 【新增】是否已校验过（防止重复校验）
-  bool _progressValidated = false;
+  /// 【新增】用户是否手动调整过进度（手动seek时为true）
+  bool _userManuallySeeked = false;
+
+  /// 【新增】持续校验定时器
+  Timer? _progressValidationTimer;
 
   /// 是否正在执行 seek（用于防止 seek 过程中的进度上报）
   bool _isSeeking = false;
@@ -443,12 +443,23 @@ class VideoPlayerController extends ChangeNotifier {
         if (player.state.playing) {
           _logger.logDebug('[LoadInternal][$loadId] 视频开始播放，设置 isLoading=false', tag: 'PlayerController');
           isLoading.value = false;
+
+          // 【新增】重置用户手动seek标记
+          _userManuallySeeked = false;
+
           isPlayerInitialized.value = true;
           _logger.logSuccess('[Controller][$loadId] 预加载初始化完成', tag: 'PlayerController');
           _currentLoadId = '';
 
-          // 【新增】兜底 seek：确保进度恢复成功
-          await _ensureSeekPosition();
+          // 【新增】执行严格的 seek 校验
+          if (_pendingSeekPosition != null) {
+            _logger.logDebug('[LoadInternal][$loadId] 执行 seek 校验: ${_pendingSeekPosition}s', tag: 'PlayerController');
+            await _seekWithValidation(Duration(seconds: _pendingSeekPosition!.toInt()), maxRetries: 5);
+            _pendingSeekPosition = null;
+          }
+
+          // 【新增】启动持续校验
+          _startContinuousValidation();
         } else {
          _logger.logDebug('[LoadInternal][$loadId] 未开始播放，保持 loading', tag: 'PlayerController');
        }
@@ -477,7 +488,7 @@ class VideoPlayerController extends ChangeNotifier {
    }
 
   // ============================================================
-  // 核心：Seek
+  // 核心：Seek（带严格校验）
   // ============================================================
 
   Timer? _seekTimer;
@@ -487,6 +498,9 @@ class VideoPlayerController extends ChangeNotifier {
     _logger.logDebug('[Seek] 目标: ${position.inSeconds}s', tag: 'PlayerController');
 
     _userIntendedPosition = position;
+    _userManuallySeeked = true;  // 标记用户手动调整进度
+    _progressValidationTimer?.cancel();  // 停止持续校验
+    _validationTargetPosition = null;  // 清除校验目标
     _isSeeking = true;
 
     try {
@@ -502,6 +516,56 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 【新增】严格的 seek 校验（确保 seek 真正生效）
+  Future<bool> _seekWithValidation(Duration targetPosition, {int maxRetries = 5}) async {
+    _logger.logDebug('[_seekWithValidation] 开始: ${targetPosition.inSeconds}s, maxRetries=$maxRetries', tag: 'PlayerController');
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      if (_isDisposed) return false;
+
+      // 先播放，让数据流动
+      try {
+        if (!player.state.playing) {
+          await player.play();
+        }
+      } catch (e) {
+        _logger.logWarning('[_seekWithValidation] play 失败: $e', tag: 'PlayerController');
+      }
+
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // 执行 seek
+      await player.seek(targetPosition);
+      _userIntendedPosition = targetPosition;
+
+      // 等待 seek 完成
+      await Future.delayed(const Duration(milliseconds: 150));
+
+      // 验证位置
+      final actualPosition = player.state.position.inSeconds;
+      final diff = (actualPosition - targetPosition.inSeconds).abs();
+
+      if (diff <= 1) {
+        _logger.logSuccess('[_seekWithValidation] 成功: $actualPosition (第$attempt次)', tag: 'PlayerController');
+        return true;
+      }
+
+      _logger.logWarning('[_seekWithValidation] 失败: 目标=${targetPosition.inSeconds}s, 实际=$actualPosition, 偏差=$diff (第$attempt次)', tag: 'PlayerController');
+
+      // 暂停后重试
+      try {
+        if (player.state.playing) {
+          await player.pause();
+        }
+      } catch (e) {
+        // 忽略
+      }
+    }
+
+    _logger.logWarning('[_seekWithValidation] 重试耗尽，目标=${targetPosition.inSeconds}s', tag: 'PlayerController');
+    return false;
+  }
+
   Timer? _startSeekTimer(Duration position) {
     return Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
       if (player.state.duration.inSeconds != 0) {
@@ -513,103 +577,48 @@ class VideoPlayerController extends ChangeNotifier {
     });
   }
 
-  /// 【新增】兜底 seek：确保进度恢复成功
+  /// 【新增】启动持续进度校验
   ///
-  /// 当播放器就绪后，检查是否有待执行的 seek 位置
-  /// 如果有，执行 seek 并验证，偏差大于1秒则重试
-  Future<void> _ensureSeekPosition() async {
-    if (_pendingSeekPosition == null) return;
-    if (_isDisposed) return;
+  /// 每500ms检查一次进度，偏差>1秒立即纠正
+  void _startContinuousValidation() {
+    if (_progressValidationTimer != null) return;  // 已在运行
+    if (_validationTargetPosition == null || _userManuallySeeked) return;
 
-    final targetPosition = _pendingSeekPosition!;
-    _pendingSeekPosition = null; // 清除待执行标记
+    _logger.logDebug('[_startContinuousValidation] 启动: 目标=${_validationTargetPosition}s', tag: 'PlayerController');
 
-    _logger.logDebug('[EnsureSeek] 开始兜底 seek: $targetPosition', tag: 'PlayerController');
+    _progressValidationTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+      if (_isDisposed ||
+          _validationTargetPosition == null ||
+          _userManuallySeeked ||
+          !player.state.playing) {
+        timer.cancel();
+        _progressValidationTimer = null;
+        _validationTargetPosition = null;
+        return;
+      }
 
-    try {
-      // 【修复】如果当前正在播放，保持播放状态；否则只 seek 不播放
-      final wasPlaying = player.state.playing;
+      final currentPosition = player.state.position.inSeconds;
+      final targetPosition = _validationTargetPosition!;
+      final diff = (currentPosition - targetPosition).abs();
 
-      // 直接 seek，不调用 play/pause 避免影响自动播放
-      await player.seek(Duration(seconds: targetPosition.toInt()));
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final actualPos = player.state.position.inSeconds;
-      final diff = (actualPos - targetPosition).abs();
-
+      // 偏差 > 1秒，立即纠正
       if (diff > 1) {
-        _logger.logWarning('[EnsureSeek] 位置偏差($actualPos vs $targetPosition)，重试', tag: 'PlayerController');
-        await player.seek(Duration(seconds: targetPosition.toInt()));
-        await Future.delayed(const Duration(milliseconds: 100));
-        final retryPos = player.state.position.inSeconds;
-        _logger.logDebug('[EnsureSeek] 重试后位置: $retryPos', tag: 'PlayerController');
-      } else {
-        _logger.logDebug('[EnsureSeek] 成功: $actualPos', tag: 'PlayerController');
+        _logger.logWarning('[_startContinuousValidation] 纠正: $currentPosition -> $targetPosition (偏差=${diff.toStringAsFixed(1)}s)', tag: 'PlayerController');
+        await _seekWithValidation(Duration(seconds: targetPosition.toInt()), maxRetries: 3);
       }
-
-      // 【修复】如果之前是播放状态，恢复播放
-      if (wasPlaying && !player.state.playing) {
-        await player.play();
-        _logger.logDebug('[EnsureSeek] 恢复播放', tag: 'PlayerController');
-      }
-    } catch (e) {
-      _logger.logWarning('[EnsureSeek] 失败: $e', tag: 'PlayerController');
-    }
+    });
   }
 
   /// 【新增】设置待执行的 seek 位置（用于异步进度恢复）
   void setPendingSeekPosition(double? position) {
     if (position != null && position > 0) {
       _pendingSeekPosition = position;
-      _validationTargetPosition = position;  // 设置校验目标
-      _progressValidated = false;  // 重置校验状态
+      _validationTargetPosition = position;
+      _userManuallySeeked = false;
+      _progressValidationTimer?.cancel();
       _userIntendedPosition = Duration(seconds: position.toInt());
       _logger.logDebug('[PendingSeek] 设置待执行 seek: $position', tag: 'PlayerController');
     }
-  }
-
-  /// 【新增】播放时校验进度
-  ///
-  /// 当真正开始播放时，检查当前位置是否与目标进度一致
-  /// 如果偏差大于2秒，执行 seek 校正
-  Future<void> _validateProgressOnPlayback() async {
-    if (_validationTargetPosition == null || _isDisposed) return;
-
-    final currentPosition = player.state.position.inSeconds;
-    final targetPosition = _validationTargetPosition!;
-    final diff = (currentPosition - targetPosition).abs();
-
-    _logger.logDebug('[ProgressValidate] 开始校验: 当前=$currentPosition, 目标=$targetPosition, 偏差=${diff.toStringAsFixed(1)}s', tag: 'PlayerController');
-
-    // 偏差大于2秒，需要校正
-    if (diff > 2) {
-      _logger.logWarning('[ProgressValidate] 进度偏差大($currentPosition vs $targetPosition)，执行 seek', tag: 'PlayerController');
-      await player.seek(Duration(seconds: targetPosition.toInt()));
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      final newPosition = player.state.position.inSeconds;
-      final newDiff = (newPosition - targetPosition).abs();
-
-      if (newDiff <= 2) {
-        _logger.logSuccess('[ProgressValidate] 校验成功: $newPosition', tag: 'PlayerController');
-        _progressValidated = true;
-      } else {
-        _logger.logWarning('[ProgressValidate] 校验失败: $newPosition，重试', tag: 'PlayerController');
-        // 再试一次
-        await player.seek(Duration(seconds: targetPosition.toInt()));
-        await Future.delayed(const Duration(milliseconds: 100));
-        final retryPosition = player.state.position.inSeconds;
-        _logger.logDebug('[ProgressValidate] 重试后: $retryPosition', tag: 'PlayerController');
-        _progressValidated = true;
-      }
-    } else {
-      // 偏差在可接受范围内，标记为已校验
-      _logger.logSuccess('[ProgressValidate] 校验通过: 当前=$currentPosition (偏差=${diff.toStringAsFixed(1)}s)', tag: 'PlayerController');
-      _progressValidated = true;
-    }
-
-    // 清除校验目标
-    _validationTargetPosition = null;
   }
 
   /// 从服务端获取并恢复播放进度
@@ -880,9 +889,17 @@ class VideoPlayerController extends ChangeNotifier {
       // 通知播放状态变化
       onPlayingStateChanged?.call(playing);
 
-      // 【新增】进度校验：真正播放时检查进度是否正确
-      if (playing && _validationTargetPosition != null && !_progressValidated) {
-        await _validateProgressOnPlayback();
+      // 【新增】启动持续进度校验
+      if (playing && _validationTargetPosition != null && !_userManuallySeeked) {
+        _logger.logDebug('[Playing] 启动持续进度校验', tag: 'PlayerController');
+        _startContinuousValidation();
+      }
+
+      // 停止播放时，停止校验
+      if (!playing) {
+        _progressValidationTimer?.cancel();
+        _progressValidationTimer = null;
+        _validationTargetPosition = null;
       }
 
       if (playing) {
