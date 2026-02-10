@@ -107,6 +107,7 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _preloadTimer;
   Duration _lastReportedPosition = Duration.zero;
   String _currentDecodeMode = 'no';
+  bool _useDash = false; // 是否使用 DASH 格式（由 initialize 或 Manager 设置）
 
   // ============ 设置键 ============
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
@@ -174,16 +175,18 @@ class VideoPlayerController extends ChangeNotifier {
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
       _hasPlaybackStarted = false; // 重置播放状态
 
-      // 并发：配置播放器 + 获取清晰度 + 加载设置
-      await Future.wait([
-        _configurePlayer(),
-        _loadSettings(),
-      ]);
+      // 先获取清晰度信息（含 supportsDash），再配置播放器（配置依赖 _useDash）
+      await _loadSettings();
 
-      final qualities = await _hlsService.getAvailableQualities(resourceId);
-      if (qualities.isEmpty) throw Exception('没有可用的清晰度');
+      final qualityInfo = await _hlsService.getQualityInfo(resourceId);
+      if (qualityInfo.qualities.isEmpty) throw Exception('没有可用的清晰度');
 
-      availableQualities.value = _sortQualities(qualities);
+      _useDash = HlsService.shouldUseDash() && qualityInfo.supportsDash;
+      _logger.logDebug('[Controller] 格式选择: useDash=$_useDash', tag: 'PlayerController');
+
+      await _configurePlayer();
+
+      availableQualities.value = _sortQualities(qualityInfo.qualities);
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
       // 后台启动 AudioService
@@ -250,7 +253,9 @@ class VideoPlayerController extends ChangeNotifier {
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
       _hasPlaybackStarted = false; // 重置播放状态
 
-      _logger.logDebug('[Controller] 使用预加载数据初始化: resourceId=$resourceId, quality=$selectedQuality', tag: 'PlayerController');
+      // 从预加载的 MediaSource 推断是否为 DASH 模式
+      _useDash = mediaSource.isDirectUrl && mediaSource.content.contains('format=mpd');
+      _logger.logDebug('[Controller] 使用预加载数据初始化: resourceId=$resourceId, quality=$selectedQuality, useDash=$_useDash', tag: 'PlayerController');
 
       // 并发：配置播放器 + 加载设置
       await Future.wait([
@@ -301,7 +306,7 @@ class VideoPlayerController extends ChangeNotifier {
       _logger.logDebug('[Load] 加载视频: quality=$quality, seekTo=${initialPosition ?? 0}s', tag: 'PlayerController');
 
       // 1. 获取资源
-      final mediaSource = await _hlsService.getMediaSource(loadingResourceId!, quality);
+      final mediaSource = await _hlsService.getMediaSource(loadingResourceId!, quality, useDash: _useDash);
 
       // 检查一致性：如果ID变了，说明已经切换了视频，终止当前加载
       if (_currentResourceId != loadingResourceId) return;
@@ -367,9 +372,53 @@ class VideoPlayerController extends ChangeNotifier {
          _qualityCache[quality] = mediaSource;
        }
 
-       final media = await _createMedia(mediaSource);
-
        _isSeeking = true;
+
+       // DASH 快速路径（pilipala 风格）：视频URL + 外挂音频 + start 参数直接定位
+       if (_useDash) {
+         if (needSeek) _userIntendedPosition = targetPosition;
+
+         // 挂载外挂音频轨
+         if (mediaSource.audioUrl != null) {
+           final nativePlayer = player.platform as NativePlayer?;
+           if (nativePlayer != null) {
+             await nativePlayer.setProperty('audio-files', mediaSource.audioUrl!);
+             _logger.logDebug('[LoadInternal][$loadId] DASH 外挂音频: ${mediaSource.audioUrl!.split('?').first.split('/').last}', tag: 'PlayerController');
+           }
+         }
+
+         // 使用 start 参数让 MPV 直接从目标位置开始（HTTP Range 按需请求）
+         final startPos = needSeek ? targetPosition : null;
+         final media = await _createMedia(mediaSource, start: startPos);
+
+         _logger.logDebug('[LoadInternal][$loadId] DASH open (start=${startPos?.inSeconds ?? 0}s)', tag: 'PlayerController');
+         await player.open(media, play: false);
+         _logger.logDebug('[LoadInternal][$loadId] DASH open 完成, pos=${player.state.position.inSeconds}s', tag: 'PlayerController');
+
+         if (resourceIdCheck != null && !resourceIdCheck()) {
+           _logger.logWarning('[LoadInternal][$loadId] 竞态检查失败，跳过', tag: 'PlayerController');
+           _isSeeking = false;
+           return;
+         }
+
+         // 位置就绪后再开始播放
+         if (autoPlay) {
+           await player.play();
+         }
+
+         isLoading.value = false;
+         _userManuallySeeked = false;
+         isPlayerInitialized.value = true;
+         _logger.logSuccess('[Controller][$loadId] DASH 初始化完成 (pos=${player.state.position.inSeconds}s)', tag: 'PlayerController');
+         _currentLoadId = '';
+
+         if (_pendingSeekPosition != null) {
+           await player.seek(Duration(seconds: _pendingSeekPosition!.toInt()));
+           _pendingSeekPosition = null;
+         }
+       } else {
+       // HLS 路径
+       final media = await _createMedia(mediaSource);
        _logger.logDebug('[LoadInternal][$loadId] 调用 player.open', tag: 'PlayerController');
        await player.open(media, play: false);
        _logger.logDebug('[LoadInternal][$loadId] player.open 完成', tag: 'PlayerController');
@@ -384,27 +433,26 @@ class VideoPlayerController extends ChangeNotifier {
        }
        _logger.logDebug('[LoadInternal][$loadId] 缓冲完成 (${waitCount * 50}ms)', tag: 'PlayerController');
 
+       // 先暂停，再通过 play→pause→seek 流程
        if (player.state.playing) {
-         _logger.logDebug('[LoadInternal][$loadId] 暂停播放器', tag: 'PlayerController');
          await player.pause();
          await Future.delayed(const Duration(milliseconds: 30));
        }
-
        if (needSeek) {
          _logger.logDebug('[LoadInternal][$loadId] seek 到 ${targetPosition.inSeconds}s', tag: 'PlayerController');
          _userIntendedPosition = targetPosition;
-         
+
          _logger.logDebug('[LoadInternal][$loadId] 播放让数据流动...', tag: 'PlayerController');
          await player.play();
          await Future.delayed(const Duration(milliseconds: 80));
          await player.pause();
-         
+
          await player.seek(targetPosition);
          await Future.delayed(const Duration(milliseconds: 100));
-         
+
          final actualPos = player.state.position.inSeconds;
          _logger.logDebug('[LoadInternal][$loadId] seek 验证: 目标=${targetPosition.inSeconds}s, 实际=$actualPos', tag: 'PlayerController');
-         
+
          if ((actualPos - targetPosition.inSeconds).abs() > 1) {
            _logger.logWarning('[LoadInternal][$loadId] seek 未生效，再次尝试', tag: 'PlayerController');
            await player.seek(targetPosition);
@@ -474,6 +522,7 @@ class VideoPlayerController extends ChangeNotifier {
          }
          _logger.logDebug('[LoadInternal][$loadId] 进度恢复完成: ${player.state.position.inSeconds}s', tag: 'PlayerController');
        }
+       } // end HLS 路径
 
        _isSeeking = false;
        _preloadAdjacentQualities();
@@ -701,14 +750,15 @@ class VideoPlayerController extends ChangeNotifier {
       // 只有当服务端进度明显不同时才 seek（差异超过3秒）
       if ((targetPos - currentPos).abs() > 3) {
         _logger.logDebug('[Progress] 恢复服务端进度: $currentPos -> $targetPos 秒', tag: 'PlayerController');
-        
-        // 【关键】HLS 流在暂停状态下 seek 不生效，需要先播放一下
-        if (!player.state.playing) {
+
+        // HLS 流在暂停状态下 seek 不生效，需要先播放一下
+        // DASH 支持直接 seek，无需此 workaround
+        if (!_useDash && !player.state.playing) {
           await player.play();
           await Future.delayed(const Duration(milliseconds: 80));
           await player.pause();
         }
-        
+
         await seek(Duration(seconds: targetPos));
       } else {
         _logger.logDebug('[Progress] 进度差异小于3秒，无需 seek', tag: 'PlayerController');
@@ -731,12 +781,14 @@ class VideoPlayerController extends ChangeNotifier {
     // 优先使用当前播放位置，否则使用用户意图位置
     final rawTargetPosition = currentPos.inMilliseconds > 0 ? currentPos : _userIntendedPosition;
 
-    // 【关键】回退2秒避免HLS分片边界问题
-    final targetPosition = rawTargetPosition.inSeconds > 2
-        ? Duration(seconds: rawTargetPosition.inSeconds - 2)
-        : rawTargetPosition;
+    // DASH 模式不需要回退（支持精确字节范围 seek），HLS 回退2秒避免分片边界问题
+    final targetPosition = _useDash
+        ? rawTargetPosition
+        : (rawTargetPosition.inSeconds > 2
+            ? Duration(seconds: rawTargetPosition.inSeconds - 2)
+            : rawTargetPosition);
 
-    _logger.logDebug('[Quality] 切换: $quality, 原位置=${rawTargetPosition.inSeconds}s, 目标位置=${targetPosition.inSeconds}s (回退2秒)', tag: 'PlayerController');
+    _logger.logDebug('[Quality] 切换: $quality, 原位置=${rawTargetPosition.inSeconds}s, 目标位置=${targetPosition.inSeconds}s${_useDash ? " (DASH精确seek)" : " (HLS回退2秒)"}', tag: 'PlayerController');
 
     // 暂停
     await player.pause();
@@ -752,39 +804,57 @@ class VideoPlayerController extends ChangeNotifier {
 
       try {
         // 获取资源
-        final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, quality);
-        final media = await _createMedia(mediaSource);
+        final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, quality, useDash: _useDash);
 
-        // 打开视频
-        await player.open(media, play: false);
-        await _waitForDuration();
+        if (_useDash) {
+          // DASH 快速路径（pilipala 风格）：外挂音频 + start 定位
+          if (mediaSource.audioUrl != null) {
+            final nativePlayer = player.platform as NativePlayer?;
+            if (nativePlayer != null) {
+              await nativePlayer.setProperty('audio-files', mediaSource.audioUrl!);
+            }
+          }
 
-        // 【关键改进】确保恢复进度，使用多次重试机制
-        if (targetPosition.inMilliseconds > 0) {
-          await _seekWithRetry(targetPosition, maxRetries: 3);
+          final startPos = targetPosition.inMilliseconds > 0 ? targetPosition : null;
+          final media = await _createMedia(mediaSource, start: startPos);
+          await player.open(media, play: wasPlaying);
+
+          currentQuality.value = quality;
+          await _savePreferredQuality(quality);
+          _userIntendedPosition = targetPosition;
+
+          _logger.logSuccess('[Quality] DASH 切换完成，位置=${player.state.position.inSeconds}s', tag: 'PlayerController');
+        } else {
+          // HLS 路径
+          final media = await _createMedia(mediaSource);
+          await player.open(media, play: false);
+          await _waitForDuration();
+          // 需要 play→pause→seek 循环确保数据流动
+          if (targetPosition.inMilliseconds > 0) {
+            await _seekWithRetry(targetPosition, maxRetries: 3);
+          }
+
+          currentQuality.value = quality;
+          await _savePreferredQuality(quality);
+          _userIntendedPosition = targetPosition;
+
+          if (wasPlaying) {
+            await player.play();
+
+            // 播放后再次检查位置，防止 MPV 重置
+            await Future.delayed(const Duration(milliseconds: 150));
+            final afterPlayPos = player.state.position;
+            final diff = (afterPlayPos.inSeconds - targetPosition.inSeconds).abs();
+
+            if (diff > 3 && targetPosition.inSeconds > 3) {
+              _logger.logWarning('[Quality] 播放后位置被重置 (${afterPlayPos.inSeconds}s vs ${targetPosition.inSeconds}s)，重新 seek', tag: 'PlayerController');
+              await player.seek(targetPosition);
+            }
+          }
+
+          _logger.logSuccess('[Quality] HLS 切换完成，位置=${player.state.position.inSeconds}s', tag: 'PlayerController');
         }
 
-        // 更新状态
-        currentQuality.value = quality;
-        await _savePreferredQuality(quality);
-        _userIntendedPosition = targetPosition;
-
-        // 恢复播放并再次验证位置
-        if (wasPlaying) {
-          await player.play();
-
-          // 【关键】播放后再次检查位置，防止 MPV 重置
-          await Future.delayed(const Duration(milliseconds: 150));
-          final afterPlayPos = player.state.position;
-          final diff = (afterPlayPos.inSeconds - targetPosition.inSeconds).abs();
-
-           if (diff > 3 && targetPosition.inSeconds > 3) {
-             _logger.logWarning('[Quality] 播放后位置被重置 (${afterPlayPos.inSeconds}s vs ${targetPosition.inSeconds}s)，重新 seek', tag: 'PlayerController');
-             await player.seek(targetPosition);
-           }
-         }
-
-         _logger.logSuccess('[Quality] 切换完成，最终位置=${player.state.position.inSeconds}s', tag: 'PlayerController');
          onQualityChanged?.call(quality);
          _preloadAdjacentQualities();
 
@@ -967,13 +1037,22 @@ class VideoPlayerController extends ChangeNotifier {
        final position = _userIntendedPosition;
        _logger.logDebug('[Stalled] 恢复: position=${position.inSeconds}s', tag: 'PlayerController');
 
-       final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, currentQuality.value!);
-       final media = await _createMedia(mediaSource);
+       final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, currentQuality.value!, useDash: _useDash);
+
+       if (_useDash && mediaSource.audioUrl != null) {
+         final nativePlayer = player.platform as NativePlayer?;
+         if (nativePlayer != null) {
+           await nativePlayer.setProperty('audio-files', mediaSource.audioUrl!);
+         }
+       }
+
+       final startPos = position.inSeconds > 0 ? position : null;
+       final media = await _createMedia(mediaSource, start: _useDash ? startPos : null);
 
        await player.open(media, play: false);
-       await _waitForDuration();
+       if (!_useDash) await _waitForDuration();
 
-       if (position.inSeconds > 0) {
+       if (!_useDash && position.inSeconds > 0) {
          await player.seek(position);
          await Future.delayed(const Duration(milliseconds: 200));
        }
@@ -996,7 +1075,7 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<Media> _createMedia(MediaSource source, {Duration? start}) async {
     if (source.isDirectUrl) {
-      return Media(source.content);
+      return Media(source.content, start: start);
     } else {
       final tempFile = await _writeTempM3u8File(source.content);
       return Media(tempFile.path, start: start);
@@ -1097,37 +1176,55 @@ class VideoPlayerController extends ChangeNotifier {
         final nativePlayer = player.platform as NativePlayer?;
         if (nativePlayer == null) return;
 
-        await nativePlayer.setProperty('cache', 'yes');
-        await nativePlayer.setProperty('cache-secs', '60');
-        await nativePlayer.setProperty('demuxer-readahead-secs', '30');
-        await nativePlayer.setProperty('demuxer-max-bytes', '512M');
-        await nativePlayer.setProperty('demuxer-max-back-bytes', '200M');
-        await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+        if (_useDash) {
+          // DASH SegmentBase 模式：HTTP Range 可随机访问，关闭缓存层让 demuxer 直接按需请求
+          await nativePlayer.setProperty('cache', 'no');
+          await nativePlayer.setProperty('demuxer-readahead-secs', '10');
+          await nativePlayer.setProperty('demuxer-max-bytes', '128M');
+          await nativePlayer.setProperty('demuxer-max-back-bytes', '50M');
 
-        await nativePlayer.setProperty('video-latency-hack', 'yes');
-        await nativePlayer.setProperty('video-queue', 'yes');
-        await nativePlayer.setProperty('video-queue-max-bytes', '50M');
-        await nativePlayer.setProperty('video-queue-min-bytes', '1M');
+          await nativePlayer.setProperty('stream-lavf-o',
+              'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+              'reconnect_delay_max=10');
+          await nativePlayer.setProperty('network-timeout', '15');
 
-        await nativePlayer.setProperty('stream-lavf-o',
-            'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
-            'reconnect_delay_max=10,'
-            'threads=4');
-        await nativePlayer.setProperty('network-timeout', '15');
+          await nativePlayer.setProperty('hr-seek', 'absolute');
+          await nativePlayer.setProperty('hr-seek-framedrop', 'yes');
+          await nativePlayer.setProperty('demuxer-lavf-o', 'fflags=+fastseek');
+        } else {
+          // HLS 模式：大缓存，保证流畅
+          await nativePlayer.setProperty('cache', 'yes');
+          await nativePlayer.setProperty('cache-secs', '60');
+          await nativePlayer.setProperty('demuxer-readahead-secs', '30');
+          await nativePlayer.setProperty('demuxer-max-bytes', '512M');
+          await nativePlayer.setProperty('demuxer-max-back-bytes', '200M');
+          await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
 
-        await nativePlayer.setProperty('hls-bitrate', 'max');
-        await nativePlayer.setProperty('initial-byte-range', 'yes');
+          await nativePlayer.setProperty('video-latency-hack', 'yes');
+          await nativePlayer.setProperty('video-queue', 'yes');
+          await nativePlayer.setProperty('video-queue-max-bytes', '50M');
+          await nativePlayer.setProperty('video-queue-min-bytes', '1M');
 
-        await nativePlayer.setProperty('hr-seek', 'absolute');
-        await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+          await nativePlayer.setProperty('stream-lavf-o',
+              'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,'
+              'reconnect_delay_max=10,'
+              'threads=4');
+          await nativePlayer.setProperty('network-timeout', '15');
 
-        await nativePlayer.setProperty('video-buffer-time', '5');
-        await nativePlayer.setProperty('audio-buffer-time', '2');
+          await nativePlayer.setProperty('hls-bitrate', 'max');
+          await nativePlayer.setProperty('initial-byte-range', 'yes');
+
+          await nativePlayer.setProperty('hr-seek', 'absolute');
+          await nativePlayer.setProperty('hr-seek-framedrop', 'no');
+
+          await nativePlayer.setProperty('video-buffer-time', '5');
+          await nativePlayer.setProperty('audio-buffer-time', '2');
+        }
 
         // 解码模式
         await nativePlayer.setProperty('hwdec', _currentDecodeMode);
 
-        _logger.logSuccess('MPV 激缓存配置完成', tag: 'PlayerController');
+        _logger.logSuccess('MPV ${_useDash ? "DASH" : "HLS"} 配置完成', tag: 'PlayerController');
       } catch (e) {
         _logger.logWarning('MPV 配置失败: $e', tag: 'PlayerController');
       }
@@ -1159,7 +1256,7 @@ class VideoPlayerController extends ChangeNotifier {
         final nextQuality = availableQualities.value[currentIndex + 1];
         if (!_qualityCache.containsKey(nextQuality)) {
            try {
-             final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, nextQuality);
+             final mediaSource = await _hlsService.getMediaSource(_currentResourceId!, nextQuality, useDash: _useDash);
              if (!mediaSource.isDirectUrl) {
                _qualityCache[nextQuality] = mediaSource;
                _logger.logSuccess('预加载: ${HlsService.getQualityLabel(nextQuality)}', tag: 'PlayerController');

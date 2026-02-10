@@ -531,26 +531,40 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
               // 内容区域
               if (_contentType == 0)
-                // 视频双列网格布局
+                // 视频双列布局（自适应高度）
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                      childAspectRatio: 1.05,
-                    ),
+                  sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        return VideoCard(
-                          video: _videos[index],
-                          onTap: () {
-                            _showVideoDetail(context, _videos[index]);
-                          },
+                      (context, rowIndex) {
+                        final i = rowIndex * 2;
+                        return Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: VideoCard(
+                                    video: _videos[i],
+                                    onTap: () => _showVideoDetail(context, _videos[i]),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: i + 1 < _videos.length
+                                      ? VideoCard(
+                                          video: _videos[i + 1],
+                                          onTap: () => _showVideoDetail(context, _videos[i + 1]),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ],
+                            ),
+                          ),
                         );
                       },
-                      childCount: _videos.length,
+                      childCount: (_videos.length + 1) ~/ 2,
                     ),
                   ),
                 )

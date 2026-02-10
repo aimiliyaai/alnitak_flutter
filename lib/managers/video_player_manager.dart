@@ -89,6 +89,7 @@ class VideoPlayerManager extends ChangeNotifier {
   int _currentEpoch = 0; // 资源版本号，每次加载新资源时递增
   bool _isPreloading = false; // 是否正在预加载
   bool _isStartingPlayback = false; // 是否正在启动播放
+  bool _useDash = false; // 当前是否使用 DASH 格式
   Completer<void>? _playbackInitCompleter; // 确保只有一个播放初始化
 
   VideoPlayerManager();
@@ -127,8 +128,9 @@ class VideoPlayerManager extends ChangeNotifier {
      _logger.logDebug('[Manager] 开始预加载资源: resourceId=$resourceId, epoch=$myEpoch', tag: 'PlayerManager');
 
      try {
-       // 1. 并行获取清晰度列表和首选清晰度
-       final qualities = await _hlsService.getAvailableQualities(resourceId);
+       // 1. 获取清晰度列表（含 supportsDash 信息）
+       final qualityInfo = await _hlsService.getQualityInfo(resourceId);
+       final qualities = qualityInfo.qualities;
 
         // 检查是否已过期
         if (_isDisposed || myEpoch != _currentEpoch) {
@@ -140,6 +142,10 @@ class VideoPlayerManager extends ChangeNotifier {
           throw Exception('没有可用的清晰度');
         }
 
+        // 自适应格式选择：Android + supportsDash → DASH，否则 HLS
+        _useDash = HlsService.shouldUseDash() && qualityInfo.supportsDash;
+        _logger.logDebug('[Manager] 格式选择: useDash=$_useDash (platform=${HlsService.shouldUseDash()}, server=${qualityInfo.supportsDash})', tag: 'PlayerManager');
+
         final selectedQuality = await _getPreferredQuality(qualities);
 
         // 再次检查是否过期
@@ -149,7 +155,7 @@ class VideoPlayerManager extends ChangeNotifier {
         }
 
         // 2. 并行获取媒体源和预加载相邻清晰度
-        final mediaSourceFuture = _hlsService.getMediaSource(resourceId, selectedQuality);
+        final mediaSourceFuture = _hlsService.getMediaSource(resourceId, selectedQuality, useDash: _useDash);
         _preloadAdjacentQualitiesInBackground(resourceId, qualities, selectedQuality);
         
         final mediaSource = await mediaSourceFuture;
@@ -468,14 +474,14 @@ class VideoPlayerManager extends ChangeNotifier {
     
      if (currentIndex > 0) {
        final lowerQuality = qualities[currentIndex - 1];
-       tasks.add(_hlsService.getMediaSource(resourceId, lowerQuality).then((_) {
+       tasks.add(_hlsService.getMediaSource(resourceId, lowerQuality, useDash: _useDash).then((_) {
          _logger.logSuccess('[Manager] 后台预加载 $lowerQuality 完成', tag: 'PlayerManager');
        }).catchError((_) {}));
      }
-     
+
      if (currentIndex < qualities.length - 1) {
        final higherQuality = qualities[currentIndex + 1];
-       tasks.add(_hlsService.getMediaSource(resourceId, higherQuality).then((_) {
+       tasks.add(_hlsService.getMediaSource(resourceId, higherQuality, useDash: _useDash).then((_) {
          _logger.logSuccess('[Manager] 后台预加载 $higherQuality 完成', tag: 'PlayerManager');
        }).catchError((_) {}));
      }

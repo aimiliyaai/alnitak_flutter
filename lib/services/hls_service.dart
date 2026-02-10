@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
@@ -14,10 +15,21 @@ class MediaSource {
   /// m3u8 内容（isDirectUrl=false）或 直接视频URL（isDirectUrl=true）
   final String content;
 
+  /// DASH 模式下的外挂音频URL（pilipala 风格：视频+音频分离）
+  final String? audioUrl;
+
   const MediaSource({
     required this.isDirectUrl,
     required this.content,
+    this.audioUrl,
   });
+}
+
+/// 清晰度查询结果（包含 supportsDash 信息）
+class QualityInfo {
+  final List<String> qualities;
+  final bool supportsDash;
+  const QualityInfo({required this.qualities, required this.supportsDash});
 }
 
 /// HLS 视频流服务类
@@ -46,11 +58,18 @@ class HlsService {
     }
   }
 
-  /// 获取可用的清晰度列表
+  /// 是否应使用 DASH 格式
+  /// Android 用 DASH（media_kit/libmpv 原生支持 MPD）
+  /// iOS 用 HLS（原生 HLS 支持更好）
+  static bool shouldUseDash() {
+    return Platform.isAndroid;
+  }
+
+  /// 获取清晰度信息（包含 supportsDash 字段）
   ///
   /// [resourceId] 资源ID
-  /// 返回清晰度列表，如 ["1920x1080_3000k_30", "1280x720_2000k_30"]
-  Future<List<String>> getAvailableQualities(int resourceId) async {
+  /// 返回 QualityInfo，包含清晰度列表和是否支持 DASH
+  Future<QualityInfo> getQualityInfo(int resourceId) async {
     try {
       final response = await _dio.get(
         '/api/v1/video/getResourceQuality',
@@ -59,7 +78,8 @@ class HlsService {
 
       if (response.data['code'] == 200) {
         final qualities = List<String>.from(response.data['data']['quality']);
-        return qualities;
+        final supportsDash = response.data['data']['supportsDash'] == true;
+        return QualityInfo(qualities: qualities, supportsDash: supportsDash);
       } else {
         throw Exception('获取清晰度列表失败: ${response.data['msg']}');
       }
@@ -67,6 +87,15 @@ class HlsService {
       print('❌ 获取清晰度列表错误: $e');
       rethrow;
     }
+  }
+
+  /// 获取可用的清晰度列表（兼容旧接口）
+  ///
+  /// [resourceId] 资源ID
+  /// 返回清晰度列表，如 ["1920x1080_3000k_30", "1280x720_2000k_30"]
+  Future<List<String>> getAvailableQualities(int resourceId) async {
+    final info = await getQualityInfo(resourceId);
+    return info.qualities;
   }
 
   /// 获取媒体源信息
@@ -77,8 +106,49 @@ class HlsService {
   ///
   /// [resourceId] 资源ID
   /// [quality] 清晰度
-  Future<MediaSource> getMediaSource(int resourceId, String quality) async {
+  /// [useDash] 是否使用 DASH MPD 格式（默认 false，使用 HLS）
+  Future<MediaSource> getMediaSource(int resourceId, String quality, {bool useDash = false}) async {
     try {
+      // DASH 模式：请求 JSON 格式，解析视频+音频直接URL（pilipala 风格）
+      if (useDash) {
+        final response = await _dio.get(
+          '/api/v1/video/getVideoFile',
+          queryParameters: {
+            'resourceId': resourceId,
+            'quality': quality,
+            'format': 'json', // 显式请求 JSON 格式（服务端默认 m3u8）
+          },
+          options: Options(responseType: ResponseType.plain),
+        );
+
+        String content = response.data as String;
+        content = content.trim();
+
+        // 解析 JSON，提取视频和音频 URL
+        if (content.startsWith('{')) {
+          final Map<String, dynamic> json = _parseJson(content);
+          final dash = json['data']?['dash'];
+          if (dash != null) {
+            final videoList = dash['video'] as List?;
+            final audioList = dash['audio'] as List?;
+            if (videoList != null && videoList.isNotEmpty) {
+              final videoUrl = '${ApiConfig.baseUrl}${videoList[0]['baseUrl']}';
+              String? audioUrl;
+              if (audioList != null && audioList.isNotEmpty) {
+                audioUrl = '${ApiConfig.baseUrl}${audioList[0]['baseUrl']}';
+              }
+              print('✅ DASH 直接URL: video=${videoList[0]['baseUrl'].toString().split('?').first}, audio=${audioUrl != null ? "yes" : "no"}');
+              return MediaSource(isDirectUrl: true, content: videoUrl, audioUrl: audioUrl);
+            }
+          }
+        }
+        // 回退：如果 JSON 解析失败，尝试 MPD
+        final mpdUrl = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile?resourceId=$resourceId&quality=$quality&format=mpd';
+        print('⚠️ DASH JSON 解析失败，回退 MPD: quality=$quality');
+        return MediaSource(isDirectUrl: true, content: mpdUrl);
+      }
+
+      // HLS 模式：原有逻辑
       final response = await _dio.get(
         '/api/v1/video/getVideoFile',
         queryParameters: {
@@ -189,6 +259,15 @@ class HlsService {
     } catch (e) {
       print('❌ 获取 M3U8 文件错误: $e');
       rethrow;
+    }
+  }
+
+  /// 解析 JSON 字符串
+  Map<String, dynamic> _parseJson(String content) {
+    try {
+      return jsonDecode(content) as Map<String, dynamic>;
+    } catch (e) {
+      return {};
     }
   }
 
