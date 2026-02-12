@@ -5,7 +5,29 @@ import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../config/api_config.dart';
-import 'logger_service.dart';
+
+/// DASH SegmentBase 信息
+class SegmentBaseInfo {
+  final String initialization;
+  final String indexRange;
+
+  const SegmentBaseInfo({
+    required this.initialization,
+    required this.indexRange,
+  });
+
+  factory SegmentBaseInfo.fromJson(dynamic json) {
+    if (json == null) {
+      return const SegmentBaseInfo(initialization: '', indexRange: '');
+    }
+    // Dart Map 键名大小写敏感，需要精确匹配
+    Map<String, dynamic> map = json as Map<String, dynamic>;
+    return SegmentBaseInfo(
+      initialization: map['Initialization']?.toString() ?? '',
+      indexRange: map['indexRange']?.toString() ?? '',
+    );
+  }
+}
 
 /// 媒体源信息（用于播放器加载）
 class MediaSource {
@@ -18,10 +40,16 @@ class MediaSource {
   /// DASH 模式下的外挂音频URL（pilipala 风格：视频+音频分离）
   final String? audioUrl;
 
+  /// DASH SegmentBase 信息
+  final SegmentBaseInfo? videoSegmentBase;
+  final SegmentBaseInfo? audioSegmentBase;
+
   const MediaSource({
     required this.isDirectUrl,
     required this.content,
     this.audioUrl,
+    this.videoSegmentBase,
+    this.audioSegmentBase,
   });
 }
 
@@ -78,13 +106,18 @@ class HlsService {
 
       if (response.data['code'] == 200) {
         final qualities = List<String>.from(response.data['data']['quality']);
-        final supportsDash = response.data['data']['supportsDash'] == true;
+        
+        // 【修复】后端采用 SegmentBase 模式（音画分离），所有平台都支持 DASH
+        // Android：使用 format=json 解析 DASH URL
+        // iOS：使用 format=m3u8 获取 HLS 子清单
+        // 关键是：资源是同一份 m4s 文件，都需要挂载音频
+        final supportsDash = Platform.isAndroid;
+        
         return QualityInfo(qualities: qualities, supportsDash: supportsDash);
-      } else {
-        throw Exception('获取清晰度列表失败: ${response.data['msg']}');
       }
+      
+      throw Exception('获取清晰度列表失败: ${response.data['msg']}');
     } catch (e) {
-      print('❌ 获取清晰度列表错误: $e');
       rethrow;
     }
   }
@@ -107,80 +140,73 @@ class HlsService {
   /// [resourceId] 资源ID
   /// [quality] 清晰度
   /// [useDash] 是否使用 DASH MPD 格式（默认 false，使用 HLS）
-  Future<MediaSource> getMediaSource(int resourceId, String quality, {bool useDash = false}) async {
-    try {
-      // DASH 模式：请求 JSON 格式，解析视频+音频直接URL（pilipala 风格）
-      if (useDash) {
-        final response = await _dio.get(
-          '/api/v1/video/getVideoFile',
-          queryParameters: {
-            'resourceId': resourceId,
-            'quality': quality,
-            'format': 'json', // 显式请求 JSON 格式（服务端默认 m3u8）
-          },
-          options: Options(responseType: ResponseType.plain),
-        );
+   Future<MediaSource> getMediaSource(int resourceId, String quality, {bool useDash = false}) async {
+     try {
+       // DASH 模式：直接使用 MPD URL，让 media_kit 原生解析 DASH
+       if (useDash) {
+         // Android + SegmentBase 模式：使用 MPD 格式
+         // mediainfo:// 格式在某些 media_kit 版本有问题，直接用 MPD URL 更稳定
+         final mpdUrl = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile?resourceId=$resourceId&quality=$quality&format=mpd';
+         
+         return MediaSource(
+           isDirectUrl: true,
+           content: mpdUrl,
+         );
+       }
 
-        String content = response.data as String;
-        content = content.trim();
-
-        // 解析 JSON，提取视频和音频 URL
-        if (content.startsWith('{')) {
-          final Map<String, dynamic> json = _parseJson(content);
-          final dash = json['data']?['dash'];
-          if (dash != null) {
-            final videoList = dash['video'] as List?;
-            final audioList = dash['audio'] as List?;
-            if (videoList != null && videoList.isNotEmpty) {
-              final videoUrl = '${ApiConfig.baseUrl}${videoList[0]['baseUrl']}';
-              String? audioUrl;
-              if (audioList != null && audioList.isNotEmpty) {
-                audioUrl = '${ApiConfig.baseUrl}${audioList[0]['baseUrl']}';
-              }
-              print('✅ DASH 直接URL: video=${videoList[0]['baseUrl'].toString().split('?').first}, audio=${audioUrl != null ? "yes" : "no"}');
-              return MediaSource(isDirectUrl: true, content: videoUrl, audioUrl: audioUrl);
-            }
-          }
-        }
-        // 回退：如果 JSON 解析失败，尝试 MPD
-        final mpdUrl = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile?resourceId=$resourceId&quality=$quality&format=mpd';
-        print('⚠️ DASH JSON 解析失败，回退 MPD: quality=$quality');
-        return MediaSource(isDirectUrl: true, content: mpdUrl);
-      }
-
-      // HLS 模式：原有逻辑
-      final response = await _dio.get(
+      // HLS 模式：获取 m3u8，同时获取音频 URL（用于外挂音频）
+      // 【修复】并行请求 m3u8 和 JSON 音频信息
+      // 【修复】并行获取 m3u8 和音频信息
+      final m3u8Future = _dio.get(
         '/api/v1/video/getVideoFile',
         queryParameters: {
           'resourceId': resourceId,
           'quality': quality,
         },
-        options: Options(
-          responseType: ResponseType.plain,
-        ),
+        options: Options(responseType: ResponseType.plain),
       );
+      final audioFuture = _getAudioUrl(resourceId, quality);
 
-      String content = response.data as String;
+      final m3u8Response = await m3u8Future;
+      final jsonResponse = await audioFuture;
+
+      String content = m3u8Response.data as String;
       content = content.trim();
+
+      // 解析音频 URL（如果 JSON 请求成功）
+      String? audioUrl;
+      if (jsonResponse != null) {
+        try {
+          final jsonContent = (jsonResponse.data as String).trim();
+          if (jsonContent.startsWith('{')) {
+            final json = _parseJson(jsonContent);
+            final dash = json['data']?['dash'];
+            final audioList = dash?['audio'] as List?;
+            if (audioList != null && audioList.isNotEmpty) {
+              audioUrl = '${ApiConfig.baseUrl}${audioList[0]['baseUrl']}';
+            }
+          }
+        } catch (e) {
+          // 解析失败，忽略音频
+        }
+      }
 
       // 判断返回内容类型
       if (content.startsWith('#EXTM3U')) {
         // HLS m3u8 内容，需要转换相对路径
         final m3u8Content = _convertToAbsoluteUrls(content);
-        print('✅ M3U8 内容已获取 (HLS流)');
-        return MediaSource(isDirectUrl: false, content: m3u8Content);
+        
+        return MediaSource(isDirectUrl: false, content: m3u8Content, audioUrl: audioUrl);
       } else if (content.startsWith('http://') || content.startsWith('https://')) {
         // 直接视频URL (mp4/m4s等)
-        print('✅ 直接视频URL已获取: ${content.split('?').first.split('/').last}');
-        return MediaSource(isDirectUrl: true, content: content);
+        return MediaSource(isDirectUrl: true, content: content, audioUrl: audioUrl);
       } else {
         // 未知格式，尝试作为m3u8处理
-        print('⚠️ 未知响应格式，尝试作为M3U8处理');
+        
         final m3u8Content = _convertToAbsoluteUrls(content);
-        return MediaSource(isDirectUrl: false, content: m3u8Content);
+        return MediaSource(isDirectUrl: false, content: m3u8Content, audioUrl: audioUrl);
       }
     } catch (e) {
-      print('❌ 获取媒体源错误: $e');
       rethrow;
     }
   }
@@ -211,10 +237,9 @@ class HlsService {
       // 2. 转换相对路径为绝对URL
       m3u8Content = _convertToAbsoluteUrls(m3u8Content);
 
-      print('✅ M3U8 内容已获取');
+      
       return m3u8Content;
     } catch (e) {
-      print('❌ 获取 M3U8 内容错误: $e');
       rethrow;
     }
   }
@@ -254,10 +279,9 @@ class HlsService {
       // 4. 记录临时文件路径，用于后续清理
       _tempFilePaths.add(filePath);
 
-      print('✅ M3U8 临时文件已创建: $filePath');
+      
       return filePath;
     } catch (e) {
-      print('❌ 获取 M3U8 文件错误: $e');
       rethrow;
     }
   }
@@ -268,6 +292,25 @@ class HlsService {
       return jsonDecode(content) as Map<String, dynamic>;
     } catch (e) {
       return {};
+    }
+  }
+
+  /// 【新增】获取音频 URL（用于 HLS 模式的外挂音频）
+  Future<Response<dynamic>?> _getAudioUrl(int resourceId, String quality) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/video/getVideoFile',
+        queryParameters: {
+          'resourceId': resourceId,
+          'quality': quality,
+          'format': 'json',
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+      return response;
+    } catch (e) {
+      // 音频请求失败不影响主流程
+      return null;
     }
   }
 
@@ -321,12 +364,10 @@ class HlsService {
         final file = File(filePath);
         if (await file.exists()) {
           await file.delete();
-          print('🗑️  已删除临时文件: $filePath');
         }
       }
       _tempFilePaths.clear();
     } catch (e) {
-      print('❌ 清理临时文件错误: $e');
     }
   }
 
@@ -345,12 +386,10 @@ class HlsService {
           // 删除超过1小时的文件
           if (age.inHours > 1) {
             await file.delete();
-            print('🗑️  已删除过期缓存: ${file.path}');
           }
         }
       }
     } catch (e) {
-      print('❌ 清理过期缓存错误: $e');
     }
   }
 
@@ -363,13 +402,11 @@ class HlsService {
         await _cacheDir!.delete(recursive: true);
         await _cacheDir!.create();
         _tempFilePaths.clear();
-        print('🗑️  已清空所有HLS缓存');
       }
 
       // 2. 清理MPV缓存
       await cleanupMpvCache();
     } catch (e) {
-      print('❌ 清空缓存错误: $e');
     }
   }
 
@@ -381,31 +418,28 @@ class HlsService {
     try {
       final tempDir = await getTemporaryDirectory();
 
-      // MPV 缓存目录可能的位置（扩展列表）
-      final mpvCacheDirs = [
-        Directory('${tempDir.path}/mpv_cache'),
-        Directory('${tempDir.path}/.mpv_cache'),
-        Directory('${tempDir.path}/media_kit_cache'),
-        Directory('${tempDir.path}/libmpv'),
-        Directory('${tempDir.path}/mpv'),
-      ];
+       // MPV 缓存目录可能的位置（扩展列表）
+       final mpvCacheDirs = [
+         Directory('${tempDir.path}/mpv_cache'),
+         Directory('${tempDir.path}/.mpv_cache'),
+         Directory('${tempDir.path}/media_kit_cache'),
+         Directory('${tempDir.path}/libmpv'),
+         Directory('${tempDir.path}/mpv'),
+       ];
 
-      int totalDeleted = 0;
-      int totalSize = 0;
+       int totalDeleted = 0;
 
-      for (final dir in mpvCacheDirs) {
-        if (await dir.exists()) {
-          final files = dir.listSync(recursive: true);
-          for (final file in files) {
-            if (file is File) {
-              try {
-                final stat = await file.stat();
-                totalSize += stat.size;
-                await file.delete();
-                totalDeleted++;
-              } catch (e) {
-                // 文件可能正在使用中，跳过
-                print('⚠️ 跳过文件: ${file.path}');
+       for (final dir in mpvCacheDirs) {
+         if (await dir.exists()) {
+           final files = dir.listSync(recursive: true);
+           for (final file in files) {
+             if (file is File) {
+               try {
+                 await file.delete();
+                 totalDeleted++;
+               } catch (e) {
+                 // 文件可能正在使用中，跳过
+                
               }
             }
           }
@@ -435,11 +469,8 @@ class HlsService {
                 fileName.startsWith('mpv') ||
                 fileName.startsWith('libmpv')) {
               try {
-                final stat = await entity.stat();
-                totalSize += stat.size;
                 await entity.delete();
                 totalDeleted++;
-                print('🗑️  删除临时文件: $fileName');
               } catch (e) {
                 // 文件可能正在使用
               }
@@ -447,28 +478,22 @@ class HlsService {
           }
         }
       } catch (e) {
-        print('⚠️ 清理临时目录分片文件失败: $e');
       }
 
       if (totalDeleted > 0) {
-        final sizeMB = (totalSize / (1024 * 1024)).toStringAsFixed(2);
-        print('🗑️  已清理 MPV 缓存: $totalDeleted 个文件，释放 ${sizeMB}MB 空间');
       }
     } catch (e) {
-      print('❌ 清理 MPV 缓存错误: $e');
     }
   }
 
-   /// 清理所有临时缓存（退出播放时调用）
+    /// 清理所有临时缓存（退出播放时调用）
   ///
   /// 包括：HLS临时文件 + MPV缓存文件
   Future<void> cleanupAllTempCache() async {
     try {
       await cleanupTempFiles();
       await cleanupMpvCache();
-      LoggerService.instance.logSuccess('播放器缓存已清理完成', tag: 'HLSService');
     } catch (e) {
-      LoggerService.instance.logWarning('清理播放器缓存错误: $e', tag: 'HLSService');
     }
   }
 
@@ -515,7 +540,7 @@ class HlsService {
       }
 
       if (segmentUrls.isEmpty) {
-        print('⚠️ 未找到分片URL');
+        
         return [];
       }
 
@@ -534,7 +559,6 @@ class HlsService {
         if (startIndex == 0 && accumulatedDuration < startPosition) {
           startIndex = segmentUrls.length > segmentCount ? segmentUrls.length - segmentCount : 0;
         }
-        print('📍 智能预加载: 起始位置=${startPosition.toInt()}s, 从分片#$startIndex 开始');
       }
 
       // 获取要预加载的分片（从 startIndex 开始）
@@ -544,13 +568,11 @@ class HlsService {
       // 如果有 fMP4 初始化片段，先预加载它（必须最先加载）
       if (initSegmentUrl != null) {
         segmentsToPreload.add(initSegmentUrl);
-        print('📦 fMP4 初始化片段: $initSegmentUrl');
       }
 
       // 添加普通分片
       segmentsToPreload.addAll(segmentUrls.sublist(startIndex, endIndex));
 
-      print('🚀 开始预加载 ${segmentsToPreload.length} 个分片 ($startIndex-${endIndex - 1})...');
 
       // 并发下载分片（不等待完成，让播放器边播边加载）
       unawaited(Future.wait(
@@ -563,17 +585,14 @@ class HlsService {
                 receiveTimeout: const Duration(seconds: 5),
               ),
             );
-            print('✅ 预加载完成: ${url.split('/').last}');
           } catch (e) {
             // 预加载失败不影响播放，静默处理
-            print('⚠️ 预加载分片失败: ${url.split('/').last}');
           }
         }),
       ));
 
       return segmentsToPreload;
     } catch (e) {
-      print('❌ 预加载分片失败: $e');
       return [];
     }
   }

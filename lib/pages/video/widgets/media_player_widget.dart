@@ -4,7 +4,6 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
 import '../../../controllers/danmaku_controller.dart';
 import '../../../managers/video_player_manager.dart';
-import '../../../services/logger_service.dart';
 import 'custom_player_ui.dart';
 
 /// 视频播放器组件
@@ -74,7 +73,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   bool _isUsingManager = false;
   bool _ownsController = false;
   bool _controllerReady = false;
-  final LoggerService _logger = LoggerService.instance;
 
   @override
   void initState() {
@@ -83,8 +81,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     _isUsingManager = widget.manager != null;
 
     if (_isUsingManager) {
-      _logger.logDebug('[MediaPlayerWidget] Manager模式初始化', tag: 'MediaPlayer');
-
       _controller = VideoPlayerController();
       _ownsController = true;
       _bindCallbacks();
@@ -94,8 +90,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
       _initWithManager();
     } else {
-      _logger.logDebug('[MediaPlayerWidget] 传统模式初始化 - resourceId: ${widget.resourceId}', tag: 'MediaPlayer');
-
       _ownsController = true;
       _controller = VideoPlayerController();
       _bindCallbacks();
@@ -118,7 +112,8 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
   }
 
   /// Manager 模式初始化
-  Future<void> _initWithManager() async {
+  /// 【修复】不再阻塞等待资源，立即渲染并监听资源状态
+  void _initWithManager() {
     final manager = widget.manager!;
 
     manager.onVideoEnd = widget.onVideoEnd;
@@ -128,13 +123,23 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
     manager.bindController(_controller!);
 
-    await manager.waitForReady();
-
+    // 【修复】立即通知控制器就绪，UI可以渲染
     if (mounted) {
       setState(() {
         _controllerReady = true;
       });
       widget.onControllerReady?.call(_controller!);
+    }
+
+    // 【修复】监听资源就绪状态，资源准备好后自动开始播放
+    manager.isResourceReady.addListener(_onResourceReadyChanged);
+  }
+  
+  /// 【新增】资源就绪状态变化回调
+  void _onResourceReadyChanged() {
+    // 资源就绪后可以执行一些操作，比如自动播放
+    if (mounted && widget.manager != null && widget.manager!.isResourceReady.value) {
+      // 资源已就绪，播放器已经在 bindController 时开始播放
     }
   }
 
@@ -159,78 +164,50 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       author: widget.author,
       coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
     );
-  }
+   }
 
-  // 【关键】跟踪是否已应用初始进度，避免重复 seek
-  bool _hasAppliedInitialPosition = false;
+    @override
+    void didUpdateWidget(MediaPlayerWidget oldWidget) {
+      super.didUpdateWidget(oldWidget);
 
-   @override
-   void didUpdateWidget(MediaPlayerWidget oldWidget) {
-     super.didUpdateWidget(oldWidget);
-     _logger.logDebug('[Widget] didUpdateWidget 被调用', tag: 'MediaPlayer');
-     _logger.logDebug('[Widget]   oldWidget.manager: ${oldWidget.manager?.hashCode}', tag: 'MediaPlayer');
-     _logger.logDebug('[Widget]   widget.manager: ${widget.manager?.hashCode}', tag: 'MediaPlayer');
-     _logger.logDebug('[Widget]   oldWidget.onVideoEnd: ${oldWidget.onVideoEnd?.hashCode}', tag: 'MediaPlayer');
-     _logger.logDebug('[Widget]   widget.onVideoEnd: ${widget.onVideoEnd?.hashCode}', tag: 'MediaPlayer');
+      // Manager 模式下，资源切换由 Manager 处理
+      // 【修复】不再手动 seek，因为播放器初始化时已通过 start 参数设置起始位置
+      if (_isUsingManager) {
+        // 更新回调绑定
+        if (widget.manager != null) {
+          widget.manager!.onVideoEnd = widget.onVideoEnd;
+          widget.manager!.onProgressUpdate = widget.onProgressUpdate;
+          widget.manager!.onQualityChanged = widget.onQualityChanged;
+        }
 
-     // Manager 模式下，资源切换由 Manager 处理
-     if (_isUsingManager) {
-       // 更新回调绑定
-       if (widget.manager != null) {
-         widget.manager!.onVideoEnd = widget.onVideoEnd;
-         widget.manager!.onProgressUpdate = widget.onProgressUpdate;
-         widget.manager!.onQualityChanged = widget.onQualityChanged;
-       }
-
-       // 【新增】处理 Manager 模式下的初始进度恢复
-       // 当 initialPosition 从 null 变为有值时（异步获取进度完成），需要 seek
-       if (!_hasAppliedInitialPosition &&
-           widget.initialPosition != null &&
-           oldWidget.initialPosition == null) {
-         _logger.logDebug('[didUpdateWidget] Manager模式: 历史进度加载完成: ${widget.initialPosition}s，执行 seek', tag: 'MediaPlayer');
-         _hasAppliedInitialPosition = true;
-         _controller?.seek(Duration(seconds: widget.initialPosition!.toInt()));
-       }
-
-       return;
-     }
-
-    // ============ 传统模式逻辑 ============
-    if (_controller == null) return;
-
-    // 如果 resourceId 没变，但回调变了，需要重新绑定回调
-    if (oldWidget.onProgressUpdate != widget.onProgressUpdate) {
-      _controller!.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
-    }
-
-     if (oldWidget.resourceId != widget.resourceId) {
-       _logger.logDebug('[didUpdateWidget] resourceId 改变，重新初始化', tag: 'MediaPlayer');
-       _hasAppliedInitialPosition = false; // 切换视频时重置
-
-      // 更新视频元数据
-      if (widget.title != null) {
-        _controller!.setVideoMetadata(
-          title: widget.title!,
-          author: widget.author,
-          coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
-        );
+        return;
       }
 
-      // 重新加载视频
-      _controller!.initialize(
-        resourceId: widget.resourceId!,
-        initialPosition: widget.initialPosition,
-      );
-    } else if (!_hasAppliedInitialPosition &&
-               widget.initialPosition != null &&
-               oldWidget.initialPosition == null) {
-       // 【关键修复】initialPosition 从 null 变为有值（异步加载历史记录完成）
-       // 此时播放器已初始化，需要手动 seek 到目标位置
-       _logger.logDebug('[didUpdateWidget] 历史进度加载完成: ${widget.initialPosition}s，执行 seek', tag: 'MediaPlayer');
-       _hasAppliedInitialPosition = true;
-      _controller!.seek(Duration(seconds: widget.initialPosition!.toInt()));
-    }
-  }
+     // ============ 传统模式逻辑 ============
+     if (_controller == null) return;
+
+     // 如果 resourceId 没变，但回调变了，需要重新绑定回调
+     if (oldWidget.onProgressUpdate != widget.onProgressUpdate) {
+       _controller!.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
+      }
+
+       if (oldWidget.resourceId != widget.resourceId) {
+        // 更新视频元数据
+       if (widget.title != null) {
+         _controller!.setVideoMetadata(
+           title: widget.title!,
+           author: widget.author,
+           coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+         );
+       }
+
+       // 重新加载视频（传统模式会从 initialPosition 开始）
+       _controller!.initialize(
+         resourceId: widget.resourceId!,
+         initialPosition: widget.initialPosition,
+       );
+     }
+   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -240,23 +217,27 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
    @override
    void dispose() {
-     _logger.logDebug('[MediaPlayerWidget] 销毁', tag: 'MediaPlayer');
      WidgetsBinding.instance.removeObserver(this);
 
-    // 只有拥有 Controller 所有权时才销毁
-    // Manager 模式下，Controller 由 Manager 管理
-    if (_ownsController && _controller != null) {
-      _controller!.dispose();
-    }
+     // 【修复】移除资源状态监听器
+     if (_isUsingManager && widget.manager != null) {
+       widget.manager!.isResourceReady.removeListener(_onResourceReadyChanged);
+     }
 
-    // 退出时恢复系统UI方向
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    super.dispose();
-  }
+     // 只有拥有 Controller 所有权时才销毁
+     // Manager 模式下，Controller 由 Manager 管理
+     if (_ownsController && _controller != null) {
+       _controller!.dispose();
+     }
+
+     // 退出时恢复系统UI方向
+     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+     SystemChrome.setEnabledSystemUIMode(
+       SystemUiMode.manual,
+       overlays: SystemUiOverlay.values,
+     );
+     super.dispose();
+   }
 
   @override
   Widget build(BuildContext context) {

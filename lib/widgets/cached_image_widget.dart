@@ -31,10 +31,7 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
     try {
       final effectiveKey = cacheKey ?? getStableCacheKey(url);
       await _instance.getSingleFile(url, key: effectiveKey);
-    } catch (e) {
-      // 预加载失败不影响主流程
-      _logger.logWarning('[CachedImage] 预加载图片失败: $e', tag: 'Cache');
-    }
+    } catch (_) {}
   }
 
   /// 批量预加载图片

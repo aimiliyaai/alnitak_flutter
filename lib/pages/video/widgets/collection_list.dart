@@ -89,7 +89,6 @@ class CollectionListState extends State<CollectionList> {
         });
       }
     } catch (e) {
-      print('加载合集失败: $e');
       if (mounted) {
         setState(() {
           _playlist = null;

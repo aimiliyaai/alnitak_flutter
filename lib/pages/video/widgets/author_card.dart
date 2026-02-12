@@ -82,11 +82,9 @@ class _AuthorCardState extends State<AuthorCard> {
 
       if (_relationStatus == 0) {
         // 未关注 -> 关注
-        print('👤 关注用户: ${widget.author.uid}');
         success = await _videoService.followUser(widget.author.uid);
       } else {
         // 已关注/互粉 -> 取消关注
-        print('👤 取消关注用户: ${widget.author.uid}');
         success = await _videoService.unfollowUser(widget.author.uid);
       }
 
@@ -118,7 +116,6 @@ class _AuthorCardState extends State<AuthorCard> {
         }
       }
     } catch (e) {
-      print('关注操作失败: $e');
       if (mounted) {
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('操作失败，请重试')),

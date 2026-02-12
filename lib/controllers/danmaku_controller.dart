@@ -123,6 +123,9 @@ class DanmakuController extends ChangeNotifier {
   /// 记录最近一次的屏幕宽度，用于发送弹幕时立即计算轨道
   double _lastScreenWidth = 0;
 
+  /// 是否正在初始化阶段（surface 重建期间）
+  bool _isInitializing = true;
+
   /// 轨道占用状态：记录每个轨道最后一个弹幕的离开时间
   /// key: 轨道索引, value: 轨道空闲时间点（毫秒时间戳）
   final Map<int, int> _scrollTrackEndTimes = {};
@@ -290,6 +293,21 @@ class DanmakuController extends ChangeNotifier {
     }
 
     // 检测 seek 操作（进度跳跃超过2秒）
+    // 【关键】初始化阶段忽略正常的 position 变化（可能是 surface 重建导致的）
+    if (_isInitializing) {
+      // 如果位置从 0 变成非 0，认为是初始播放完成，退出初始化状态
+      if (_currentTime == 0 && time > 0) {
+        _isInitializing = false;
+      }
+      // 初始化阶段，检测到位置跳跃时记录但不处理，等初始化完成再说
+      if ((time - _currentTime).abs() > 2) {
+        _logger.logDebug('[Danmaku] 初始化阶段位置跳跃忽略: ${_currentTime.toStringAsFixed(1)}s -> ${time.toStringAsFixed(1)}s', tag: 'Danmaku');
+      }
+      _currentTime = time;
+      return;
+    }
+
+    // 检测 seek 操作（进度跳跃超过2秒）
     if ((time - _currentTime).abs() > 2) {
       _onSeek(time);
     }
@@ -311,15 +329,24 @@ class DanmakuController extends ChangeNotifier {
    void _onSeek(double newTime) {
      _logger.logDebug('弹幕 seek: ${_currentTime.toStringAsFixed(1)}s -> ${newTime.toStringAsFixed(1)}s', tag: 'Danmaku');
 
-    // 清空当前显示的弹幕
-    _activeDanmakus.clear();
-    _scrollTrackEndTimes.clear();
-    _topTrackEndTimes.clear();
-    _bottomTrackEndTimes.clear();
+     // 【新增】如果是 surface 重置导致的位置回跳（从较长时间跳回 0/1 秒），不清空弹幕
+     // 因为播放器会在 100ms 后恢复到正确位置
+     if (_currentTime > 5 && newTime <= 1) {
+       _logger.logDebug('[Danmaku] 检测到 surface 重置位置回跳，暂不清空弹幕，等待恢复', tag: 'Danmaku');
+       // 只更新时间，不清空弹幕
+       _currentTime = newTime;
+       return;
+     }
 
-    // 二分查找新的起始位置
-    _lastProcessedIndex = _findStartIndex(newTime);
-  }
+     // 清空当前显示的弹幕
+     _activeDanmakus.clear();
+     _scrollTrackEndTimes.clear();
+     _topTrackEndTimes.clear();
+     _bottomTrackEndTimes.clear();
+
+     // 二分查找新的起始位置
+     _lastProcessedIndex = _findStartIndex(newTime);
+   }
 
   /// 二分查找起始索引
   int _findStartIndex(double time) {

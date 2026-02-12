@@ -87,7 +87,6 @@ class VideoPlayerManager extends ChangeNotifier {
   // ============ 竞态条件防护 ============
   bool _isDisposed = false;
   int _currentEpoch = 0; // 资源版本号，每次加载新资源时递增
-  bool _isPreloading = false; // 是否正在预加载
   bool _isStartingPlayback = false; // 是否正在启动播放
   bool _useDash = false; // 当前是否使用 DASH 格式
   Completer<void>? _playbackInitCompleter; // 确保只有一个播放初始化
@@ -109,12 +108,6 @@ class VideoPlayerManager extends ChangeNotifier {
     // 递增 epoch，使之前的加载任务失效
     final myEpoch = ++_currentEpoch;
 
-     // 如果正在预加载，取消之前的
-     if (_isPreloading) {
-       _logger.logWarning('[Manager] 取消之前的预加载任务', tag: 'PlayerManager');
-     }
-     _isPreloading = true;
-
      // 重置状态
      _preloadedResource = null;
      _isStartingPlayback = false;
@@ -125,8 +118,6 @@ class VideoPlayerManager extends ChangeNotifier {
      // 创建新的 Completer
      _preloadCompleter = Completer<PreloadedResource>();
 
-     _logger.logDebug('[Manager] 开始预加载资源: resourceId=$resourceId, epoch=$myEpoch', tag: 'PlayerManager');
-
      try {
        // 1. 获取清晰度列表（含 supportsDash 信息）
        final qualityInfo = await _hlsService.getQualityInfo(resourceId);
@@ -134,7 +125,6 @@ class VideoPlayerManager extends ChangeNotifier {
 
         // 检查是否已过期
         if (_isDisposed || myEpoch != _currentEpoch) {
-          _logger.logWarning('[Manager] 预加载已过期(epoch不匹配)，跳过', tag: 'PlayerManager');
           return;
         }
 
@@ -144,13 +134,11 @@ class VideoPlayerManager extends ChangeNotifier {
 
         // 自适应格式选择：Android + supportsDash → DASH，否则 HLS
         _useDash = HlsService.shouldUseDash() && qualityInfo.supportsDash;
-        _logger.logDebug('[Manager] 格式选择: useDash=$_useDash (platform=${HlsService.shouldUseDash()}, server=${qualityInfo.supportsDash})', tag: 'PlayerManager');
 
         final selectedQuality = await _getPreferredQuality(qualities);
 
         // 再次检查是否过期
         if (_isDisposed || myEpoch != _currentEpoch) {
-          _logger.logWarning('[Manager] 预加载已过期(epoch不匹配)，跳过', tag: 'PlayerManager');
           return;
         }
 
@@ -162,11 +150,8 @@ class VideoPlayerManager extends ChangeNotifier {
 
        // 最终检查
        if (_isDisposed || myEpoch != _currentEpoch) {
-         _logger.logWarning('[Manager] 预加载已过期(epoch不匹配)，跳过', tag: 'PlayerManager');
          return;
        }
-
-       _logger.logSuccess('[Manager] 资源预加载完成: quality=$selectedQuality, epoch=$myEpoch', tag: 'PlayerManager');
 
       // 4. 缓存预加载结果（带有 epoch）
         _preloadedResource = PreloadedResource(
@@ -179,27 +164,23 @@ class VideoPlayerManager extends ChangeNotifier {
         );
 
         isResourceReady.value = true;
-        _isPreloading = false;
 
         if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
           _preloadCompleter!.complete(_preloadedResource!);
         }
 
         if (_externalControllerBound && _controller != null && !_isStartingPlayback) {
-          _logger.logDebug('[Manager] 外部 Controller 已绑定，启动播放', tag: 'PlayerManager');
           _startPlaybackWithPreloadedResource(myEpoch);
         }
 
      } catch (e) {
        // 检查是否过期
        if (_isDisposed || myEpoch != _currentEpoch) {
-         _logger.logWarning('[Manager] 预加载失败但已过期，忽略错误', tag: 'PlayerManager');
          return;
        }
 
-       _logger.logWarning('[Manager] 预加载失败: $e', tag: 'PlayerManager');
-       _isPreloading = false;
-       playbackState.value = PlaybackState.error;
+        _logger.logWarning('[Manager] 资源预加载失败: $e', tag: 'PlayerManager');
+        playbackState.value = PlaybackState.error;
        errorMessage.value = '加载视频失败: $e';
 
       if (_preloadCompleter != null && !_preloadCompleter!.isCompleted) {
@@ -208,68 +189,61 @@ class VideoPlayerManager extends ChangeNotifier {
     }
   }
 
-   /// 创建播放器控制器（在 MediaPlayerWidget initState 时调用）
-   ///
-   /// 此方法会：
-   /// 1. 立即创建 Player 和 VideoController 实例
-   /// 2. 如果资源已预加载完成，立即开始播放
-   /// 3. 如果资源未就绪，等待预加载完成
-   Future<VideoPlayerController> createController() async {
-     if (_controller != null) {
-       _logger.logWarning('[Manager] Controller 已存在，直接返回', tag: 'PlayerManager');
-       return _controller!;
-     }
-
-     _logger.logDebug('[Manager] 创建播放器控制器', tag: 'PlayerManager');
-
-    // 创建控制器（内部会创建 Player 实例）
-    _controller = VideoPlayerController();
-
-    // 绑定回调
-    _controller!.onVideoEnd = onVideoEnd;
-    _controller!.onProgressUpdate = onProgressUpdate;
-    _controller!.onQualityChanged = onQualityChanged;
-    _controller!.onPlayingStateChanged = onPlayingStateChanged;
-
-    // 设置元数据
-    if (_title != null) {
-      _controller!.setVideoMetadata(
-        title: _title!,
-        author: _author,
-        coverUri: _coverUrl != null ? Uri.tryParse(_coverUrl!) : null,
-      );
-    }
-
-    // 设置视频上下文（用于进度恢复）
-    if (_currentVid != null) {
-      _controller!.setVideoContext(vid: _currentVid!, part: _currentPart);
-    }
-
-     // 如果资源未就绪，等待预加载完成
-     if (_preloadedResource == null && _preloadCompleter != null) {
-       _logger.logDebug('[Manager] 等待预加载完成...', tag: 'PlayerManager');
-       await _preloadCompleter!.future;
-       _logger.logSuccess('[Manager] 预加载完成，继续', tag: 'PlayerManager');
-     }
-
-     // 如果资源已就绪且未开始播放，立即开始播放
-     if (_preloadedResource != null && !_isStartingPlayback) {
-        await _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
+    /// 创建播放器控制器（在 MediaPlayerWidget initState 时调用）
+    ///
+    /// 此方法会：
+    /// 1. 立即创建 Player 和 VideoController 实例
+    /// 2. 如果资源已预加载完成，立即开始播放
+    /// 3. 如果资源未就绪，等待预加载完成
+    Future<VideoPlayerController> createController() async {
+      if (_controller != null) {
+        return _controller!;
       }
 
-      return _controller!;
-    }
+     // 创建控制器（内部会创建 Player 实例）
+     _controller = VideoPlayerController();
+
+     // 绑定回调
+     _controller!.onVideoEnd = onVideoEnd;
+     _controller!.onProgressUpdate = onProgressUpdate;
+     _controller!.onQualityChanged = onQualityChanged;
+     _controller!.onPlayingStateChanged = onPlayingStateChanged;
+
+     // 设置元数据
+     if (_title != null) {
+       _controller!.setVideoMetadata(
+         title: _title!,
+         author: _author,
+         coverUri: _coverUrl != null ? Uri.tryParse(_coverUrl!) : null,
+       );
+     }
+
+     // 设置视频上下文（用于进度恢复）
+     if (_currentVid != null) {
+       _controller!.setVideoContext(vid: _currentVid!, part: _currentPart);
+     }
+
+      // 如果资源未就绪，等待预加载完成
+      if (_preloadedResource == null && _preloadCompleter != null) {
+        await _preloadCompleter!.future;
+      }
+
+      // 如果资源已就绪且未开始播放，立即开始播放
+      if (_preloadedResource != null && !_isStartingPlayback) {
+         await _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
+       }
+
+       return _controller!;
+     }
 
     /// 绑定外部创建的控制器
     ///
     /// 用于 Widget 在 initState 中先创建 Controller，避免 UI 抖动
     void bindController(VideoPlayerController controller) {
       if (_controller != null) {
-        _logger.logWarning('[Manager] Controller 已存在，跳过绑定', tag: 'PlayerManager');
         return;
       }
 
-      _logger.logDebug('[Manager] 绑定外部 Controller', tag: 'PlayerManager');
       _controller = controller;
       _externalControllerBound = true;
 
@@ -294,22 +268,18 @@ class VideoPlayerManager extends ChangeNotifier {
     /// 等待资源预加载完成
     Future<void> waitForReady() async {
       if (_preloadedResource != null) {
-        _logger.logDebug('[Manager] 资源已预加载，直接返回', tag: 'PlayerManager');
         _startPlaybackIfNeeded();
         return;
       }
 
       if (_preloadCompleter != null) {
-        _logger.logDebug('[Manager] 等待预加载完成...', tag: 'PlayerManager');
         await _preloadCompleter!.future;
-        _logger.logSuccess('[Manager] 预加载完成', tag: 'PlayerManager');
       }
     }
 
     /// 如果需要，启动播放
     void _startPlaybackIfNeeded() {
       if (_preloadedResource != null && _controller != null && !_isStartingPlayback) {
-        _logger.logDebug('[Manager] 启动播放 (内部检查)', tag: 'PlayerManager');
         _startPlaybackWithPreloadedResource(_preloadedResource!.epoch);
       }
     }
@@ -318,11 +288,9 @@ class VideoPlayerManager extends ChangeNotifier {
     Future<void> _startPlaybackWithPreloadedResource(int expectedEpoch) async {
       // 【关键】使用 Completer 确保只有一个播放初始化在进行
       if (_playbackInitCompleter != null) {
-        _logger.logDebug('[Manager] 播放初始化已在进行中，等待完成', tag: 'PlayerManager');
         await _playbackInitCompleter!.future;
         // 如果初始化已完成但 epoch 已变化，不再继续
         if (expectedEpoch != _currentEpoch) {
-          _logger.logWarning('[Manager] epoch 已变化，跳过', tag: 'PlayerManager');
           return;
         }
         return;
@@ -330,23 +298,19 @@ class VideoPlayerManager extends ChangeNotifier {
 
       // 【关键】多重防护
       if (_isStartingPlayback) {
-        _logger.logWarning('[Manager] 正在启动播放中，跳过重复调用', tag: 'PlayerManager');
         return;
       }
       if (_controller == null || _preloadedResource == null || _isDisposed) {
-        _logger.logWarning('[Manager] 条件不满足，跳过播放', tag: 'PlayerManager');
         return;
       }
       // 检查 epoch 是否匹配
       if (_preloadedResource!.epoch != expectedEpoch || expectedEpoch != _currentEpoch) {
-        _logger.logWarning('[Manager] epoch 不匹配 (resource=${_preloadedResource!.epoch}, expected=$expectedEpoch, current=$_currentEpoch)，跳过播放', tag: 'PlayerManager');
         return;
       }
 
       _isStartingPlayback = true;
       _playbackInitCompleter = Completer<void>();
       final resource = _preloadedResource!;
-      _logger.logDebug('[Manager] 使用预加载资源开始播放, epoch=$expectedEpoch', tag: 'PlayerManager');
 
       try {
         // 使用预加载的数据初始化播放器
@@ -362,11 +326,9 @@ class VideoPlayerManager extends ChangeNotifier {
         if (expectedEpoch == _currentEpoch && !_isDisposed) {
           playbackState.value = PlaybackState.playing;
           _logger.logSuccess('[Manager] 播放已启动', tag: 'PlayerManager');
-        } else {
-          _logger.logWarning('[Manager] epoch 不匹配，放弃启动', tag: 'PlayerManager');
         }
       } catch (e) {
-        _logger.logWarning('[Manager] 播放失败: $e', tag: 'PlayerManager');
+        _logger.logError(message: '播放启动失败', error: e, stackTrace: StackTrace.current);
         if (expectedEpoch == _currentEpoch && !_isDisposed) {
           playbackState.value = PlaybackState.error;
           errorMessage.value = '播放视频失败: $e';
@@ -386,8 +348,6 @@ class VideoPlayerManager extends ChangeNotifier {
      double? initialPosition,
    }) async {
      if (_isDisposed) return;
-
-     _logger.logDebug('[Manager] 切换资源: resourceId=$resourceId', tag: 'PlayerManager');
 
     // preloadResource 内部会递增 epoch 并重置状态
     await preloadResource(
@@ -423,16 +383,9 @@ class VideoPlayerManager extends ChangeNotifier {
 
      // 如果控制器已创建，同步更新
      _controller?.setVideoContext(vid: vid, part: part);
-     _logger.logDebug('[Manager] 设置视频上下文: vid=$vid, part=$part', tag: 'PlayerManager');
    }
 
-  /// 【新增】设置待执行的 seek 位置（用于异步进度恢复）
-  ///
-  /// 当进度是异步获取时，先设置待执行位置，等播放器就绪后自动 seek
-  void setPendingSeekPosition(double? position) {
-    _controller?.setPendingSeekPosition(position);
-    _logger.logDebug('[Manager] 设置待执行 seek: $position', tag: 'PlayerManager');
-   }
+
 
   /// 获取首选清晰度
   Future<String> _getPreferredQuality(List<String> qualities) async {
@@ -475,14 +428,12 @@ class VideoPlayerManager extends ChangeNotifier {
      if (currentIndex > 0) {
        final lowerQuality = qualities[currentIndex - 1];
        tasks.add(_hlsService.getMediaSource(resourceId, lowerQuality, useDash: _useDash).then((_) {
-         _logger.logSuccess('[Manager] 后台预加载 $lowerQuality 完成', tag: 'PlayerManager');
        }).catchError((_) {}));
      }
 
      if (currentIndex < qualities.length - 1) {
        final higherQuality = qualities[currentIndex + 1];
        tasks.add(_hlsService.getMediaSource(resourceId, higherQuality, useDash: _useDash).then((_) {
-         _logger.logSuccess('[Manager] 后台预加载 $higherQuality 完成', tag: 'PlayerManager');
        }).catchError((_) {}));
      }
    }
@@ -494,8 +445,6 @@ class VideoPlayerManager extends ChangeNotifier {
   void dispose() {
     if (_isDisposed) return;
     _isDisposed = true;
-
-    _logger.logDebug('[Manager] 销毁', tag: 'PlayerManager');
 
     _currentEpoch++;
 
@@ -509,11 +458,8 @@ class VideoPlayerManager extends ChangeNotifier {
     _preloadedResource = null;
     _preloadCompleter = null;
 
-    _logger.logDebug('[Manager] 开始清理 HLS 缓存', tag: 'PlayerManager');
     _hlsService.cleanupAllTempCache().then((_) {
-      _logger.logSuccess('[Manager] HLS 缓存清理完成', tag: 'PlayerManager');
     }).catchError((e) {
-      _logger.logWarning('[Manager] HLS 缓存清理失败: $e', tag: 'PlayerManager');
     });
 
     super.dispose();

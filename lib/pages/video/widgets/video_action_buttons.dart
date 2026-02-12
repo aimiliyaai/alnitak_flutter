@@ -113,8 +113,6 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
     final previousLikeState = _hasLiked;
     final previousCount = _stat.like;
 
-    print('👍 点赞操作 #$currentOperationId: ${_hasLiked ? "取消点赞" : "点赞"} (当前状态: $previousLikeState)');
-
     // 【修复】立即更新UI（乐观更新），提升用户体验
     setState(() {
       _hasLiked = !previousLikeState;
@@ -140,13 +138,11 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
 
     // 【修复】检查操作ID是否仍然是最新的
     if (currentOperationId != _likeOperationId) {
-      print('👍 操作 #$currentOperationId 已被新操作覆盖，忽略结果');
       return;
     }
 
     if (!success) {
       // API调用失败，回滚状态
-      print('👍 API调用失败，回滚状态');
       setState(() {
         _hasLiked = previousLikeState;
         _stat = _stat.copyWith(like: previousCount);
@@ -163,8 +159,6 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
           ),
         );
       }
-    } else {
-      print('👍 操作 #$currentOperationId 成功');
     }
 
     setState(() {
@@ -232,7 +226,6 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
         });
       }
     } catch (e) {
-      print('显示收藏对话框失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('操作失败，请重试')),
@@ -543,12 +536,9 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
 
   /// 创建收藏夹
   Future<void> _createCollection() async {
-    print('📁 开始创建收藏夹');
     final name = _nameController.text.trim();
-    print('📁 输入的收藏夹名称: "$name"');
 
     if (name.isEmpty) {
-      print('📁 收藏夹名称为空');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('请输入收藏夹名称')),
@@ -558,7 +548,6 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
     }
 
     if (name.length > 20) {
-      print('📁 收藏夹名称过长: ${name.length}字');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('收藏夹名称不能超过20个字符')),
@@ -567,13 +556,10 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
       return;
     }
 
-    print('📁 调用API创建收藏夹: $name');
     final success = await _collectionService.addCollection(name);
-    print('📁 API返回结果: ${success != null ? "成功(ID=$success)" : "失败"}');
 
     // 如果API返回成功（无论是否有ID），都重新获取收藏夹列表
     if (success != null) {
-      print('📁 创建成功，重新获取收藏夹列表');
       final updatedList = await _collectionService.getCollectionList();
       if (updatedList != null) {
         setState(() {
@@ -587,7 +573,6 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
           _nameController.clear();
           _showCreateInput = false;
         });
-        print('📁 收藏夹列表已更新，共${_collections.length}个');
       } else {
         // 如果重新获取失败，使用返回的ID手动添加
         setState(() {
@@ -599,7 +584,6 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
           _nameController.clear();
           _showCreateInput = false;
         });
-        print('📁 使用返回的ID添加到列表');
       }
 
       if (mounted) {
@@ -611,7 +595,6 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
         );
       }
     } else {
-      print('📁 创建失败');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('创建失败，请重试')),
@@ -634,8 +617,6 @@ class _CollectionListDialogState extends State<_CollectionListDialog> {
     // 计算差异：addList = 新增的，cancelList = 移除的
     final addList = checkedIds.where((id) => !_defaultCheckedIds.contains(id)).toList();
     final cancelList = _defaultCheckedIds.where((id) => !checkedIds.contains(id)).toList();
-
-    print('📋 收藏操作: 添加到$addList，从$cancelList移除');
 
     final success = await _videoService.collectVideo(widget.vid, addList, cancelList);
 
