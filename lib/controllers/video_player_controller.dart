@@ -98,7 +98,8 @@ class VideoPlayerController extends ChangeNotifier {
     required int resourceId,
     double? initialPosition,
   }) async {
-    if (_isInitializing) return;
+    // 如果正在初始化同一个资源，忽略；否则允许切换到新资源
+    if (_isInitializing && _currentResourceId == resourceId) return;
     _isInitializing = true;
 
     try {
@@ -172,21 +173,28 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       _isSeeking = true;
 
-      // 1. 打开视频源（不自动播放）
+      // 1. 设置音频轨道（pilipala 风格：先设置属性，再 open）
+      final nativePlayer = player.platform as NativePlayer;
+      await player.setAudioTrack(AudioTrack.auto());
+
+      // DASH MPD 已包含音频 AdaptationSet，不需要额外挂载 audio-files
+      // 只有 HLS 模式需要外挂音频（m3u8 只包含视频分片）
+      if (!_useDash && dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
+        // 转义列表分隔符（Windows 用分号，其他用冒号）
+        final escapedAudio = Platform.isWindows
+            ? dataSource.audioSource!.replaceAll(';', '\\;')
+            : dataSource.audioSource!.replaceAll(':', '\\:');
+        _logger.logDebug('🔊 设置 audio-files: ${dataSource.audioSource}');
+        await nativePlayer.setProperty('audio-files', escapedAudio);
+      } else if (!_useDash) {
+        await nativePlayer.setProperty('audio-files', '');
+      }
+
+      // 2. 打开视频源（不自动播放）
       await player.open(
         Media(dataSource.videoSource, start: _useDash ? seekTo : null),
         play: false,
       );
-
-      // 2. 挂载外部音频（pilipala 风格）
-      if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
-        final nativePlayer = player.platform as NativePlayer;
-        // 与 pilipala 相同：转义分隔符
-        final escapedAudio = Platform.isWindows
-            ? dataSource.audioSource!.replaceAll(';', '\\;')
-            : dataSource.audioSource!.replaceAll(':', '\\:');
-        await nativePlayer.setProperty('audio-files', escapedAudio);
-      }
 
       // 3. 等待 duration 就绪
       await _waitForDuration();

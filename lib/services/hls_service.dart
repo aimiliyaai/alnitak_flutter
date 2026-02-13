@@ -42,10 +42,10 @@ class HlsService {
   }
 
   /// 是否应使用 DASH 格式
-  /// Android 用 DASH（media_kit/libmpv 原生支持 MPD）
-  /// iOS 用 HLS（原生 HLS 支持更好）
+  /// media_kit 基于 libmpv，Android/Windows/macOS/Linux 都原生支持 DASH MPD
+  /// iOS 用 HLS（AVPlayer 后端，HLS 支持更好）
   static bool shouldUseDash() {
-    return Platform.isAndroid;
+    return !Platform.isIOS;
   }
 
   /// 获取清晰度信息（包含 supportsDash 字段）
@@ -58,7 +58,7 @@ class HlsService {
 
       if (response.data['code'] == 200) {
         final qualities = List<String>.from(response.data['data']['quality']);
-        final supportsDash = Platform.isAndroid;
+        final supportsDash = shouldUseDash();
         return QualityInfo(qualities: qualities, supportsDash: supportsDash);
       }
 

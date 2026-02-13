@@ -469,13 +469,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     final newResource = _videoDetail!.resources[part - 1];
 
-    // 通过 Controller 直接切换
+    // 设置视频上下文（分P切换）
     _playerController?.setVideoContext(vid: _currentVid, part: part);
-    _playerController?.initialize(
-      resourceId: newResource.id,
-      initialPosition: progress,
-    );
 
+    // 通过更新 _currentResourceId 触发 didUpdateWidget -> initialize
     setState(() {
       _currentPart = part;
       _currentResourceId = newResource.id;
@@ -632,13 +629,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
     final currentResource = videoDetail.resources[part - 1];
 
-    // 通过 Controller 直接初始化
+    // 设置视频上下文
     _playerController?.setVideoContext(vid: videoDetail.vid, part: part);
-    _playerController?.initialize(
-      resourceId: currentResource.id,
-      initialPosition: position,
-    );
 
+    // 通过更新 _currentResourceId 触发 didUpdateWidget -> initialize
     setState(() {
       _currentPart = part;
       _currentResourceId = currentResource.id;
