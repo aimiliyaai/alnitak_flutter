@@ -219,19 +219,29 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
             child: AspectRatio(
               aspectRatio: 16 / 9,
               child: ValueListenableBuilder<bool>(
-                valueListenable: _controller!.backgroundPlayEnabled,
-                builder: (context, bgEnabled, _) {
-                  return Video(
-                    controller: _controller!.videoController,
-                    pauseUponEnteringBackgroundMode: !bgEnabled,
-                    controls: (state) {
-                      return CustomPlayerUI(
-                        controller: state.widget.controller,
-                        logic: _controller!,
-                        title: widget.title ?? '',
-                        onBack: () => Navigator.of(context).maybePop(),
-                        danmakuController: widget.danmakuController,
-                        onlineCount: widget.onlineCount,
+                valueListenable: _controller!.isPlayerInitialized,
+                builder: (context, isInit, _) {
+                  // Player 和 VideoController 在 setDataSource 中 ??= 创建
+                  // 未初始化前不渲染 Video widget，避免 null 访问
+                  if (!isInit) {
+                    return const SizedBox.shrink();
+                  }
+                  return ValueListenableBuilder<bool>(
+                    valueListenable: _controller!.backgroundPlayEnabled,
+                    builder: (context, bgEnabled, _) {
+                      return Video(
+                        controller: _controller!.videoController,
+                        pauseUponEnteringBackgroundMode: !bgEnabled,
+                        controls: (state) {
+                          return CustomPlayerUI(
+                            controller: state.widget.controller,
+                            logic: _controller!,
+                            title: widget.title ?? '',
+                            onBack: () => Navigator.of(context).maybePop(),
+                            danmakuController: widget.danmakuController,
+                            onlineCount: widget.onlineCount,
+                          );
+                        },
                       );
                     },
                   );
