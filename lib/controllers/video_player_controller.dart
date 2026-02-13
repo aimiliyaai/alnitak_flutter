@@ -274,9 +274,12 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  // ============ changeQuality（简化）============
+  // ============ changeQuality（无闪烁切换）============
 
   /// 切换清晰度
+  ///
+  /// 使用 mpv 的 `loadfile replace` 命令替代 `player.open()`，
+  /// 避免 stop() 将 width/height 置 null 导致的 surface 闪烁。
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality || _currentResourceId == null) return;
 
@@ -296,11 +299,46 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (_isDisposed) return;
 
-      await setDataSource(
-        dataSource,
-        seekTo: targetPosition.inMilliseconds > 0 ? targetPosition : null,
-        autoPlay: wasPlaying,
-      );
+      final nativePlayer = player.platform as NativePlayer;
+
+      // HLS 模式需要更新 audio-files 属性
+      if (!_useDash) {
+        if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
+          final escapedAudio = Platform.isWindows
+              ? dataSource.audioSource!.replaceAll(';', '\\;')
+              : dataSource.audioSource!.replaceAll(':', '\\:');
+          await nativePlayer.setProperty('audio-files', escapedAudio);
+        } else {
+          await nativePlayer.setProperty('audio-files', '');
+        }
+      }
+
+      // 使用 loadfile replace 替代 player.open()
+      // 这样不会触发 stop()，width/height 不会被置 null，不会闪烁
+      final startSeconds = targetPosition.inSeconds;
+      if (startSeconds > 0) {
+        await nativePlayer.command([
+          'loadfile',
+          dataSource.videoSource,
+          'replace',
+          'start=$startSeconds',
+        ]);
+      } else {
+        await nativePlayer.command([
+          'loadfile',
+          dataSource.videoSource,
+          'replace',
+        ]);
+      }
+
+      // 等待新源加载
+      await _waitForDuration();
+
+      if (_isDisposed) return;
+
+      if (wasPlaying) {
+        await player.play();
+      }
 
       currentQuality.value = quality;
       await _savePreferredQuality(quality);
@@ -441,14 +479,12 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   void _handlePlaybackEnd() {
-    if (loopMode.value == LoopMode.on) {
-      seek(Duration.zero).then((_) => player.play());
-    } else {
-      onVideoEnd?.call();
-    }
+    // loop-file=inf 时 mpv 自动循环，不会走到这里
+    // 只有 loop-file=no 时 completed 才为 true
+    onVideoEnd?.call();
   }
 
-  /// 处理卡顿恢复
+  /// 处理卡顿恢复（使用 loadfile replace 避免闪烁）
   Future<void> _handleStalled() async {
     if (_isInitializing || isLoading.value) return;
     if (_currentResourceId == null || currentQuality.value == null) return;
@@ -464,11 +500,39 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (_isDisposed) return;
 
-      await setDataSource(
-        dataSource,
-        seekTo: position.inSeconds > 0 ? position : null,
-        autoPlay: true,
-      );
+      final nativePlayer = player.platform as NativePlayer;
+
+      // HLS 模式需要更新 audio-files
+      if (!_useDash) {
+        if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
+          final escapedAudio = Platform.isWindows
+              ? dataSource.audioSource!.replaceAll(';', '\\;')
+              : dataSource.audioSource!.replaceAll(':', '\\:');
+          await nativePlayer.setProperty('audio-files', escapedAudio);
+        } else {
+          await nativePlayer.setProperty('audio-files', '');
+        }
+      }
+
+      final startSeconds = position.inSeconds;
+      if (startSeconds > 0) {
+        await nativePlayer.command([
+          'loadfile',
+          dataSource.videoSource,
+          'replace',
+          'start=$startSeconds',
+        ]);
+      } else {
+        await nativePlayer.command([
+          'loadfile',
+          dataSource.videoSource,
+          'replace',
+        ]);
+      }
+
+      await _waitForDuration();
+      if (_isDisposed) return;
+      await player.play();
     } catch (_) {}
   }
 
@@ -476,13 +540,17 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> _configurePlayer() async {
     try {
+      final nativePlayer = player.platform as NativePlayer;
+
       if (Platform.isAndroid) {
-        final nativePlayer = player.platform as NativePlayer;
         await nativePlayer.setProperty("volume-max", "100");
 
         final decodeMode = await getDecodeMode();
         await nativePlayer.setProperty("hwdec", decodeMode);
       }
+
+      // 同步循环模式到 mpv
+      await _syncLoopProperty();
     } catch (_) {}
   }
 
@@ -590,9 +658,23 @@ class VideoPlayerController extends ChangeNotifier {
     await prefs.setBool(_backgroundPlayKey, backgroundPlayEnabled.value);
   }
 
-  void toggleLoopMode() {
+  Future<void> toggleLoopMode() async {
     final nextMode = (loopMode.value.index + 1) % LoopMode.values.length;
     loopMode.value = LoopMode.values[nextMode];
+    await _syncLoopProperty();
+  }
+
+  /// 同步 mpv 的 loop-file 属性
+  Future<void> _syncLoopProperty() async {
+    try {
+      final nativePlayer = player.platform as NativePlayer;
+      // loop-file=inf: mpv 自动循环当前文件，不触发 completed
+      // loop-file=no: 播放完成后触发 completed
+      await nativePlayer.setProperty(
+        'loop-file',
+        loopMode.value == LoopMode.on ? 'inf' : 'no',
+      );
+    } catch (_) {}
   }
 
   void handleAppLifecycleState(bool isPaused) {}
