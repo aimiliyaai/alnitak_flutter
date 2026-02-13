@@ -54,7 +54,8 @@
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(cd /d e:alnitak_flutter)",
-      "Bash(dart analyze:*)"
+      "Bash(dart analyze:*)",
+      "Bash(del \"e:\\\\alnitak_flutter\\\\lib\\\\managers\\\\video_player_manager.dart\")"
     ],
     "deny": [],
     "ask": [],

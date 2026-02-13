@@ -60,10 +60,10 @@ dependencies:
   audio_service: ^0.18.12
   # 屏幕适配
   flutter_screenutil: ^5.9.3
-   # 音频会话管理（监听电话打断等）
-   audio_session: ^0.1.21
-   # 系统控制
-   screen_brightness: ^2.1.7
+  # 音频会话管理（监听电话打断等）
+  audio_session: ^0.1.21
+  # 系统控制
+  screen_brightness: ^2.1.7
   volume_controller: ^3.4.0
   # 网络状态监听
   connectivity_plus: ^6.0.0
@@ -71,7 +71,7 @@ dependencies:
   crypto: ^3.0.3
   # 文件路径处理
   path: ^1.9.0
-  file_picker: ^10.3.7  # 检查最新版本
+  file_picker: ^10.3.7
   # 二维码生成
   qr_flutter: ^4.1.0
   emoji_picker_flutter: ^3.0.0

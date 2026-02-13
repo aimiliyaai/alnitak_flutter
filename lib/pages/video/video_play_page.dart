@@ -5,7 +5,7 @@ import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/hls_service.dart';
 import '../../services/online_websocket_service.dart';
-import '../../managers/video_player_manager.dart';
+import '../../controllers/video_player_controller.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
@@ -44,16 +44,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   // 使用 GlobalKey 保持播放器状态（使用固定的key，不随分P变化而重建）
   late final GlobalKey _playerKey;
 
-  // 【新增】播放管理器 - 统一管理 HLS预加载 和 播放器实例化
-  late final VideoPlayerManager _playerManager;
-
-  // 【新增】弹幕控制器
+  // 弹幕控制器
   late final DanmakuController _danmakuController;
 
-  // 【新增】在线人数 WebSocket 服务
+  // 在线人数 WebSocket 服务
   late final OnlineWebSocketService _onlineWebSocketService;
 
-  // 【新增】弹幕数量 ValueNotifier（用于实时更新显示）
+  // 弹幕数量 ValueNotifier（用于实时更新显示）
   final ValueNotifier<int> _danmakuCountNotifier = ValueNotifier<int>(0);
 
   VideoDetail? _videoDetail;
@@ -68,17 +65,21 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
   double _currentDuration = 0;
 
-  // 【关键】播放器控制器引用，用于离开页面时获取实时进度
-  dynamic _playerController;
+  // 播放器控制器引用（通过 onControllerReady 回调获取）
+  VideoPlayerController? _playerController;
 
-  // 【新增】当前播放的视频ID（用于切换推荐视频时更新）
+  // 当前播放的视频ID（用于切换推荐视频时更新）
   late int _currentVid;
+
+  // 当前资源ID和初始位置（驱动 MediaPlayerWidget）
+  int? _currentResourceId;
+  double? _currentInitialPosition;
 
   // 评论相关
   int _totalComments = 0;
   Comment? _latestComment;
 
-  // 【新增】分集列表和推荐列表的 GlobalKey，用于自动连播
+  // 分集列表和推荐列表的 GlobalKey，用于自动连播
   final GlobalKey<PartListState> _partListKey = GlobalKey<PartListState>();
   final GlobalKey<CollectionListState> _collectionListKey = GlobalKey<CollectionListState>();
   final GlobalKey<RecommendListState> _recommendListKey = GlobalKey<RecommendListState>();
@@ -86,35 +87,26 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   @override
   void initState() {
     super.initState();
-    _currentVid = widget.vid; // 初始化当前视频ID
+    _currentVid = widget.vid;
     _currentPart = widget.initialPart ?? 1;
-    // 为播放器创建稳定的 GlobalKey（不随视频切换而重建）
     _playerKey = GlobalKey(debugLabel: 'player_stable');
 
-    // 【新增】创建播放管理器
-    _playerManager = VideoPlayerManager();
-
-    // 【新增】创建弹幕控制器
+    // 创建弹幕控制器
     _danmakuController = DanmakuController();
-    // 监听弹幕控制器变化，更新弹幕数量
     _danmakuController.addListener(_onDanmakuChanged);
 
-    // 【新增】创建在线人数服务
+    // 创建在线人数服务
     _onlineWebSocketService = OnlineWebSocketService();
 
     _loadVideoData();
-    // 添加生命周期监听
     WidgetsBinding.instance.addObserver(this);
-    // 监听登录状态变化
     _authStateManager.addListener(_onAuthStateChanged);
   }
 
   /// 登录状态变化回调
   void _onAuthStateChanged() {
-    // 当登录状态变化时，刷新用户操作状态（点赞、收藏、关注）
     _refreshUserActionStatus();
-    // 登录后恢复服务端历史进度（Controller 内部已保存 vid/part 上下文）
-    _playerManager.controller?.fetchAndRestoreProgress();
+    _playerController?.fetchAndRestoreProgress();
   }
 
   /// 弹幕控制器变化回调（更新弹幕数量显示）
@@ -201,7 +193,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // 当应用从后台返回前台时，刷新作者信息
     if (state == AppLifecycleState.resumed) {
       _refreshAuthorInfo();
     }
@@ -209,51 +200,42 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   @override
   void dispose() {
-    // 移除生命周期监听
     WidgetsBinding.instance.removeObserver(this);
-    // 移除登录状态监听
     _authStateManager.removeListener(_onAuthStateChanged);
 
-    // 【关键修复】页面关闭前保存播放进度
-    // 核心原则：只有当视频真正播放过（有 duration）时才保存进度，避免覆盖服务器正确记录
+    // 页面关闭前保存播放进度
     _saveProgressOnDispose();
 
     _scrollController.dispose();
 
-    // 【新增】销毁播放管理器（会自动清理HLS缓存）
-    _playerManager.dispose();
-
-    // 【新增】销毁弹幕控制器
+    // 销毁弹幕控制器
     _danmakuController.removeListener(_onDanmakuChanged);
     _danmakuController.dispose();
 
-    // 【新增】释放弹幕数量 ValueNotifier
+    // 释放弹幕数量 ValueNotifier
     _danmakuCountNotifier.dispose();
 
-    // 【新增】断开在线人数连接
+    // 断开在线人数连接
     _onlineWebSocketService.dispose();
+
+    // 清理 HLS 缓存
+    HlsService().cleanupAllTempCache();
 
     super.dispose();
   }
 
   /// 页面关闭时保存进度
   void _saveProgressOnDispose() {
-    // 【关键】如果视频从未真正加载完成（duration == 0），不保存进度
-    // 避免用户快速进入又退出时，用错误的进度覆盖服务器的正确记录
     if (_currentDuration <= 0) {
       return;
     }
 
-    // 【优先级】使用回调记录的位置（已经验证过的稳定位置）
-    // 而不是播放器的实时位置（可能在 seek/切换过程中不稳定）
     double? progressToSave = _lastReportedPosition?.inSeconds.toDouble();
 
-    // 如果回调没有记录过，再尝试从播放器获取
     if (progressToSave == null && _playerController != null) {
       try {
-        final currentPosition = _playerController.player.state.position;
-        final playerDuration = _playerController.player.state.duration;
-        // 只有当播放器的 duration 也有效时，才信任其 position
+        final currentPosition = _playerController!.player.state.position;
+        final playerDuration = _playerController!.player.state.duration;
         if (playerDuration.inSeconds > 0 && currentPosition.inSeconds > 0) {
           progressToSave = currentPosition.inSeconds.toDouble();
         }
@@ -265,7 +247,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
-    // 如果已经完播，退出时应该上报-1而不是总时长
     if (_hasReportedCompleted) {
       _historyService.addHistory(
         vid: _currentVid,
@@ -284,7 +265,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 加载视频数据
-  /// 【优化】先加载视频，再异步获取进度，不阻塞播放
   Future<void> _loadVideoData({int? part}) async {
     setState(() {
       _isLoading = true;
@@ -292,7 +272,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     });
 
     try {
-      // 【优化】先加载视频（优先保证能播放）
       final videoDetail = await _videoService.getVideoDetail(_currentVid);
 
       if (videoDetail == null) {
@@ -303,7 +282,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 【优化】立即渲染界面，让用户能尽快看到内容
       setState(() {
         _videoDetail = videoDetail;
         _currentPart = part ?? 1;
@@ -312,13 +290,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _isLoading = false;
       });
 
-       // 【关键优化】异步获取进度，不阻塞UI
       _fetchProgressAndRestore(part: part);
-
-      // 【新增】后台加载次要数据（统计、操作状态、评论预览）
       _loadSecondaryData(videoDetail.author.uid);
-
-      // 【新增】连接在线人数 WebSocket
       _onlineWebSocketService.connect(_currentVid);
 
     } catch (e) {
@@ -329,34 +302,27 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
-  /// 【新增】异步获取进度并恢复播放
-  /// 网络不好时不会阻塞播放，而是后台静默重试
+  /// 异步获取进度并恢复播放
   Future<void> _fetchProgressAndRestore({int? part}) async {
     try {
-      // 获取进度（内部有重试和降级逻辑）
       final progressData = await _historyService.getProgress(
         vid: _currentVid,
         part: part,
       );
 
       if (progressData == null) {
-        // 服务端无记录，直接从头播放
         _startPlayback(part ?? 1, null);
         return;
       }
 
       final progress = progressData.progress;
 
-      // 如果进度为-1，表示已看完，从头开始
       if (progress == -1) {
         _startPlayback(progressData.part, null);
         return;
       }
 
-      // 【新增】如果进度接近视频末尾（减2秒后剩余不足3秒），直接从头开始
-      // 避免在视频末尾恢复时出现加载问题
       if (progressData.duration > 0) {
-        // 先减2秒（与下面seek逻辑一致）
         final adjustedProgressForCheck = progress > 2 ? progress - 2 : progress;
         final remainingAfterSeek = progressData.duration - adjustedProgressForCheck;
         if (remainingAfterSeek <= 3) {
@@ -365,58 +331,44 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         }
       }
 
-      // 有进度（>=0且不接近末尾），恢复到对应分P和进度
       final targetPart = progressData.part;
-
-      // 回退2秒避免HLS边界
       final adjustedProgress = progress > 2 ? progress - 2 : progress;
-      if (adjustedProgress != progress) {
-      }
 
       _startPlayback(targetPart, adjustedProgress);
 
     } catch (e) {
-      // 获取失败则从头播放
       _startPlayback(part ?? 1, null);
     }
   }
 
-  /// 【新增】开始播放（统一入口）
+  /// 开始播放（统一入口）
+  ///
+  /// 通过更新 _currentResourceId 和 _currentInitialPosition 来驱动
+  /// MediaPlayerWidget 的 didUpdateWidget 触发重新加载
   void _startPlayback(int part, double? position) {
     if (!mounted) return;
 
     final currentResource = _videoDetail!.resources[part - 1];
 
-    _playerManager.preloadResource(
-      resourceId: currentResource.id,
-      initialPosition: position,
-    );
-
-    _playerManager.setMetadata(
-      title: currentResource.title,
-      author: _videoDetail!.author.name,
-      coverUrl: _videoDetail!.cover,
-    );
-
-    _playerManager.setVideoContext(vid: _currentVid, part: part);
+    // 设置视频上下文（用于进度恢复）
+    _playerController?.setVideoContext(vid: _currentVid, part: part);
 
     setState(() {
       _currentPart = part;
+      _currentResourceId = currentResource.id;
+      _currentInitialPosition = position;
     });
   }
+
   /// 后台加载次要数据（统计、操作状态、评论预览）
   Future<void> _loadSecondaryData(int authorUid) async {
-    // 【优化】并发请求所有次要数据，每个请求独立处理错误
     final futures = await Future.wait([
-      // 1. 视频统计（不需要登录）
       _videoService.getVideoStat(_currentVid).catchError((e) {
         return null;
       }),
-      // 2. 评论预览（不需要登录）
       _videoService.getComments(vid: _currentVid, page: 1, pageSize: 1).catchError((e) {
         return null;
       }),
-      // 3. 用户操作状态（需要登录）
       _videoService.getUserActionStatus(_currentVid, authorUid).catchError((e) {
         return null;
       }),
@@ -427,7 +379,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     final videoStat = futures[0] as VideoStat?;
     final commentResponse = futures[1] as CommentListResponse?;
     final actionStatus = futures[2] as UserActionStatus?;
-
 
     setState(() {
       if (videoStat != null) {
@@ -470,7 +421,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     if (_videoDetail == null) return;
 
     try {
-      // 重新获取视频详情以刷新作者信息
       final videoDetail = await _videoService.getVideoDetail(_currentVid);
       if (videoDetail != null && mounted) {
         setState(() {
@@ -485,7 +435,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   Future<void> _changePart(int part) async {
     if (_videoDetail == null || part == _currentPart) return;
 
-    // 检查分P是否存在
     if (part < 1 || part > _videoDetail!.resources.length) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('该分集不存在')),
@@ -493,7 +442,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
-    // 在切换前，先上报当前分P的最后播放进度（参考PC端逻辑）
+    // 在切换前，先上报当前分P的最后播放进度
     if (_lastReportedPosition != null) {
       await _historyService.addHistory(
         vid: _currentVid,
@@ -510,48 +459,35 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
     var progress = progressData?.progress;
 
-    // 如果进度为-1，表示已看完，应该从头开始播放
     if (progress != null && progress == -1) {
       progress = null;
     }
 
-    // 【新增】服务端进度回退2秒，避免HLS分片边界导致跳过内容
     if (progress != null && progress > 2) {
       progress = progress - 2;
     }
 
-    // 获取新分P的资源
     final newResource = _videoDetail!.resources[part - 1];
 
-    // 【关键】使用 Manager 切换资源（预加载新资源）
-    _playerManager.setMetadata(
-      title: newResource.title,
-      author: _videoDetail!.author.name,
-      coverUrl: _videoDetail!.cover,
-    );
-    _playerManager.switchResource(
+    // 通过 Controller 直接切换
+    _playerController?.setVideoContext(vid: _currentVid, part: part);
+    _playerController?.initialize(
       resourceId: newResource.id,
       initialPosition: progress,
     );
 
-    // 【新增】更新视频上下文（分P切换）
-    _playerManager.setVideoContext(vid: _currentVid, part: part);
-
     setState(() {
       _currentPart = part;
-      // 切换分P时清空上次播放位置，准备记录新分P的播放位置
+      _currentResourceId = newResource.id;
+      _currentInitialPosition = progress;
       _lastReportedPosition = null;
-      // 切换分P时重置已看完标记
       _hasReportedCompleted = false;
-      // 切换分P时重置上次保存的秒数，允许新分P立即上报首次进度
       _lastSavedSeconds = null;
-      // 不再重新创建 GlobalKey，保持播放器实例以维持全屏状态
     });
 
-    // 【新增】切换分P时重新加载弹幕
+    // 切换分P时重新加载弹幕
     _danmakuController.loadDanmaku(vid: _currentVid, part: part);
 
-    // 滚动到顶部
     _scrollController.animateTo(
       0,
       duration: const Duration(milliseconds: 300),
@@ -559,28 +495,24 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     );
   }
 
-  // 【新增】防止并发切换视频
+  // 防止并发切换视频
   bool _isSwitchingVideo = false;
 
   /// 切换到其他视频（原地刷新，不重新导航）
   Future<void> _switchToVideo(int vid) async {
-    if (vid == _currentVid) return; // 同一个视频不需要切换
+    if (vid == _currentVid) return;
 
-    // 【修复】防止并发切换
     if (_isSwitchingVideo) {
       return;
     }
     _isSwitchingVideo = true;
 
     final oldVid = _currentVid;
-
-    // 【修复】先更新 _currentVid，防止异步操作期间的竞态
     _currentVid = vid;
 
     try {
-      // 1. 上报当前视频的播放进度（不阻塞，后台执行）
+      // 1. 上报当前视频的播放进度
       if (_lastReportedPosition != null && _currentDuration > 0) {
-        // 【优化】不等待上报完成，避免阻塞切换
         _historyService.addHistory(
           vid: oldVid,
           part: _currentPart,
@@ -589,21 +521,19 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         );
       }
 
-      // 2. 重置播放状态（保留旧界面数据避免闪烁）
+      // 2. 重置播放状态
       _currentPart = 1;
       _lastReportedPosition = null;
       _hasReportedCompleted = false;
       _lastSavedSeconds = null;
       _currentDuration = 0;
 
-      // 【新增】重置历史记录服务的进度上报状态
       _historyService.resetProgressState();
 
       // 3. 加载新视频数据
       await _loadVideoDataSeamless();
 
-      // 4. 清理旧视频缓存（在新视频开始加载后再清理，避免影响播放）
-      // 【修复】使用 Future.delayed 确保新视频开始播放后再清理
+      // 4. 清理旧视频缓存
       Future.delayed(const Duration(seconds: 2), () {
         HlsService().cleanupExpiredCache();
       });
@@ -620,16 +550,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 无缝加载视频数据（不显示 loading，用于切换推荐视频）
-  /// 【优化】先加载视频，再异步获取进度，不阻塞切换
   Future<void> _loadVideoDataSeamless() async {
-    // 【修复】记录当前要加载的视频ID，用于防止竞态
     final targetVid = _currentVid;
 
     try {
-      // 【优化】先加载视频详情（优先保证能播放）
       final videoDetail = await _videoService.getVideoDetail(targetVid);
 
-      // 【修复】检查异步操作完成后，目标视频是否仍然是当前视频
       if (_currentVid != targetVid) {
         return;
       }
@@ -641,7 +567,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 【优化】立即更新界面，让用户看到新视频
       setState(() {
         _videoDetail = videoDetail;
         _currentPart = 1;
@@ -652,21 +577,18 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _errorMessage = null;
       });
 
-       // 加载弹幕
       _danmakuController.loadDanmaku(vid: targetVid, part: 1);
       _onlineWebSocketService.connect(targetVid);
 
-      // 后台加载次要数据
       _loadSecondaryData(videoDetail.author.uid);
 
-      // 【优化】后台异步获取进度并恢复
       _fetchProgressAndRestoreSeamless(targetVid: targetVid, videoDetail: videoDetail);
 
     } catch (e) {
     }
   }
 
-  /// 【新增】无缝加载时异步获取进度
+  /// 无缝加载时异步获取进度
   Future<void> _fetchProgressAndRestoreSeamless({required int targetVid, required VideoDetail videoDetail}) async {
     try {
       final progressData = await _historyService.getProgress(vid: targetVid, part: null);
@@ -685,7 +607,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         return;
       }
 
-      // 【新增】如果进度接近视频末尾（减2秒后剩余不足3秒），直接从头开始
       if (progressData.duration > 0) {
         final adjustedProgressForCheck = progress > 2 ? progress - 2 : progress;
         final remainingAfterSeek = progressData.duration - adjustedProgressForCheck;
@@ -695,12 +616,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         }
       }
 
-      // 有进度（>=0且不接近末尾），恢复到对应分P
       final targetPart = progressData.part;
-
       final adjustedProgress = progress > 2 ? progress - 2 : progress;
-      if (adjustedProgress != progress) {
-      }
 
       _startPlaybackSeamless(videoDetail, targetPart, adjustedProgress);
 
@@ -709,27 +626,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     }
   }
 
-  /// 【新增】无缝模式开始播放
+  /// 无缝模式开始播放
   void _startPlaybackSeamless(VideoDetail videoDetail, int part, double? position) {
     if (!mounted || _currentVid != videoDetail.vid) return;
 
     final currentResource = videoDetail.resources[part - 1];
 
-    _playerManager.setMetadata(
-      title: currentResource.title,
-      author: videoDetail.author.name,
-      coverUrl: videoDetail.cover,
-    );
-
-    _playerManager.switchResource(
+    // 通过 Controller 直接初始化
+    _playerController?.setVideoContext(vid: videoDetail.vid, part: part);
+    _playerController?.initialize(
       resourceId: currentResource.id,
       initialPosition: position,
     );
 
-    _playerManager.setVideoContext(vid: videoDetail.vid, part: part);
-
     setState(() {
       _currentPart = part;
+      _currentResourceId = currentResource.id;
+      _currentInitialPosition = position;
     });
   }
 
@@ -745,27 +658,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position, Duration totalDuration) {
     _currentDuration = totalDuration.inSeconds.toDouble();
-    // 记录最后播放位置（用于切换分P前上报）
     _lastReportedPosition = position;
 
-    // 【新增】同步弹幕进度
+    // 同步弹幕进度
     _danmakuController.updateTime(position.inSeconds.toDouble());
 
-    // 使用节流机制：只有当播放进度与上次保存相差5秒以上时才上报
     final currentSeconds = position.inSeconds;
 
     if (_hasReportedCompleted) {
-      return; // 已上报完成标记，不再上报进度
+      return;
     }
 
-    // 首次上报 或 距离上次上报已经过了5秒
     if (_lastSavedSeconds == null ||
         (currentSeconds - _lastSavedSeconds!) >= 5) {
       _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
         time: currentSeconds.toDouble(),
-        // 【修改点】传入真实总时长
         duration: _currentDuration.toInt(),
       );
       _lastSavedSeconds = currentSeconds;
@@ -774,51 +683,42 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   /// 播放结束回调
   void _onVideoEnded() {
-    // 避免重复上报
     if (_hasReportedCompleted) {
       return;
     }
 
-
-    // 播放完成后上报进度为 -1，表示已看完
     _historyService.addHistory(
       vid: _currentVid,
       part: _currentPart,
       time: -1,
       duration: _currentDuration.toInt(),
     );
-    _hasReportedCompleted = true; // 标记为已上报
+    _hasReportedCompleted = true;
 
-    // 【自动连播逻辑】
-    // 1. 优先检查分P自动连播（下一集）
+    // 自动连播逻辑
     final nextPart = _partListKey.currentState?.getNextPart();
     if (nextPart != null) {
       _changePart(nextPart);
       return;
     }
 
-    // 2. 检查合集自动连播（下一个视频）
     final nextCollectionVideo = _collectionListKey.currentState?.getNextVideo();
     if (nextCollectionVideo != null) {
       _switchToVideo(nextCollectionVideo);
       return;
     }
 
-    // 3. 如果没有下一集，检查推荐列表自动连播
     final nextVideo = _recommendListKey.currentState?.getNextVideo();
     if (nextVideo != null) {
       _switchToVideo(nextVideo);
       return;
     }
-
   }
 
-///头部
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        // 只在顶部添加安全区域，适配刘海、挖孔、水滴屏
         top: true,
         bottom: false,
         left: false,
@@ -873,7 +773,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       );
     }
 
-    // 获取当前分P的视频URL
     final currentResource = _videoDetail!.resources[_currentPart - 1];
 
     return LayoutBuilder(
@@ -881,17 +780,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         final isWideScreen = constraints.maxWidth > 900;
 
         if (isWideScreen) {
-          // 宽屏布局：左右两栏
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 左侧主内容区
               Expanded(
                 flex: 7,
                 child: _buildMainContent(currentResource),
               ),
-
-              // 右侧边栏
               SizedBox(
                 width: 350,
                 child: _buildSidebar(),
@@ -899,7 +794,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             ],
           );
         } else {
-          // 窄屏布局：单栏
           return _buildMainContent(currentResource);
         }
       },
@@ -910,33 +804,36 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   Widget _buildMainContent(VideoResource currentResource) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // 使用实际可用宽度计算播放器高度（16:9 比例）
         final playerHeight = constraints.maxWidth * 9 / 16;
 
         return Column(
       children: [
-        // 固定播放器区域（不参与滚动）
+        // 固定播放器区域
         SizedBox(
           width: double.infinity,
           height: playerHeight,
           child: MediaPlayerWidget(
             key: _playerKey,
-            // 【优化】使用 Manager 模式，避免两次加载
-            manager: _playerManager,
+            resourceId: _currentResourceId,
+            initialPosition: _currentInitialPosition,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
-            onControllerReady: (controller) => _playerController = controller,
+            onControllerReady: (controller) {
+              _playerController = controller;
+              // 设置视频上下文
+              controller.setVideoContext(vid: _currentVid, part: _currentPart);
+            },
             title: _videoDetail!.resources.length > 1
                 ? currentResource.title
-                : _videoDetail!.title, // 单P用稿件标题，多P用分P标题
-            author: _videoDetail!.author.name, // 传递作者名（后台播放通知用）
-            coverUrl: _videoDetail!.cover, // 传递封面（后台播放通知用）
+                : _videoDetail!.title,
+            author: _videoDetail!.author.name,
+            coverUrl: _videoDetail!.cover,
             totalParts: _videoDetail!.resources.length,
             currentPart: _currentPart,
             onPartChange: _changePart,
-            danmakuController: _danmakuController, // 【新增】传递弹幕控制器
-            onPlayingStateChanged: _onPlayingStateChanged, // 【新增】播放状态变化
-            onlineCount: _onlineWebSocketService.onlineCount, // 【新增】在看人数
+            danmakuController: _danmakuController,
+            onPlayingStateChanged: _onPlayingStateChanged,
+            onlineCount: _onlineWebSocketService.onlineCount,
           ),
         ),
 
@@ -946,9 +843,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             controller: _scrollController,
             padding: const EdgeInsets.only(bottom: 16),
             children: [
-              // 弹幕发送入口（非全屏模式）
               _buildDanmakuInputBar(),
-              // 视频标题和信息
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 child: VideoInfoCard(
@@ -961,7 +856,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               ),
               const SizedBox(height: 16),
 
-              // 操作按钮
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: VideoActionButtons(
@@ -973,7 +867,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               ),
               const SizedBox(height: 16),
 
-              // 作者信息
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: AuthorCard(
@@ -991,7 +884,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               ),
               const SizedBox(height: 16),
 
-              // 分P列表（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1003,7 +895,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                   ),
                 ),
 
-              // 合集列表（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1016,7 +907,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
               const SizedBox(height: 16),
 
-              // 评论预览卡片（YouTube 风格）
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: CommentPreviewCard(
@@ -1024,15 +914,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                   totalComments: _totalComments,
                   latestComment: _latestComment,
                   onSeek: (seconds) {
-                    // 点击评论中的时间戳，跳转到对应时间
-                    _playerManager.controller?.seek(Duration(seconds: seconds));
+                    _playerController?.seek(Duration(seconds: seconds));
                   },
                   onCommentPosted: _refreshCommentPreview,
                 ),
               ),
               const SizedBox(height: 16),
 
-              // 推荐视频（手机端）
               if (MediaQuery.of(context).size.width <= 900)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1058,7 +946,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // 作者信息
             AuthorCard(
               author: _videoDetail!.author,
               initialRelationStatus: _actionStatus!.relationStatus,
@@ -1073,7 +960,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             ),
             const SizedBox(height: 16),
 
-            // 分P列表
             if (_videoDetail!.resources.length > 1)
               PartList(
                 key: _partListKey,
@@ -1082,7 +968,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 onPartChange: _changePart,
               ),
 
-            // 合集列表
             CollectionList(
               key: _collectionListKey,
               vid: _currentVid,
@@ -1091,7 +976,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
             const SizedBox(height: 16),
 
-            // 推荐视频
             RecommendList(
               key: _recommendListKey,
               vid: _currentVid,
