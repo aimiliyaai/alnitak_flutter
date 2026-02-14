@@ -84,16 +84,13 @@ class HlsService {
   Future<DataSource> getDataSource(int resourceId, String quality, {bool useDash = false}) async {
     try {
       if (useDash) {
-        // DASH 模式：MPD URL + 音频 URL
+        // DASH 模式：MPD 自带 video + audio AdaptationSet，不需要外挂音频
         final mpdUrl = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile'
             '?resourceId=$resourceId&quality=$quality&format=mpd';
 
-        // 获取音频 URL
-        final audioUrl = await _fetchAudioUrl(resourceId, quality);
-
         return DataSource(
           videoSource: mpdUrl,
-          audioSource: audioUrl,
+          // MPD 已包含音频，不设 audioSource，避免 audio-files 冲突
         );
       }
 

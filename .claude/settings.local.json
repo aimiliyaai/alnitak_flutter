@@ -61,7 +61,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(where:*)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:pub.dev)"
+      "WebFetch(domain:pub.dev)",
+      "Bash(if exist \"E:\\\\bili_tube\" echo \"Directory exists\" else echo \"Directory not found\")",
+      "Bash(del \"e:\\\\alnitak_flutter\\\\nul\")"
     ],
     "deny": [],
     "ask": [],
