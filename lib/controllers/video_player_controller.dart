@@ -240,8 +240,12 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 通过 Media(start:) 指定起始位置，media_kit 内部走 on_load hook
-      // 设置 mpv 的 start 属性，配合 surface 重建流程
+      // 通过 Media(start:) 设置起始位置
+      // media_kit 的 on_load hook 会在 mpv 加载媒体时设置 start 属性
+      // on_unload hook 会自动清除 start，不影响后续 seek
+      // surface 重建会导致 position 短暂回跳到 0-1s，但 mpv 会自动恢复
+      // _lastValidPosition 已重置为 0，不会误触 surface 重置检测
+      _logger.logDebug('setDataSource: open with start=${seekTo.inSeconds}s');
       await _player!.open(
         Media(dataSource.videoSource, start: seekTo),
         play: autoPlay,
@@ -251,7 +255,6 @@ class VideoPlayerController extends ChangeNotifier {
 
       isLoading.value = false;
       isPlayerInitialized.value = true;
-      _isSeeking = false;
 
     } catch (e) {
       _isSeeking = false;
@@ -261,21 +264,6 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 等待 duration 就绪
-  Future<void> _waitForDuration() async {
-    if (_player == null || _player!.state.duration.inSeconds > 0) return;
-    final c = Completer<void>();
-    final sub = _player!.stream.duration.listen((d) {
-      if (d.inSeconds > 0 && !c.isCompleted) c.complete();
-    });
-    try {
-      await c.future.timeout(const Duration(seconds: 10), onTimeout: () {
-        _logger.logDebug('_waitForDuration: 超时 10s, 当前 duration=${_player?.state.duration}');
-      });
-    } finally {
-      await sub.cancel();
-    }
-  }
 
   /// 等待 seek 引发的缓冲完成
   ///
