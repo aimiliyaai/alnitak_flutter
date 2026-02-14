@@ -213,17 +213,20 @@ class VideoPlayerController extends ChangeNotifier {
       );
 
       // 打开视频源（不自动播放）
-      // Media(start:) 会在 MPV_EVENT_START_FILE 时设置 mpv 的 start 属性
+      // Media(start:) 让 mpv 从目标位置附近开始加载分片，避免从头缓冲
       await _player!.open(
         Media(dataSource.videoSource, start: seekTo),
         play: false,
       );
 
-      // == pilipala: setDataSource 尾部 ==
       // 重新注册监听（pilipala startListeners 模式）
       startListeners();
 
-      // == pilipala: _initializePlayer ==
+      // 加载完毕后再 seekTo 精准跳转，双重保证进度恢复
+      if (seekTo > Duration.zero) {
+        await seek(seekTo);
+      }
+
       if (autoPlay) {
         await _player!.play();
       }
@@ -241,14 +244,13 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  // ============ seek（照搬 pilipala 的 seekTo）============
+  // ============ seek ============
 
   /// 跳转到指定位置
   ///
-  /// 照搬 pilipala 的 seekTo 方法：
-  /// - duration 就绪时：等 buffer.first → player.seek()
-  /// - duration 未就绪时：Timer.periodic 重试
-  Future<void> seek(Duration position, {String type = 'seek'}) async {
+  /// 直接调用 player.seek()，mpv 会自动丢弃旧缓冲、从目标位置的分片开始加载
+  /// duration 未就绪时用 Timer.periodic 重试
+  Future<void> seek(Duration position) async {
     if (_isDisposed || _player == null) return;
     if (position < Duration.zero) position = Duration.zero;
 
@@ -256,15 +258,9 @@ class VideoPlayerController extends ChangeNotifier {
 
     try {
       if (_player!.state.duration.inSeconds != 0) {
-        // pilipala: 拖动进度条时不等 buffer（type='slider'）
-        if (type != 'slider') {
-          try {
-            await _player!.stream.buffer.first;
-          } catch (_) {}
-        }
         await _player!.seek(position);
       } else {
-        // duration 未就绪，使用定时重试（pilipala: _startSeekTimer）
+        // duration 未就绪，定时重试
         _seekTimer?.cancel();
         _seekTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
           if (_isDisposed || _player == null) {
@@ -275,9 +271,6 @@ class VideoPlayerController extends ChangeNotifier {
           if (_player!.state.duration.inSeconds != 0) {
             t.cancel();
             _seekTimer = null;
-            try {
-              await _player!.stream.buffer.first;
-            } catch (_) {}
             await _player!.seek(position);
           }
         });
