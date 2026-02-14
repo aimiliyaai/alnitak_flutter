@@ -48,6 +48,7 @@ class VideoPlayerController extends ChangeNotifier {
   int? _currentResourceId;
   bool _isDisposed = false;
   bool _hasTriggeredCompletion = false;
+  bool _hasJustCompleted = false; // 刚播放完毕，用于区分循环重播
   bool _isInitializing = false;
   bool _hasPlaybackStarted = false;
   bool _useDash = false;
@@ -167,6 +168,7 @@ class VideoPlayerController extends ChangeNotifier {
       isBuffering.value = false;
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
+      _hasJustCompleted = false; // 重置"刚播放完毕"标记
       _isSeeking = seekTo > Duration.zero;
 
       _player ??= Player(
@@ -178,6 +180,11 @@ class VideoPlayerController extends ChangeNotifier {
       );
 
       final nativePlayer = _player!.platform as NativePlayer;
+
+      // 启用 HTTP 请求调试日志
+      await nativePlayer.setProperty('msg-level', 'http/curl:6');
+      await nativePlayer.setProperty('msg-level', 'httpv=6');
+      await nativePlayer.setProperty('log-level', 'debug');
 
       // 优化 DASH/HLS 分段请求 - 按需加载，减少预缓存
       await nativePlayer.setProperty('demuxer-seekable-cache', 'no');  // 不缓存不可查找区域
@@ -224,12 +231,16 @@ class VideoPlayerController extends ChangeNotifier {
       final startSeconds = seekTo.inSeconds;
       
       if (startSeconds > 0) {
+        _logger.logDebug('loadfile: 执行 loadfile 命令, url=${dataSource.videoSource}, start=$startSeconds');
+        
         await nativePlayer.command([
           'loadfile',
           dataSource.videoSource,
           'replace',
           'start=$startSeconds',
         ]);
+        
+        _logger.logDebug('loadfile: loadfile 命令已执行');
       } else {
         await _player!.open(
           Media(dataSource.videoSource),
@@ -245,10 +256,15 @@ class VideoPlayerController extends ChangeNotifier {
         await _waitForDuration();
         if (_isDisposed) return;
         
+        final duration = _player!.state.duration;
+        final position = _player!.state.position;
+        _logger.logDebug('setDataSource: waitForDuration 完成, duration=${duration.inSeconds}s, position=${position.inSeconds}s');
+        
         await _waitForInitialBuffer();
         if (_isDisposed) return;
         
-        _logger.logDebug('setDataSource: loadfile 起始位置=${seekTo.inSeconds}s');
+        final positionAfterBuffer = _player!.state.position;
+        _logger.logDebug('setDataSource: loadfile 起始位置=${seekTo.inSeconds}s, 实际位置=${positionAfterBuffer.inSeconds}s');
       }
 
       if (autoPlay) {
@@ -535,9 +551,12 @@ class VideoPlayerController extends ChangeNotifier {
       _player!.stream.completed.listen((completed) {
         if (completed && !_hasTriggeredCompletion && !_isSeeking) {
           _hasTriggeredCompletion = true;
-          // loop-file=inf 时 mpv 自动循环，不会走到这里
-          // 只有 loop-file=no 时 completed 才为 true
+          _hasJustCompleted = true; // 刚播放完毕
           onVideoEnd?.call();
+        }
+        // 循环播放时重置标记
+        if (!completed) {
+          _hasTriggeredCompletion = false;
         }
       }),
 
@@ -550,31 +569,43 @@ class VideoPlayerController extends ChangeNotifier {
           _hasPlaybackStarted = true;
         }
 
+        // 判断是否为合法的"回到开头"场景：
+        // 1. 循环模式 (loop-file=inf)：mpv 自动循环，position 从接近 duration 跳回 0
+        // 2. 刚播放完毕后重新开始（onVideoEnd 触发后用户点重播等）
+        final isLooping = loopMode.value == LoopMode.on;
+        final isNearEnd = _lastValidPosition.inSeconds > 0 &&
+            _player!.state.duration.inSeconds > 0 &&
+            (_player!.state.duration.inSeconds - _lastValidPosition.inSeconds).abs() <= 3;
+        final isLegitRestart = isLooping || _hasJustCompleted || isNearEnd;
+
         // Surface 重置检测：从 >3秒 跳回 <=1秒
-        // 不依赖 _hasPlaybackStarted，因为切换清晰度会重置它
+        // 排除合法回到开头的场景
         if (!_isRecoveringFromSurfaceReset &&
+            !isLegitRestart &&
             _lastValidPosition.inSeconds > 3 &&
             position.inSeconds <= 1) {
-          
+
           _logger.logDebug('Surface 重置检测: ${_lastValidPosition.inSeconds}s -> ${position.inSeconds}s, 准备恢复');
           _isRecoveringFromSurfaceReset = true;
-          
-          // 保存恢复目标位置
+
           final recoveryPosition = _lastValidPosition;
-          
-          // 延迟执行 seekTo，等待 surface 稳定
+
           Future.delayed(const Duration(milliseconds: 200), () {
             if (_player != null && !_isDisposed) {
-              _logger.logDebug('Surface 重置恢复: 执行 seek to ${recoveryPosition.inSeconds}s');
+              _logger.logDebug('Surface 重置恢复: seek to ${recoveryPosition.inSeconds}s');
               _player!.seek(recoveryPosition).then((_) {
-                _logger.logDebug('Surface 重置恢复完成');
                 _isRecoveringFromSurfaceReset = false;
               });
             }
           });
-          
-          // 检测到重置后，不再更新 _lastValidPosition，等待恢复
+
           return;
+        }
+
+        // 回到开头时重置标记
+        if (position.inSeconds <= 1 && isLegitRestart) {
+          _hasJustCompleted = false;
+          _lastValidPosition = position;
         }
 
         // 更新最后有效位置
