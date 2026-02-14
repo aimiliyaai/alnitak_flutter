@@ -219,39 +219,33 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 使用 Media(start:) 直接指定起始位置
-      // mpv 会在 HTTP 请求中使用 Range header 直接请求指定位置的数据
-      // 比 open 后再 seek 更高效
-      await _player!.open(
-        Media(
+      // 使用 loadfile replace 命令直接指定起始位置
+      // 比 player.open(Media(start:)) 更可靠
+      final startSeconds = seekTo.inSeconds;
+      
+      if (startSeconds > 0) {
+        await nativePlayer.command([
+          'loadfile',
           dataSource.videoSource,
-          start: seekTo > Duration.zero ? seekTo : null,
-        ),
-        play: false,
-      );
+          'replace',
+          'start=$startSeconds',
+        ]);
+      } else {
+        await _player!.open(
+          Media(dataSource.videoSource),
+          play: false,
+        );
+      }
 
       startListeners();
 
-      // 如果使用 Media(start:)，不需要等待缓冲后再 seek
+      // loadfile replace start=xxx 已经指定了起始位置
       // 只需要等待初始缓冲完成即可播放
       if (seekTo > Duration.zero) {
-        // 等待初始缓冲完成
         await _waitForInitialBuffer();
         if (_isDisposed) return;
         
-        // 等待 duration 就绪
-        await _waitForDuration();
-        if (_isDisposed) return;
-        
-        // 验证位置是否到位
-        final currentPos = _player!.state.position;
-        if ((currentPos.inMilliseconds - seekTo.inMilliseconds).abs() > 3000) {
-          // 如果位置偏离，再用 seek 修正
-          await _player!.seek(seekTo);
-          await _waitForSeekBuffering();
-        }
-        
-        _logger.logDebug('setDataSource: 位置已到位, 当前=${currentPos.inSeconds}s, 目标=${seekTo.inSeconds}s');
+        _logger.logDebug('setDataSource: loadfile 起始位置=${seekTo.inSeconds}s');
       }
 
       if (autoPlay) {
@@ -548,6 +542,11 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
+        if (!_hasPlaybackStarted) {
+          if (position.inSeconds == 0) return;
+          _hasPlaybackStarted = true;
+        }
+
         // Surface 重置检测：从 >3秒 跳回 <=1秒
         // 不依赖 _hasPlaybackStarted，因为切换清晰度会重置它
         if (!_isRecoveringFromSurfaceReset &&
@@ -561,7 +560,7 @@ class VideoPlayerController extends ChangeNotifier {
           final recoveryPosition = _lastValidPosition;
           
           // 延迟执行 seekTo，等待 surface 稳定
-          Future.delayed(const Duration(milliseconds: 300), () {
+          Future.delayed(const Duration(milliseconds: 200), () {
             if (_player != null && !_isDisposed) {
               _logger.logDebug('Surface 重置恢复: 执行 seek to ${recoveryPosition.inSeconds}s');
               _player!.seek(recoveryPosition).then((_) {
@@ -570,11 +569,9 @@ class VideoPlayerController extends ChangeNotifier {
               });
             }
           });
-        }
-
-        if (!_hasPlaybackStarted) {
-          if (position.inSeconds == 0) return;
-          _hasPlaybackStarted = true;
+          
+          // 检测到重置后，不再更新 _lastValidPosition，等待恢复
+          return;
         }
 
         // 更新最后有效位置
