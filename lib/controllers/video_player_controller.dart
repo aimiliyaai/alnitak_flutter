@@ -64,6 +64,10 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _stalledTimer;
   Timer? _seekTimer;
 
+  // Surface 重置检测
+  Duration _lastValidPosition = Duration.zero;
+  bool _isRecoveringFromSurfaceReset = false;
+
   int? _currentVid;
   int _currentPart = 1;
 
@@ -544,9 +548,38 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
+        // Surface 重置检测：从 >3秒 跳回 <=1秒
+        // 不依赖 _hasPlaybackStarted，因为切换清晰度会重置它
+        if (!_isRecoveringFromSurfaceReset &&
+            _lastValidPosition.inSeconds > 3 &&
+            position.inSeconds <= 1) {
+          
+          _logger.logDebug('Surface 重置检测: ${_lastValidPosition.inSeconds}s -> ${position.inSeconds}s, 准备恢复');
+          _isRecoveringFromSurfaceReset = true;
+          
+          // 保存恢复目标位置
+          final recoveryPosition = _lastValidPosition;
+          
+          // 延迟执行 seekTo，等待 surface 稳定
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (_player != null && !_isDisposed) {
+              _logger.logDebug('Surface 重置恢复: 执行 seek to ${recoveryPosition.inSeconds}s');
+              _player!.seek(recoveryPosition).then((_) {
+                _logger.logDebug('Surface 重置恢复完成');
+                _isRecoveringFromSurfaceReset = false;
+              });
+            }
+          });
+        }
+
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
           _hasPlaybackStarted = true;
+        }
+
+        // 更新最后有效位置
+        if (!_isRecoveringFromSurfaceReset) {
+          _lastValidPosition = position;
         }
 
         _positionStreamController.add(position);
