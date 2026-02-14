@@ -240,8 +240,11 @@ class VideoPlayerController extends ChangeNotifier {
       startListeners();
 
       // loadfile replace start=xxx 已经指定了起始位置
-      // 只需要等待初始缓冲完成即可播放
+      // 需要等待 duration 就绪和初始缓冲完成
       if (seekTo > Duration.zero) {
+        await _waitForDuration();
+        if (_isDisposed) return;
+        
         await _waitForInitialBuffer();
         if (_isDisposed) return;
         
