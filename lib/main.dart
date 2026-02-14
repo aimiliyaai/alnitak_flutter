@@ -2,21 +2,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:audio_service/audio_service.dart';
 import 'pages/main_page.dart';
 import 'pages/settings_page.dart';
 import 'theme/app_theme.dart';
 import 'services/theme_service.dart';
 import 'services/logger_service.dart';
+import 'services/audio_service_handler.dart';
 import 'config/api_config.dart';
 import 'utils/http_client.dart';
 import 'utils/token_manager.dart';
 import 'utils/auth_state_manager.dart';
 import 'widgets/error_boundary.dart';
 
+/// 全局 AudioService handler，供 VideoPlayerController 使用
+late VideoAudioHandler audioHandler;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 初始化 media_kit
   MediaKit.ensureInitialized();
+  // 初始化 AudioService（后台播放 + 通知栏控件）
+  audioHandler = await AudioService.init(
+    builder: () => VideoAudioHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.example.alnitak_flutter.audio',
+      androidNotificationChannelName: '视频播放',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+    ),
+  );
   // 初始化主题服务
   await ThemeService().init();
   // 初始化 API 配置（必须在 HttpClient 之前）

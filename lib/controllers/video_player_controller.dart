@@ -13,6 +13,7 @@ import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
 import '../utils/error_handler.dart';
 import '../utils/quality_utils.dart';
+import '../main.dart' show audioHandler;
 
 class VideoPlayerController extends ChangeNotifier {
   final HlsService _hlsService = HlsService();
@@ -71,6 +72,11 @@ class VideoPlayerController extends ChangeNotifier {
 
   int? _currentVid;
   int _currentPart = 1;
+
+  // 视频元数据（通知栏显示）
+  String? _videoTitle;
+  String? _videoAuthor;
+  Uri? _videoCoverUri;
 
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
@@ -168,9 +174,12 @@ class VideoPlayerController extends ChangeNotifier {
       isBuffering.value = false;
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
-      _hasJustCompleted = false; // 重置"刚播放完毕"标记
-      _isSeeking = seekTo > Duration.zero;
+      _hasJustCompleted = false;
+      _isRecoveringFromSurfaceReset = false;
+      _lastValidPosition = Duration.zero; // 重置，防止新 listener 误触 surface 重置检测
+      _isSeeking = false; // Media(start:) 处理 seek，不需要冻结 position 推送
 
+      final isNewPlayer = _player == null;
       _player ??= Player(
         configuration: const PlayerConfiguration(
           title: '',
@@ -178,6 +187,11 @@ class VideoPlayerController extends ChangeNotifier {
           logLevel: MPVLogLevel.error,
         ),
       );
+
+      // 新创建的 Player 绑定到 AudioService（通知栏控件）
+      if (isNewPlayer) {
+        audioHandler.attachPlayer(_player!);
+      }
 
       final nativePlayer = _player!.platform as NativePlayer;
 
@@ -226,50 +240,14 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 使用 loadfile replace 命令直接指定起始位置
-      // 比 player.open(Media(start:)) 更可靠
-      final startSeconds = seekTo.inSeconds;
-      
-      if (startSeconds > 0) {
-        _logger.logDebug('loadfile: 执行 loadfile 命令, url=${dataSource.videoSource}, start=$startSeconds');
-        
-        await nativePlayer.command([
-          'loadfile',
-          dataSource.videoSource,
-          'replace',
-          'start=$startSeconds',
-        ]);
-        
-        _logger.logDebug('loadfile: loadfile 命令已执行');
-      } else {
-        await _player!.open(
-          Media(dataSource.videoSource),
-          play: false,
-        );
-      }
+      // 通过 Media(start:) 指定起始位置，media_kit 内部走 on_load hook
+      // 设置 mpv 的 start 属性，配合 surface 重建流程
+      await _player!.open(
+        Media(dataSource.videoSource, start: seekTo),
+        play: autoPlay,
+      );
 
       startListeners();
-
-      // loadfile replace start=xxx 已经指定了起始位置
-      // 需要等待 duration 就绪和初始缓冲完成
-      if (seekTo > Duration.zero) {
-        await _waitForDuration();
-        if (_isDisposed) return;
-        
-        final duration = _player!.state.duration;
-        final position = _player!.state.position;
-        _logger.logDebug('setDataSource: waitForDuration 完成, duration=${duration.inSeconds}s, position=${position.inSeconds}s');
-        
-        await _waitForInitialBuffer();
-        if (_isDisposed) return;
-        
-        final positionAfterBuffer = _player!.state.position;
-        _logger.logDebug('setDataSource: loadfile 起始位置=${seekTo.inSeconds}s, 实际位置=${positionAfterBuffer.inSeconds}s');
-      }
-
-      if (autoPlay) {
-        await _player!.play();
-      }
 
       isLoading.value = false;
       isPlayerInitialized.value = true;
@@ -280,37 +258,6 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = false;
       errorMessage.value = ErrorHandler.getErrorMessage(e);
       _logger.logError(message: 'setDataSource 失败', error: e, stackTrace: StackTrace.current);
-    }
-  }
-
-  /// 等待初始缓冲完成
-  ///
-  /// mpv open() 后会触发 buffering=true，加载第一批分片后 buffering=false。
-  /// 只有在缓冲完成后，duration 和 position 才是可靠的。
-  Future<void> _waitForInitialBuffer() async {
-    if (_player == null) return;
-
-    // 如果已经不在缓冲状态且 duration 已就绪，说明加载够快已经完成了
-    if (!_player!.state.buffering && _player!.state.duration.inSeconds > 0) return;
-
-    final c = Completer<void>();
-    bool sawBufferingTrue = false;
-
-    final sub = _player!.stream.buffering.listen((buffering) {
-      if (buffering) {
-        sawBufferingTrue = true;
-      } else if (sawBufferingTrue && !c.isCompleted) {
-        // buffering: true → false 转换完成
-        c.complete();
-      }
-    });
-
-    try {
-      await c.future.timeout(const Duration(seconds: 10), onTimeout: () {
-        _logger.logDebug('_waitForInitialBuffer: 超时 10s');
-      });
-    } finally {
-      await sub.cancel();
     }
   }
 
@@ -745,7 +692,18 @@ class VideoPlayerController extends ChangeNotifier {
 
   // ============ 公开方法（custom_player_ui.dart 使用）============
 
-  void setVideoMetadata({required String title, String? author, Uri? coverUri}) {}
+  void setVideoMetadata({required String title, String? author, Uri? coverUri}) {
+    _videoTitle = title;
+    _videoAuthor = author;
+    _videoCoverUri = coverUri;
+    // 同步到 AudioService 通知栏
+    audioHandler.setMediaItem(
+      id: _currentResourceId?.toString() ?? '',
+      title: title,
+      artist: author,
+      artUri: coverUri,
+    );
+  }
 
   void setVideoContext({required int vid, int part = 1}) {
     _currentVid = vid;
@@ -789,6 +747,8 @@ class VideoPlayerController extends ChangeNotifier {
     final nextMode = (loopMode.value.index + 1) % LoopMode.values.length;
     loopMode.value = LoopMode.values[nextMode];
     await _syncLoopProperty();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_loopModeKey, loopMode.value.index);
   }
 
   /// 同步 mpv 的 loop-file 属性
@@ -805,7 +765,28 @@ class VideoPlayerController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  void handleAppLifecycleState(bool isPaused) {}
+  void handleAppLifecycleState(bool isPaused) {
+    if (_player == null) return;
+
+    if (isPaused) {
+      // 进入后台
+      if (!backgroundPlayEnabled.value) {
+        // 未开启后台播放，暂停
+        _player!.pause();
+      }
+      // 开启了后台播放，AudioService 的通知栏控件自动接管
+    } else {
+      // 回到前台，刷新通知栏信息
+      if (_videoTitle != null) {
+        audioHandler.setMediaItem(
+          id: _currentResourceId?.toString() ?? '',
+          title: _videoTitle!,
+          artist: _videoAuthor,
+          artUri: _videoCoverUri,
+        );
+      }
+    }
+  }
 
   Future<void> play() async {
     await _player?.play();
@@ -828,6 +809,10 @@ class VideoPlayerController extends ChangeNotifier {
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();
     await _connectivitySubscription?.cancel();
+
+    // 停止 AudioService 通知栏
+    audioHandler.detachPlayer();
+    await audioHandler.stop();
 
     if (_player != null) {
       try {

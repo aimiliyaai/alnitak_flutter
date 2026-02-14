@@ -49,6 +49,9 @@ class HlsService {
   }
 
   /// 获取清晰度信息（包含 supportsDash 字段）
+  ///
+  /// supportsDash 由服务端返回，只有 SegmentBase 模式（新资源）才为 true
+  /// 旧资源（SegmentList / Legacy）服务端返回 false，客户端走 HLS 模式
   Future<QualityInfo> getQualityInfo(int resourceId) async {
     try {
       final response = await _dio.get(
@@ -58,7 +61,10 @@ class HlsService {
 
       if (response.data['code'] == 200) {
         final qualities = List<String>.from(response.data['data']['quality']);
-        final supportsDash = shouldUseDash();
+        // 服务端返回 supportsDash：只有 SegmentBase（新资源）才为 true
+        // 客户端还需要平台支持（iOS 不用 DASH）
+        final serverSupportsDash = response.data['data']['supportsDash'] == true;
+        final supportsDash = shouldUseDash() && serverSupportsDash;
         return QualityInfo(qualities: qualities, supportsDash: supportsDash);
       }
 
@@ -334,7 +340,11 @@ class HlsService {
   // ============ 静态工具方法 ============
 
   /// 解析清晰度字符串，返回友好的显示名称
+  ///
+  /// 新资源格式: "1920x1080_3000k_30" → "1080P"
+  /// 旧资源格式: "720p" → "720P"
   static String getQualityLabel(String quality) {
+    // 新资源格式：包含 "x" 分辨率
     if (quality.contains('1920x1080')) {
       return '1080P';
     } else if (quality.contains('1280x720')) {
@@ -345,6 +355,12 @@ class HlsService {
       return '360P';
     } else if (quality.contains('3840x2160')) {
       return '4K';
+    }
+    // 旧资源格式：直接是 "720p"、"480p" 等，统一转大写
+    final lowerQ = quality.toLowerCase();
+    if (lowerQ == '1080p' || lowerQ == '720p' || lowerQ == '480p' ||
+        lowerQ == '360p' || lowerQ == '4k' || lowerQ == '2k') {
+      return quality.toUpperCase();
     }
     return quality;
   }
@@ -371,13 +387,32 @@ class HlsService {
     return sorted;
   }
 
+  /// 解析分辨率用于排序
+  ///
+  /// 新资源: "1920x1080_3000k_30" → 1920*1080
+  /// 旧资源: "720p" → 按已知分辨率映射
   static int _parseResolution(String quality) {
     try {
+      // 新格式：包含 "x"，如 "1920x1080_3000k_30"
       final parts = quality.split('_');
-      if (parts.isEmpty) return 0;
-      final dims = parts[0].split('x');
-      if (dims.length != 2) return 0;
-      return (int.tryParse(dims[0]) ?? 0) * (int.tryParse(dims[1]) ?? 0);
+      if (parts.isNotEmpty) {
+        final dims = parts[0].split('x');
+        if (dims.length == 2) {
+          final w = int.tryParse(dims[0]);
+          final h = int.tryParse(dims[1]);
+          if (w != null && h != null) return w * h;
+        }
+      }
+      // 旧格式：直接是 "720p"、"480p" 等
+      final lowerQ = quality.toLowerCase().replaceAll('p', '');
+      final height = int.tryParse(lowerQ);
+      if (height != null) {
+        // 按常见宽高比 16:9 估算像素总数
+        return (height * 16 ~/ 9) * height;
+      }
+      if (lowerQ == '4k') return 3840 * 2160;
+      if (lowerQ == '2k') return 2560 * 1440;
+      return 0;
     } catch (_) {
       return 0;
     }
