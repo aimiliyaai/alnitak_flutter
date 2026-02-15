@@ -488,17 +488,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
+    // 先快照旧值，用于切换前的进度上报
+    final oldPart = _currentPart;
+    final oldPosition = _lastReportedPosition;
+    final oldDuration = _currentDuration;
+
     // 【关键】立即清空进度上报锁定，防止旧播放器的位置事件用新 part 上报
     _progressReportVid = null;
     _progressReportPart = null;
 
-    // 在切换前，先上报当前分P的最后播放进度
-    if (_lastReportedPosition != null && _currentDuration > 0) {
+    // 在切换前，先上报当前分P的最后播放进度（使用快照的旧值）
+    if (oldPosition != null && oldDuration > 0) {
       await _historyService.addHistory(
         vid: _currentVid,
-        part: _currentPart,
-        time: _lastReportedPosition!.inSeconds.toDouble(),
-        duration: _currentDuration.toInt(),
+        part: oldPart,
+        time: _hasReportedCompleted ? -1 : oldPosition.inSeconds.toDouble(),
+        duration: oldDuration.toInt(),
       );
     }
 
@@ -572,7 +577,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     try {
       // 1. 上报当前视频的播放进度（使用保存的旧值，不受 _currentVid 变化影响）
       if (oldPosition != null && oldDuration > 0) {
-        _historyService.addHistory(
+        await _historyService.addHistory(
           vid: oldVid,
           part: oldPart,
           time: _hasReportedCompleted ? -1 : oldPosition.inSeconds.toDouble(),
@@ -719,25 +724,24 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position, Duration totalDuration) {
+    // 同步弹幕进度（弹幕不依赖 vid/part，始终同步）
+    _danmakuController.updateTime(position.inSeconds.toDouble());
+
+    // 【关键】进度锁定无效时，说明正在切换视频/分P，
+    // 此时 position/duration 可能属于旧视频，不能写入任何状态
+    final reportVid = _progressReportVid;
+    final reportPart = _progressReportPart;
+    if (reportVid == null || reportPart == null) return;
+
     // 只在 duration > 0 时更新，避免 open() 重置期间覆盖为 0
     if (totalDuration.inSeconds > 0) {
       _currentDuration = totalDuration.inSeconds.toDouble();
     }
     _lastReportedPosition = position;
 
-    // 同步弹幕进度
-    _danmakuController.updateTime(position.inSeconds.toDouble());
+    if (_hasReportedCompleted) return;
 
     final currentSeconds = position.inSeconds;
-
-    if (_hasReportedCompleted) {
-      return;
-    }
-
-    // 【关键】使用锁定的 vid/part 上报，防止切换视频/分P时的竞态
-    final reportVid = _progressReportVid;
-    final reportPart = _progressReportPart;
-    if (reportVid == null || reportPart == null) return;
 
     // 【防御】duration 为 0 时不上报（可能是 open() 重置期间）
     if (_currentDuration <= 0) return;

@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:audio_session/audio_session.dart';
 import '../services/hls_service.dart';
 import '../services/history_service.dart';
 import '../services/logger_service.dart';
@@ -81,6 +82,12 @@ class VideoPlayerController extends ChangeNotifier {
   String? _videoTitle;
   String? _videoAuthor;
   Uri? _videoCoverUri;
+
+  // 音频中断处理
+  AudioSession? _audioSession;
+  bool _wasPlayingBeforeInterruption = false;
+  StreamSubscription? _interruptionSubscription;
+  StreamSubscription? _becomingNoisySubscription;
 
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
@@ -192,6 +199,7 @@ class VideoPlayerController extends ChangeNotifier {
       );
       if (isNewPlayer) {
         audioHandler.attachPlayer(_player!);
+        await _initAudioSession();
       }
 
       final nativePlayer = _player!.platform as NativePlayer;
@@ -883,12 +891,106 @@ class VideoPlayerController extends ChangeNotifier {
 
   // ============ dispose（照搬 pilipala）============
 
-  @override
+  /// 初始化音频会话（处理电话等音频中断）
+  Future<void> _initAudioSession() async {
+    try {
+      _audioSession = await AudioSession.instance;
+      await _audioSession!.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.movie,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        androidWillPauseWhenDucked: true,
+      ));
+
+      _interruptionSubscription = _audioSession!.interruptionEventStream.listen((event) {
+        _handleAudioInterruption(event);
+      });
+
+      _becomingNoisySubscription = _audioSession!.becomingNoisyEventStream.listen((_) {
+        _handleBecomingNoisy();
+      });
+
+      _logger.logDebug('[AudioSession] 初始化成功', tag: 'AudioSession');
+    } catch (e) {
+      _logger.logError(message: '[AudioSession] 初始化失败: $e');
+    }
+  }
+
+  /// 处理音频中断（电话、语音助手等）
+  void _handleAudioInterruption(AudioInterruptionEvent event) {
+    if (_player == null || _isDisposed) return;
+
+    if (event.begin) {
+      // 中断开始
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          // 短暂中断（如导航语音）：降低音量即可
+          _wasPlayingBeforeInterruption = false;
+          _player!.setVolume(30);
+          _logger.logDebug('[AudioSession] duck 中断，已降低音量');
+          break;
+        case AudioInterruptionType.pause:
+        case AudioInterruptionType.unknown:
+          // 需要暂停的中断（如电话）
+          _wasPlayingBeforeInterruption = _player!.state.playing;
+          if (_wasPlayingBeforeInterruption) {
+            _player!.pause();
+            _logger.logDebug('[AudioSession] 中断开始(${event.type})，已暂停播放');
+          }
+          break;
+      }
+    } else {
+      // 中断结束
+      switch (event.type) {
+        case AudioInterruptionType.duck:
+          // duck 结束：恢复音量
+          _player!.setVolume(100);
+          _logger.logDebug('[AudioSession] duck 中断结束，已恢复音量');
+          break;
+        case AudioInterruptionType.pause:
+        case AudioInterruptionType.unknown:
+          // 暂停中断结束：恢复播放（如果之前在播放）
+          if (_wasPlayingBeforeInterruption) {
+            _wasPlayingBeforeInterruption = false;
+            _player!.play();
+            _logger.logDebug('[AudioSession] 中断结束(${event.type})，已恢复播放');
+          }
+          break;
+      }
+    }
+  }
+
+  /// 处理音频设备变化（耳机拔出等）
+  void _handleBecomingNoisy() {
+    if (_player == null || _isDisposed) return;
+    if (_player!.state.playing) {
+      _player!.pause();
+      _logger.logDebug('[AudioSession] 音频设备变化，已暂停播放');
+    }
+  }
+
+  /// 清理音频会话
+  Future<void> _disposeAudioSession() async {
+    await _interruptionSubscription?.cancel();
+    await _becomingNoisySubscription?.cancel();
+    _interruptionSubscription = null;
+    _becomingNoisySubscription = null;
+    _audioSession = null;
+  }
+
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
 
     WakelockManager.disable();
+    await _disposeAudioSession();
 
     _seekTimer?.cancel();
     _waitAndSeekTimer?.cancel();
@@ -901,6 +1003,9 @@ class VideoPlayerController extends ChangeNotifier {
     // 停止 AudioService 通知栏
     audioHandler.detachPlayer();
     await audioHandler.stop();
+
+    // 清理视频缓存
+    _hlsService.cleanupAllTempCache();
 
     if (_player != null) {
       try {
