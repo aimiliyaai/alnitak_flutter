@@ -59,6 +59,7 @@ class VideoPlayerController extends ChangeNotifier {
   Duration _lastReportedPosition = Duration.zero;
   Duration? _seekAfterOpen; // open() 后 surface 重建恢复用：检测到位置回跳时自动 seek
   int _seekAfterOpenRetries = 0; // 防止无限重试
+  bool _seekAfterOpenSawDrop = false; // 是否已观察到位置回跳（必须先 drop 再恢复才算成功）
   static const int _maxSeekAfterOpenRetries = 3;
   int? _lastProgressFetchTime;
 
@@ -244,10 +245,12 @@ class VideoPlayerController extends ChangeNotifier {
       if (seekTo > Duration.zero) {
         _seekAfterOpen = seekTo;
         _seekAfterOpenRetries = 0;
+        _seekAfterOpenSawDrop = false; // 必须先看到位置回跳，才开始恢复
         _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s');
       } else {
         _seekAfterOpen = null;
         _seekAfterOpenRetries = 0;
+        _seekAfterOpenSawDrop = false;
       }
 
       _logger.logDebug('setDataSource: open with start=${seekTo.inSeconds}s');
@@ -505,9 +508,12 @@ class VideoPlayerController extends ChangeNotifier {
         if (_isSeeking) return;
 
         // _seekAfterOpen 恢复逻辑：open() 后 surface 重建导致位置回跳
-        // 检测到位置在 <=2s 且有待恢复目标时，自动 seek
+        // 流程：先观察到位置回跳(<=2s) → 标记 sawDrop → seek 恢复 → 位置接近目标 → 清除
+        // 关键：open() 后 position 可能残留旧值，必须先 sawDrop 才算恢复成功
         if (_seekAfterOpen != null && _seekAfterOpen!.inSeconds > 2) {
           if (position.inSeconds <= 2) {
+            // 位置回跳到开头，标记已观察到 drop
+            _seekAfterOpenSawDrop = true;
             // 等 duration 就绪后再 seek，否则 seek 会被忽略
             if (_player!.state.duration.inSeconds > 0 &&
                 _seekAfterOpenRetries < _maxSeekAfterOpenRetries) {
@@ -518,12 +524,15 @@ class VideoPlayerController extends ChangeNotifier {
               _player!.seek(target);
             }
             return; // 不推送回跳的位置给 UI
-          } else if ((position.inMilliseconds - _seekAfterOpen!.inMilliseconds).abs() < 5000) {
-            // 位置已接近目标，恢复成功
+          } else if (_seekAfterOpenSawDrop &&
+              (position.inMilliseconds - _seekAfterOpen!.inMilliseconds).abs() < 5000) {
+            // 已经历过 drop 且位置接近目标，恢复成功
             _logger.logDebug('_seekAfterOpen 恢复成功: position=${position.inSeconds}s');
             _seekAfterOpen = null;
             _seekAfterOpenRetries = 0;
+            _seekAfterOpenSawDrop = false;
           }
+          // 未 sawDrop 时看到接近目标的位置 → 是旧残留值，忽略不清除
         }
 
         if (!_hasPlaybackStarted) {
