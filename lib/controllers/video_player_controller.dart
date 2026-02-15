@@ -70,6 +70,7 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _stalledTimer;
   Timer? _seekTimer;
   Timer? _waitAndSeekTimer;
+  Timer? _positionPollingTimer;
 
   // Surface 重置检测
   Duration _lastValidPosition = Duration.zero;
@@ -92,6 +93,9 @@ class VideoPlayerController extends ChangeNotifier {
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
   static const String _backgroundPlayKey = 'background_play_enabled';
+
+  // 缓存设置，避免每次 initialize 都读磁盘
+  bool _settingsLoaded = false;
 
   VideoPlayerController();
 
@@ -117,7 +121,7 @@ class VideoPlayerController extends ChangeNotifier {
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
 
-      await _loadSettings();
+      if (!_settingsLoaded) await _loadSettings();
 
       // 获取清晰度列表
       final qualityInfo = await _hlsService.getQualityInfo(resourceId);
@@ -145,8 +149,10 @@ class VideoPlayerController extends ChangeNotifier {
         autoPlay: true,
       );
 
-      // 后台预加载相邻清晰度
-      _preloadAdjacentQualities();
+      // 延迟预加载相邻清晰度，避免和首帧加载抢网络
+      Future.delayed(const Duration(seconds: 3), () {
+        if (!_isDisposed) _preloadAdjacentQualities();
+      });
     } catch (e) {
       _logger.logError(message: '初始化失败', error: e, stackTrace: StackTrace.current);
       isLoading.value = false;
@@ -200,34 +206,11 @@ class VideoPlayerController extends ChangeNotifier {
       if (isNewPlayer) {
         audioHandler.attachPlayer(_player!);
         await _initAudioSession();
+        // 只在首次创建 Player 时设置不变的 mpv 属性
+        await _configurePlayerOnce();
       }
 
       final nativePlayer = _player!.platform as NativePlayer;
-
-      // 启用 HTTP 请求调试日志
-      await nativePlayer.setProperty('msg-level', 'http/curl:6');
-      await nativePlayer.setProperty('msg-level', 'httpv=6');
-      await nativePlayer.setProperty('log-level', 'debug');
-
-      // 优化 DASH/HLS 分段请求 - 按需加载，减少预缓存
-      await nativePlayer.setProperty('demuxer-seekable-cache', 'no');  // 不缓存不可查找区域
-      await nativePlayer.setProperty('cache-seek-min', '50');  // 至少 50MB 空闲内存才缓存 seek
-      await nativePlayer.setProperty('cache-backbuffer', '0');  // 不缓存回放位置之前的内容
-      await nativePlayer.setProperty('cache-pause-initial', 'no');  // 暂停时不预加载
-      await nativePlayer.setProperty('cache-pause-wait', '0');  // 暂停时不等待缓存
-
-      // 禁用预加载，减少网络占用
-      await nativePlayer.setProperty('prefetch-playlist', 'no');  // 不预加载播放列表
-      await nativePlayer.setProperty('demuxer-max-bytes', '15MiB');  // 限制解复用器缓存为 15MB
-
-      if (Platform.isAndroid) {
-        await nativePlayer.setProperty("volume-max", "100");
-        final decodeMode = await getDecodeMode();
-        await nativePlayer.setProperty("hwdec", decodeMode);
-      }
-
-      await _syncLoopProperty();
-      await _player!.setAudioTrack(AudioTrack.auto());
 
       // pilipala 风格：视频和音频是独立 URL，通过 audio-files 挂载外部音频
       if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
@@ -275,7 +258,7 @@ class VideoPlayerController extends ChangeNotifier {
         play: autoPlay,
       );
 
-      removeListeners();
+      // open() 完成后注册 listener，确保监听新媒体的事件流
       startListeners();
 
       // open() 完成后，等待 duration 就绪再显式 seek
@@ -332,8 +315,8 @@ class VideoPlayerController extends ChangeNotifier {
         _logger.logDebug('_waitAndSeek: duration 就绪 (${duration.inSeconds}s)，seek to ${target.inSeconds}s');
         try {
           await _player!.seek(target);
-          // 短暂延迟确认 seek 生效
-          await Future.delayed(const Duration(milliseconds: 500));
+          // 短暂等待 seek 生效，不做长时间缓冲等待（避免冻结 UI 过久）
+          await Future.delayed(const Duration(milliseconds: 300));
           if (_isDisposed) return;
           final pos = _player!.state.position;
           _logger.logDebug('_waitAndSeek: seek 后 position=${pos.inSeconds}s');
@@ -342,7 +325,6 @@ class VideoPlayerController extends ChangeNotifier {
               _player != null && !_isDisposed) {
             _logger.logDebug('_waitAndSeek: 偏差过大，重试 seek');
             await _player!.seek(target);
-            await Future.delayed(const Duration(milliseconds: 300));
           }
         } catch (e) {
           _logger.logDebug('_waitAndSeek: seek 失败: $e');
@@ -366,26 +348,27 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _waitForSeekBuffering() async {
     if (_player == null) return;
 
+    // 如果当前已经不在缓冲状态，说明 seek 很快完成或不需要缓冲
+    if (!_player!.state.buffering) {
+      // 短暂等待，给 mpv 时间触发 buffering 事件
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_player == null || !_player!.state.buffering) {
+        _logger.logDebug('_waitForSeekBuffering: 未进入缓冲状态, 直接继续');
+        return;
+      }
+    }
+
     final c = Completer<void>();
-    bool sawBufferingTrue = false;
 
     final sub = _player!.stream.buffering.listen((buffering) {
-      if (buffering) {
-        sawBufferingTrue = true;
-      } else if (sawBufferingTrue && !c.isCompleted) {
+      if (!buffering && !c.isCompleted) {
         c.complete();
       }
     });
 
     try {
-      // 如果 seek 没触发 buffering（例如目标位置已在缓冲区内），
-      // 短暂等待后检查状态
-      await c.future.timeout(const Duration(seconds: 8), onTimeout: () {
-        if (!sawBufferingTrue) {
-          _logger.logDebug('_waitForSeekBuffering: seek 未触发缓冲, 直接继续');
-        } else {
-          _logger.logDebug('_waitForSeekBuffering: 超时 8s');
-        }
+      await c.future.timeout(const Duration(seconds: 5), onTimeout: () {
+        _logger.logDebug('_waitForSeekBuffering: 超时 5s');
       });
     } finally {
       await sub.cancel();
@@ -586,10 +569,21 @@ class VideoPlayerController extends ChangeNotifier {
       _player!.stream.completed.listen((completed) {
         if (completed && !_hasTriggeredCompletion && !_isSeeking) {
           _hasTriggeredCompletion = true;
-          _hasJustCompleted = true; // 刚播放完毕
-          onVideoEnd?.call();
+          _hasJustCompleted = true;
+
+          if (loopMode.value == LoopMode.on) {
+            // 循环模式：seek 回开头重新播放，复用已缓存的资源，不重新请求网络
+            _hasTriggeredCompletion = false;
+            _logger.logDebug('循环模式: seek 到开头复用缓存');
+            _player!.seek(Duration.zero).then((_) {
+              _player?.play();
+              _hasJustCompleted = false;
+            });
+          } else {
+            // 非循环模式：触发播放结束回调（自动连播等）
+            onVideoEnd?.call();
+          }
         }
-        // 循环播放时重置标记
         if (!completed) {
           _hasTriggeredCompletion = false;
         }
@@ -609,7 +603,7 @@ class VideoPlayerController extends ChangeNotifier {
         }
 
         // 判断是否为合法的"回到开头"场景：
-        // 1. 循环模式 (loop-file=inf)：mpv 自动循环，position 从接近 duration 跳回 0
+        // 1. 循环模式：completed 后手动 seek(0)，position 从接近 duration 跳回 0
         // 2. 刚播放完毕后重新开始（onVideoEnd 触发后用户点重播等）
         final isLooping = loopMode.value == LoopMode.on;
         final isNearEnd = _lastValidPosition.inSeconds > 0 &&
@@ -702,6 +696,38 @@ class VideoPlayerController extends ChangeNotifier {
         _handleStalled();
       }
     });
+
+    // 兜底：position stream 可能在某些设备/场景下停止发射事件
+    // 每秒从 player.state.position 轮询，确保进度条始终能更新
+    _positionPollingTimer?.cancel();
+    _positionPollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_isDisposed || _player == null) return;
+      if (_isSeeking || _seekAfterOpen != null) return;
+      if (!_player!.state.playing) return;
+
+      final position = _player!.state.position;
+      if (position.inSeconds <= 0) return;
+
+      if (!_hasPlaybackStarted) {
+        _hasPlaybackStarted = true;
+      }
+
+      // 只有当 stream 长时间没推送时才由 polling 补发
+      final diff = (position.inMilliseconds - _userIntendedPosition.inMilliseconds).abs();
+      if (diff >= 800) {
+        _lastValidPosition = position;
+        _positionStreamController.add(position);
+        _userIntendedPosition = position;
+
+        if (onProgressUpdate != null && position.inSeconds > 0) {
+          final reportDiff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
+          if (reportDiff >= 500) {
+            _lastReportedPosition = position;
+            onProgressUpdate!(position, _player!.state.duration);
+          }
+        }
+      }
+    });
   }
 
   /// 移除事件监听（照搬 pilipala 的 removeListeners）
@@ -710,6 +736,8 @@ class VideoPlayerController extends ChangeNotifier {
       s.cancel();
     }
     _subscriptions = [];
+    _positionPollingTimer?.cancel();
+    _positionPollingTimer = null;
   }
 
   /// 处理卡顿恢复
@@ -738,6 +766,33 @@ class VideoPlayerController extends ChangeNotifier {
 
   // ============ 辅助方法 ============
 
+  /// 首次创建 Player 时配置不变的 mpv 属性
+  /// 这些属性在整个 Player 生命周期内只需设置一次
+  Future<void> _configurePlayerOnce() async {
+    if (_player == null) return;
+    final nativePlayer = _player!.platform as NativePlayer;
+
+    // 缓存配置
+    await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+    await nativePlayer.setProperty('cache-secs', '300');
+    await nativePlayer.setProperty('cache-backbuffer', '300');
+    await nativePlayer.setProperty('cache-pause-initial', 'no');
+    await nativePlayer.setProperty('cache-pause-wait', '0');
+    await nativePlayer.setProperty('prefetch-playlist', 'no');
+    await nativePlayer.setProperty('demuxer-max-bytes', '150MiB');
+
+    // Android 特有配置
+    if (Platform.isAndroid) {
+      await nativePlayer.setProperty('volume-max', '100');
+      final decodeMode = await getDecodeMode();
+      await nativePlayer.setProperty('hwdec', decodeMode);
+    }
+
+    // 循环模式
+    await _syncLoopProperty();
+    await _player!.setAudioTrack(AudioTrack.auto());
+  }
+
   void _preloadAdjacentQualities() {
     final current = currentQuality.value;
     if (current == null || _currentResourceId == null) return;
@@ -762,6 +817,7 @@ class VideoPlayerController extends ChangeNotifier {
       backgroundPlayEnabled.value = prefs.getBool(_backgroundPlayKey) ?? false;
       final loopModeValue = prefs.getInt(_loopModeKey) ?? 0;
       loopMode.value = LoopMode.values[loopModeValue];
+      _settingsLoaded = true;
     } catch (_) {}
   }
 
@@ -845,16 +901,15 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   /// 同步 mpv 的 loop-file 属性
+  ///
+  /// 始终设为 no：不依赖 mpv 的 loop-file=inf，因为对于 HLS/DASH 流媒体，
+  /// mpv 自动循环会重新请求所有分片（重新 open URL），浪费流量。
+  /// 循环逻辑改为在 completed 事件中手动 seek(0) + play()，复用已缓存的资源。
   Future<void> _syncLoopProperty() async {
     if (_player == null) return;
     try {
       final nativePlayer = _player!.platform as NativePlayer;
-      // loop-file=inf: mpv 自动循环当前文件，不触发 completed
-      // loop-file=no: 播放完成后触发 completed
-      await nativePlayer.setProperty(
-        'loop-file',
-        loopMode.value == LoopMode.on ? 'inf' : 'no',
-      );
+      await nativePlayer.setProperty('loop-file', 'no');
     } catch (_) {}
   }
 
@@ -996,6 +1051,7 @@ class VideoPlayerController extends ChangeNotifier {
     _seekTimer?.cancel();
     _waitAndSeekTimer?.cancel();
     _stalledTimer?.cancel();
+    _positionPollingTimer?.cancel();
 
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();

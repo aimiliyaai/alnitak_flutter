@@ -8,7 +8,7 @@ import '../../../theme/theme_extensions.dart';
 class CollectionList extends StatefulWidget {
   final int vid;
   final int currentPart;
-  final Function(int vid) onVideoTap;
+  final Function(int vid, {int? part}) onVideoTap;
   final Function(int part)? onPartTap;
 
   const CollectionList({
@@ -225,9 +225,9 @@ class CollectionListState extends State<CollectionList> {
       final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
       if (currentVideoParts.length > 1) {
         final firstIndex = _displayList.indexOf(currentVideoParts.first);
-        return (index - firstIndex) + 1 == widget.currentPart;
+        return index - firstIndex + 1 == widget.currentPart;
       }
-      return true;
+      return widget.currentPart == 1;
     }
     return false;
   }
@@ -238,8 +238,9 @@ class CollectionListState extends State<CollectionList> {
       final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
       if (currentVideoParts.length > 1) {
         final firstIndex = _displayList.indexOf(currentVideoParts.first);
-        return (index - firstIndex) + 1;
+        return index - firstIndex + 1;
       }
+      return 1;
     }
     return null;
   }
@@ -291,14 +292,31 @@ class CollectionListState extends State<CollectionList> {
         if (!isCurrent) {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
-          } else if (video.vid == widget.vid && partIndex != null) {
-            widget.onPartTap?.call(partIndex);
+          } else if (video.vid == widget.vid) {
+            if (partIndex != null) {
+              widget.onPartTap?.call(partIndex);
+            }
           } else {
-            widget.onVideoTap(video.vid);
+            // 计算目标视频的分P序号
+            final targetPart = _getTargetPart(index);
+            widget.onVideoTap(video.vid, part: targetPart);
           }
         }
       },
     );
+  }
+
+  /// 获取目标视频在列表中的分P序号（从1开始）
+  /// 当合集列表中的多分P视频被展开时，点击第N个分P应返回N
+  int? _getTargetPart(int index) {
+    final video = _displayList[index];
+    // 找到该视频在列表中的第一个出现位置
+    final firstIndex = _displayList.indexWhere((v) => v.vid == video.vid);
+    if (firstIndex < 0) return null;
+    // 检查该视频是否有多个分P在列表中
+    final sameVidCount = _displayList.where((v) => v.vid == video.vid).length;
+    if (sameVidCount <= 1) return null; // 单分P视频，不需要指定part
+    return index - firstIndex + 1;
   }
 
   Widget _buildGridMode() {
@@ -323,10 +341,13 @@ class CollectionListState extends State<CollectionList> {
         if (!isCurrent) {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
-          } else if (video.vid == widget.vid && partIndex != null) {
-            widget.onPartTap?.call(partIndex);
+          } else if (video.vid == widget.vid) {
+            if (partIndex != null) {
+              widget.onPartTap?.call(partIndex);
+            }
           } else {
-            widget.onVideoTap(video.vid);
+            final targetPart = _getTargetPart(index);
+            widget.onVideoTap(video.vid, part: targetPart);
           }
         }
       },

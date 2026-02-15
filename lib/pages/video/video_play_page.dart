@@ -269,38 +269,32 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
-    double? progressToSave = _lastReportedPosition?.inSeconds.toDouble();
-
-    if (progressToSave == null && _playerController != null) {
+    // 优先从 player 读取实时位置（最准确），fallback 到上次回调记录的位置
+    double? progressToSave;
+    if (_playerController != null) {
       try {
         final currentPosition = _playerController!.player.state.position;
-        final playerDuration = _playerController!.player.state.duration;
-        if (playerDuration.inSeconds > 0 && currentPosition.inSeconds > 0) {
+        if (currentPosition.inSeconds > 0) {
           progressToSave = currentPosition.inSeconds.toDouble();
         }
-      } catch (_) {
-      }
+      } catch (_) {}
     }
+    progressToSave ??= _lastReportedPosition?.inSeconds.toDouble();
 
     if (progressToSave == null || progressToSave <= 0) {
       return;
     }
 
-    if (_hasReportedCompleted) {
-      _historyService.addHistory(
-        vid: _currentVid,
-        part: _currentPart,
-        time: -1,
-        duration: _currentDuration.toInt(),
-      );
-    } else {
-      _historyService.addHistory(
-        vid: _currentVid,
-        part: _currentPart,
-        time: progressToSave,
-        duration: _currentDuration.toInt(),
-      );
-    }
+    // 重置去重状态，确保退出时的最终上报不会被跳过
+    _historyService.resetProgressState();
+
+    final time = _hasReportedCompleted ? -1.0 : progressToSave;
+    _historyService.addHistory(
+      vid: _currentVid,
+      part: _currentPart,
+      time: time,
+      duration: _currentDuration.toInt(),
+    );
   }
 
   /// 加载视频数据
@@ -556,7 +550,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   bool _isSwitchingVideo = false;
 
   /// 切换到其他视频（原地刷新，不重新导航）
-  Future<void> _switchToVideo(int vid) async {
+  /// [part] 指定目标分P（从1开始），为null时通过历史进度决定
+  Future<void> _switchToVideo(int vid, {int? part}) async {
     if (vid == _currentVid) return;
 
     if (_isSwitchingVideo) {
@@ -595,7 +590,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       _historyService.resetProgressState();
 
       // 3. 加载新视频数据
-      await _loadVideoDataSeamless();
+      await _loadVideoDataSeamless(targetPart: part);
 
       // 4. 清理旧视频缓存
       Future.delayed(const Duration(seconds: 2), () {
@@ -614,7 +609,8 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   }
 
   /// 无缝加载视频数据（不显示 loading，用于切换推荐视频）
-  Future<void> _loadVideoDataSeamless() async {
+  /// [targetPart] 指定目标分P，为null时通过历史进度决定
+  Future<void> _loadVideoDataSeamless({int? targetPart}) async {
     final targetVid = _currentVid;
 
     try {
@@ -645,15 +641,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
       _loadSecondaryData(videoDetail.author.uid);
 
-      _fetchProgressAndRestoreSeamless(targetVid: targetVid, videoDetail: videoDetail);
+      _fetchProgressAndRestoreSeamless(targetVid: targetVid, videoDetail: videoDetail, targetPart: targetPart);
 
     } catch (_) {
     }
   }
 
   /// 无缝加载时异步获取进度
-  Future<void> _fetchProgressAndRestoreSeamless({required int targetVid, required VideoDetail videoDetail}) async {
+  /// [targetPart] 指定目标分P，为null时通过历史进度决定
+  Future<void> _fetchProgressAndRestoreSeamless({required int targetVid, required VideoDetail videoDetail, int? targetPart}) async {
     try {
+      if (targetPart != null) {
+        // 明确指定了分P（如从合集列表点击特定分P），直接播放该分P
+        if (_currentVid != targetVid) return;
+        _startPlaybackSeamless(videoDetail, targetPart, null);
+        return;
+      }
+
       final progressData = await _historyService.getProgress(vid: targetVid, part: null);
 
       if (_currentVid != targetVid) return;
@@ -679,13 +683,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         }
       }
 
-      final targetPart = progressData.part;
+      final historyPart = progressData.part;
       final adjustedProgress = progress > 2 ? progress - 2 : progress;
 
-      _startPlaybackSeamless(videoDetail, targetPart, adjustedProgress);
+      _startPlaybackSeamless(videoDetail, historyPart, adjustedProgress);
 
     } catch (e) {
-      _startPlaybackSeamless(videoDetail, 1, null);
+      _startPlaybackSeamless(videoDetail, targetPart ?? 1, null);
     }
   }
 

@@ -1110,6 +1110,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
   /// 构建控制按钮行
   Widget _buildControlButtonsRow() {
+    final fullscreen = isFullscreen(context);
+
     return Row(
       children: [
         // 播放/暂停按钮
@@ -1121,10 +1123,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
               icon: Icon(
                 playing ? Icons.pause : Icons.play_arrow,
                 color: Colors.white,
-                size: 24,
+                size: fullscreen ? 24 : 22,
               ),
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              constraints: BoxConstraints(minWidth: fullscreen ? 36 : 32, minHeight: 32),
               onPressed: () {
                 widget.controller.player.playOrPause();
                 _startHideTimer();
@@ -1149,7 +1151,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       _startHideTimer();
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
                         color: isVisible
                             ? Colors.blue.withValues(alpha: 0.3)
@@ -1164,7 +1166,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                         '弹',
                         style: TextStyle(
                           color: isVisible ? Colors.blue : Colors.white70,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -1176,10 +1178,10 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     icon: Icon(
                       Icons.tune,
                       color: _showDanmakuSettings ? Colors.blue : Colors.white,
-                      size: 20,
+                      size: fullscreen ? 20 : 18,
                     ),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: BoxConstraints(minWidth: fullscreen ? 32 : 28, minHeight: 28),
                     onPressed: () {
                       setState(() {
                         _showDanmakuSettings = !_showDanmakuSettings;
@@ -1201,48 +1203,42 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
           ),
 
         // 弹幕发送按钮（全屏时显示）
-        if (widget.danmakuController != null)
-          Builder(
-            builder: (context) {
-              final fullscreen = isFullscreen(context);
-              if (!fullscreen) return const SizedBox.shrink();
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _showDanmakuInput = !_showDanmakuInput;
-                    _showDanmakuSettings = false;
-                    _showQualityPanel = false;
-                    _showControls = false;
-                  });
-                  if (_showDanmakuInput) {
-                    _hideTimer?.cancel();
-                  } else {
-                    _startHideTimer();
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  margin: const EdgeInsets.only(left: 4),
-                  decoration: BoxDecoration(
-                    color: _showDanmakuInput
-                        ? Colors.blue.withValues(alpha: 0.3)
-                        : Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: _showDanmakuInput ? Colors.blue : Colors.white54,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    '发弹幕',
-                    style: TextStyle(
-                      color: _showDanmakuInput ? Colors.blue : Colors.white70,
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-              );
+        if (widget.danmakuController != null && fullscreen)
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _showDanmakuInput = !_showDanmakuInput;
+                _showDanmakuSettings = false;
+                _showQualityPanel = false;
+                _showControls = false;
+              });
+              if (_showDanmakuInput) {
+                _hideTimer?.cancel();
+              } else {
+                _startHideTimer();
+              }
             },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              margin: const EdgeInsets.only(left: 4),
+              decoration: BoxDecoration(
+                color: _showDanmakuInput
+                    ? Colors.blue.withValues(alpha: 0.3)
+                    : Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: _showDanmakuInput ? Colors.blue : Colors.white54,
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                '发弹幕',
+                style: TextStyle(
+                  color: _showDanmakuInput ? Colors.blue : Colors.white70,
+                  fontSize: 11,
+                ),
+              ),
+            ),
           ),
 
         const Spacer(),
@@ -1253,13 +1249,13 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
           onPressed: _toggleSpeedPanel,
           style: TextButton.styleFrom(
             foregroundColor: _currentSpeed != 1.0 ? Colors.blue : Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: EdgeInsets.symmetric(horizontal: fullscreen ? 8 : 4, vertical: 4),
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
           child: Text(
             _currentSpeed == 1.0 ? '倍速' : '${_currentSpeed}x',
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: fullscreen ? 13 : 12),
           ),
         ),
 
@@ -1280,7 +1276,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   onPressed: _toggleQualityPanel,
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: EdgeInsets.symmetric(horizontal: fullscreen ? 8 : 4, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
@@ -1291,65 +1287,62 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
           },
         ),
 
-        // 后台播放按钮
-        ValueListenableBuilder<bool>(
-          valueListenable: widget.logic.backgroundPlayEnabled,
-          builder: (context, bgEnabled, _) {
-            return IconButton(
-              icon: Icon(
-                bgEnabled ? Icons.headphones : Icons.headphones_outlined,
-                color: bgEnabled ? Colors.blue : Colors.white,
-                size: 22,
-              ),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              tooltip: bgEnabled ? '后台播放：开' : '后台播放：关',
-              onPressed: () {
-                widget.logic.toggleBackgroundPlay();
-                _startHideTimer();
-              },
-            );
-          },
-        ),
+        // 后台播放按钮（全屏时显示）
+        if (fullscreen)
+          ValueListenableBuilder<bool>(
+            valueListenable: widget.logic.backgroundPlayEnabled,
+            builder: (context, bgEnabled, _) {
+              return IconButton(
+                icon: Icon(
+                  bgEnabled ? Icons.headphones : Icons.headphones_outlined,
+                  color: bgEnabled ? Colors.blue : Colors.white,
+                  size: 20,
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                tooltip: bgEnabled ? '后台播放：开' : '后台播放：关',
+                onPressed: () {
+                  widget.logic.toggleBackgroundPlay();
+                  _startHideTimer();
+                },
+              );
+            },
+          ),
 
-        // 循环模式按钮
-        ValueListenableBuilder(
-          valueListenable: widget.logic.loopMode,
-          builder: (context, loopMode, _) {
-            return IconButton(
-              icon: Icon(
-                loopMode.index == 1 ? Icons.repeat_one : Icons.repeat,
-                color: loopMode.index == 1 ? Colors.blue : Colors.white,
-                size: 22,
-              ),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              onPressed: () {
-                widget.logic.toggleLoopMode();
-                _startHideTimer();
-              },
-            );
-          },
-        ),
+        // 循环模式按钮（全屏时显示）
+        if (fullscreen)
+          ValueListenableBuilder(
+            valueListenable: widget.logic.loopMode,
+            builder: (context, loopMode, _) {
+              return IconButton(
+                icon: Icon(
+                  loopMode.index == 1 ? Icons.repeat_one : Icons.repeat,
+                  color: loopMode.index == 1 ? Colors.blue : Colors.white,
+                  size: 20,
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () {
+                  widget.logic.toggleLoopMode();
+                  _startHideTimer();
+                },
+              );
+            },
+          ),
 
         // 全屏按钮
-        Builder(
-          builder: (context) {
-            final fullscreen = isFullscreen(context);
-            return IconButton(
-              icon: Icon(
-                fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                color: Colors.white,
-                size: 24,
-              ),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              onPressed: () async {
-                await toggleFullscreen(context);
-                await Future.delayed(const Duration(milliseconds: 100));
-                if (mounted) _startHideTimer();
-              },
-            );
+        IconButton(
+          icon: Icon(
+            fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            color: Colors.white,
+            size: fullscreen ? 24 : 22,
+          ),
+          padding: EdgeInsets.zero,
+          constraints: BoxConstraints(minWidth: fullscreen ? 36 : 32, minHeight: 32),
+          onPressed: () async {
+            await toggleFullscreen(context);
+            await Future.delayed(const Duration(milliseconds: 100));
+            if (mounted) _startHideTimer();
           },
         ),
       ],
