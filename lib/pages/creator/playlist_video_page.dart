@@ -93,19 +93,31 @@ class _PlaylistVideoPageState extends State<PlaylistVideoPage> {
 
   /// 显示添加视频对话框
   Future<void> _showAddVideoDialog() async {
-    final allVideos = await _api.getAllVideoList();
+    final results = await Future.wait([
+      _api.getAllVideoList(),
+      _api.getMyPlaylistVideoIds(),
+    ]);
     if (!mounted) return;
 
+    final allVideos = results[0] as List<Map<String, dynamic>>;
+    final videoPlaylistMap = results[1] as Map<int, int>;
     final existingVids = _videoList.map((v) => v['vid'] as int).toSet();
 
     // 为每个视频添加选中状态
     final selectableVideos = allVideos.map((v) {
       final vid = v['vid'] as int? ?? v['id'] as int? ?? 0;
+      final belongsToPlaylistId = videoPlaylistMap[vid];
+      final inCurrentPlaylist = existingVids.contains(vid);
+      // 已在其他合集中（不是当前合集）
+      final inOtherPlaylist = belongsToPlaylistId != null &&
+          belongsToPlaylistId != widget.playlistId &&
+          !inCurrentPlaylist;
       return {
         ...v,
         'vid': vid,
         'checked': false,
-        'inPlaylist': existingVids.contains(vid),
+        'inPlaylist': inCurrentPlaylist,
+        'inOtherPlaylist': inOtherPlaylist,
       };
     }).toList();
 
@@ -327,43 +339,50 @@ class _AddVideoDialogState extends State<_AddVideoDialog> {
                 itemBuilder: (context, index) {
                   final video = _videos[index];
                   final inPlaylist = video['inPlaylist'] == true;
+                  final inOtherPlaylist = video['inOtherPlaylist'] == true;
+                  final isDisabled = inPlaylist || inOtherPlaylist;
                   final cover = video['cover']?.toString() ?? '';
 
                   return CheckboxListTile(
                     value: inPlaylist ? true : (video['checked'] == true),
-                    onChanged: inPlaylist
+                    onChanged: isDisabled
                         ? null
                         : (val) {
                             setState(() => _videos[index]['checked'] = val);
                           },
                     secondary: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        width: 60,
-                        height: 40,
-                        color: colors.surfaceVariant,
-                        child: cover.isNotEmpty
-                            ? CachedImage(
-                                imageUrl: ImageUtils.getFullImageUrl(cover),
-                                width: 60,
-                                height: 40,
-                                fit: BoxFit.cover,
-                              )
-                            : Icon(Icons.image_outlined, size: 20, color: colors.iconSecondary),
+                      child: Opacity(
+                        opacity: inOtherPlaylist ? 0.5 : 1.0,
+                        child: Container(
+                          width: 60,
+                          height: 40,
+                          color: colors.surfaceVariant,
+                          child: cover.isNotEmpty
+                              ? CachedImage(
+                                  imageUrl: ImageUtils.getFullImageUrl(cover),
+                                  width: 60,
+                                  height: 40,
+                                  fit: BoxFit.cover,
+                                )
+                              : Icon(Icons.image_outlined, size: 20, color: colors.iconSecondary),
+                        ),
                       ),
                     ),
                     title: Text(
                       video['title'] ?? '',
                       style: TextStyle(
                         fontSize: 13,
-                        color: inPlaylist ? colors.textTertiary : colors.textPrimary,
+                        color: isDisabled ? colors.textTertiary : colors.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: inPlaylist
                         ? Text('已在合集中', style: TextStyle(fontSize: 11, color: colors.textTertiary))
-                        : null,
+                        : inOtherPlaylist
+                            ? Text('已在其他合集中', style: TextStyle(fontSize: 11, color: const Color(0xFFE6A23C)))
+                            : null,
                   );
                 },
               ),

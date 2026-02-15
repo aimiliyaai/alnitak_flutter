@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/playlist.dart';
 import '../../../services/playlist_api_service.dart';
+import '../../../services/video_service.dart';
 import '../../../theme/theme_extensions.dart';
 
 /// 合集列表组件（样式与 PartList 一致）
 class CollectionList extends StatefulWidget {
   final int vid;
-  final Function(int) onVideoTap;
+  final Function(int vid) onVideoTap;
 
   const CollectionList({
     super.key,
@@ -21,10 +22,12 @@ class CollectionList extends StatefulWidget {
 
 class CollectionListState extends State<CollectionList> {
   final PlaylistApiService _playlistApi = PlaylistApiService();
+  final VideoService _videoService = VideoService();
 
   bool _showTitleMode = true;
   bool _autoNext = true;
   bool _isLoading = true;
+  bool _isExpandingParts = false;
 
   PlaylistInfo? _playlist;
   List<PlaylistVideoItem> _videoList = [];
@@ -79,12 +82,16 @@ class CollectionListState extends State<CollectionList> {
       }
 
       final first = PlaylistInfo.fromJson(playlists[0]);
-      final videos = await _playlistApi.getPlaylistVideos(first.id);
+      final videosRaw = await _playlistApi.getPlaylistVideos(first.id);
+      final rawVideoList = videosRaw.map((v) => PlaylistVideoItem.fromJson(v)).toList();
+
+      // 展开多分P视频
+      final expandedList = await _expandMultiPartVideos(rawVideoList);
 
       if (mounted) {
         setState(() {
           _playlist = first;
-          _videoList = videos.map((v) => PlaylistVideoItem.fromJson(v)).toList();
+          _videoList = expandedList;
           _isLoading = false;
         });
       }
@@ -99,6 +106,55 @@ class CollectionListState extends State<CollectionList> {
     }
   }
 
+  /// 展开多分P视频
+  Future<List<PlaylistVideoItem>> _expandMultiPartVideos(List<PlaylistVideoItem> rawVideos) async {
+    if (_isExpandingParts) return rawVideos;
+    _isExpandingParts = true;
+
+    final expandedList = <PlaylistVideoItem>[];
+
+    for (final video in rawVideos) {
+      try {
+        final detail = await _videoService.getVideoDetail(video.vid);
+        if (detail != null && detail.resources.isNotEmpty && detail.resources.length > 1) {
+          // 视频有多分P，展开为多个项
+          for (final resource in detail.resources) {
+            expandedList.add(PlaylistVideoItem(
+              vid: video.vid,
+              title: video.title,
+              cover: video.cover,
+              duration: resource.duration,
+              clicks: video.clicks,
+              desc: video.desc,
+              resourceId: resource.id,
+              partTitle: resource.title,
+            ));
+          }
+        } else {
+          // 单分P或无资源，保持原样
+          final resourceId = detail?.resources.isNotEmpty == true ? detail!.resources.first.id : null;
+          final partTitle = detail?.resources.isNotEmpty == true ? detail!.resources.first.title : null;
+          expandedList.add(PlaylistVideoItem(
+            vid: video.vid,
+            title: video.title,
+            cover: video.cover,
+            duration: video.duration,
+            clicks: video.clicks,
+            desc: video.desc,
+            resourceId: resourceId,
+            partTitle: partTitle,
+          ));
+        }
+      } catch (e) {
+        // 获取视频详情失败，保持原样
+        expandedList.add(video);
+      }
+    }
+
+    _isExpandingParts = false;
+    return expandedList;
+  }
+
   /// 获取下一个合集视频 vid
   int? getNextVideo() {
     if (!_autoNext || _videoList.isEmpty) return null;
@@ -110,6 +166,7 @@ class CollectionListState extends State<CollectionList> {
   }
 
   int get _currentIndex {
+    // 优先精确匹配 vid（当前分P）
     final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
     return idx >= 0 ? idx + 1 : 0;
   }
@@ -173,7 +230,7 @@ class CollectionListState extends State<CollectionList> {
         ),
       ),
       title: Text(
-        video.title,
+        video.partTitle ?? video.title,
         style: TextStyle(
           fontSize: 14,
           fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,

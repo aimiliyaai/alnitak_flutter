@@ -985,6 +985,7 @@ class VideoPlayerController extends ChangeNotifier {
     _audioSession = null;
   }
 
+  @override
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;

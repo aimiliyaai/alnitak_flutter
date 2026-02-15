@@ -253,6 +253,23 @@ class PlaylistApiService {
     }
   }
 
+  /// 获取用户所有合集中的视频ID映射（vid -> playlistId）
+  Future<Map<int, int>> getMyPlaylistVideoIds() async {
+    if (!_tokenManager.canMakeAuthenticatedRequest) return {};
+    try {
+      final response = await _dio.get('/api/v1/playlist/video/myVideoIds');
+      if (response.data['code'] == 200) {
+        final map = response.data['data']['videoPlaylistMap'] as Map<String, dynamic>?;
+        if (map == null) return {};
+        return map.map((key, value) => MapEntry(int.parse(key), (value as num).toInt()));
+      }
+      return {};
+    } catch (e) {
+      print('获取合集视频映射失败: $e');
+      return {};
+    }
+  }
+
   /// 获取用户所有视频（用于添加到合集的选择列表）
   Future<List<Map<String, dynamic>>> getAllVideoList() async {
     if (!_tokenManager.canMakeAuthenticatedRequest) return [];

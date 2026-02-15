@@ -41,6 +41,8 @@ class PlaylistVideoItem {
   final double duration;
   final int clicks;
   final String desc;
+  final int? resourceId;  // 分P的资源ID
+  final String? partTitle;  // 分P标题
 
   PlaylistVideoItem({
     required this.vid,
@@ -49,6 +51,8 @@ class PlaylistVideoItem {
     required this.duration,
     required this.clicks,
     required this.desc,
+    this.resourceId,
+    this.partTitle,
   });
 
   factory PlaylistVideoItem.fromJson(Map<String, dynamic> json) {
@@ -59,6 +63,8 @@ class PlaylistVideoItem {
       duration: (json['duration'] ?? 0).toDouble(),
       clicks: json['clicks'] ?? 0,
       desc: json['desc'] ?? '',
+      resourceId: json['resourceId'],
+      partTitle: json['partTitle'],
     );
   }
 }
