@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:async';
 import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
@@ -7,16 +6,17 @@ import '../utils/http_client.dart';
 import '../config/api_config.dart';
 import '../models/data_source.dart';
 
-/// 清晰度查询结果（包含 supportsDash 信息）
+/// 清晰度查询结果
 class QualityInfo {
   final List<String> qualities;
-  final bool supportsDash;
+  final bool supportsDash; // true=新资源(SegmentBase), false=旧资源(SegmentList/Legacy)
   const QualityInfo({required this.qualities, required this.supportsDash});
 }
 
-/// HLS/DASH 视频流服务类
+/// 视频流服务类
 ///
-/// 负责获取视频/音频源、临时文件管理
+/// pilipala 风格：通过 JSON 接口获取视频/音频直链 URL
+/// 播放器直接加载 URL，通过 audio-files 挂载外部音频
 class HlsService {
   static final HlsService _instance = HlsService._internal();
   factory HlsService() => _instance;
@@ -24,34 +24,7 @@ class HlsService {
 
   final Dio _dio = HttpClient().dio;
 
-  // 临时文件缓存目录
-  Directory? _cacheDir;
-
-  // 当前使用的临时文件列表，用于清理
-  final List<String> _tempFilePaths = [];
-
-  /// 初始化缓存目录
-  Future<void> _initCacheDir() async {
-    if (_cacheDir == null) {
-      final tempDir = await getTemporaryDirectory();
-      _cacheDir = Directory('${tempDir.path}/hls_cache');
-      if (!await _cacheDir!.exists()) {
-        await _cacheDir!.create(recursive: true);
-      }
-    }
-  }
-
-  /// 是否应使用 DASH 格式
-  /// media_kit 基于 libmpv，Android/Windows/macOS/Linux 都原生支持 DASH MPD
-  /// iOS 用 HLS（AVPlayer 后端，HLS 支持更好）
-  static bool shouldUseDash() {
-    return !Platform.isIOS;
-  }
-
-  /// 获取清晰度信息（包含 supportsDash 字段）
-  ///
-  /// supportsDash 由服务端返回，只有 SegmentBase 模式（新资源）才为 true
-  /// 旧资源（SegmentList / Legacy）服务端返回 false，客户端走 HLS 模式
+  /// 获取清晰度信息
   Future<QualityInfo> getQualityInfo(int resourceId) async {
     try {
       final response = await _dio.get(
@@ -61,10 +34,7 @@ class HlsService {
 
       if (response.data['code'] == 200) {
         final qualities = List<String>.from(response.data['data']['quality']);
-        // 服务端返回 supportsDash：只有 SegmentBase（新资源）才为 true
-        // 客户端还需要平台支持（iOS 不用 DASH）
-        final serverSupportsDash = response.data['data']['supportsDash'] == true;
-        final supportsDash = shouldUseDash() && serverSupportsDash;
+        final supportsDash = response.data['data']['supportsDash'] == true;
         return QualityInfo(qualities: qualities, supportsDash: supportsDash);
       }
 
@@ -82,193 +52,67 @@ class HlsService {
 
   /// 获取 DataSource（核心方法）
   ///
-  /// DASH 模式：返回 MPD URL + 音频 URL
-  /// HLS 模式：返回本地临时 m3u8 文件路径 + 音频 URL
-  ///
-  /// 两种模式都通过 format=json 获取独立音频 URL，
-  /// 由播放器通过 audio-files 属性挂载外部音频
-  Future<DataSource> getDataSource(int resourceId, String quality, {bool useDash = false}) async {
+  /// 新资源（supportsDash=true）：请求 format=json，提取视频/音频直链 URL
+  /// 旧资源（supportsDash=false）：直接构造 m3u8 URL 给 mpv 加载
+  ///   mpv 原生支持 HTTP m3u8 URL，会自动解析相对路径
+  Future<DataSource> getDataSource(int resourceId, String quality, {bool supportsDash = true}) async {
     try {
-      if (useDash) {
-        // DASH 模式：MPD 自带 video + audio AdaptationSet，不需要外挂音频
-        final mpdUrl = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile'
-            '?resourceId=$resourceId&quality=$quality&format=mpd';
+      if (supportsDash) {
+        // 新资源：JSON 格式，提取视频/音频直链
+        final response = await _dio.get(
+          '/api/v1/video/getVideoFile',
+          queryParameters: {
+            'resourceId': resourceId,
+            'quality': quality,
+            'format': 'json',
+          },
+          options: Options(responseType: ResponseType.plain),
+        );
+
+        final jsonContent = (response.data as String).trim();
+        if (!jsonContent.startsWith('{')) {
+          throw Exception('无效的 JSON 响应');
+        }
+
+        final json = jsonDecode(jsonContent) as Map<String, dynamic>;
+        final dash = json['data']?['dash'];
+        if (dash == null) throw Exception('响应缺少 dash 字段');
+
+        // 提取视频直链
+        final videoList = dash['video'] as List?;
+        if (videoList == null || videoList.isEmpty) {
+          throw Exception('响应缺少视频流信息');
+        }
+        final videoUrl = '${ApiConfig.baseUrl}${videoList[0]['baseUrl']}';
+
+        // 提取音频直链
+        String? audioUrl;
+        final audioList = dash['audio'] as List?;
+        if (audioList != null && audioList.isNotEmpty) {
+          audioUrl = '${ApiConfig.baseUrl}${audioList[0]['baseUrl']}';
+        }
 
         return DataSource(
-          videoSource: mpdUrl,
-          // MPD 已包含音频，不设 audioSource，避免 audio-files 冲突
+          videoSource: videoUrl,
+          audioSource: audioUrl,
+        );
+      } else {
+        // 旧资源：直接构造 m3u8 URL，mpv 原生支持 HTTP HLS
+        // mpv 请求此 URL 得到 m3u8 文本，自动基于请求 URL 解析相对路径
+        final m3u8Url = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile'
+            '?resourceId=$resourceId&quality=$quality&format=m3u8';
+
+        return DataSource(
+          videoSource: m3u8Url,
+          // 旧资源 m3u8 音视频合一，不需要外挂音频
         );
       }
-
-      // HLS 模式：并行获取 m3u8 和音频信息
-      final m3u8Future = _dio.get(
-        '/api/v1/video/getVideoFile',
-        queryParameters: {
-          'resourceId': resourceId,
-          'quality': quality,
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-      final audioFuture = _fetchAudioUrl(resourceId, quality);
-
-      final m3u8Response = await m3u8Future;
-      final audioUrl = await audioFuture;
-
-      String content = (m3u8Response.data as String).trim();
-
-      // 转换相对路径为绝对 URL
-      if (content.startsWith('#EXTM3U') || (!content.startsWith('http://') && !content.startsWith('https://'))) {
-        content = _convertToAbsoluteUrls(content);
-      }
-
-      // 将 m3u8 内容写入临时文件（media_kit 需要文件路径）
-      final tempFile = await _writeTempM3u8File(content);
-
-      return DataSource(
-        videoSource: tempFile,
-        audioSource: audioUrl,
-      );
     } catch (e) {
       rethrow;
     }
   }
 
-  /// 获取音频 URL（从 format=json 端点）
-  Future<String?> _fetchAudioUrl(int resourceId, String quality) async {
-    try {
-      final response = await _dio.get(
-        '/api/v1/video/getVideoFile',
-        queryParameters: {
-          'resourceId': resourceId,
-          'quality': quality,
-          'format': 'json',
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-
-      final jsonContent = (response.data as String).trim();
-      if (jsonContent.startsWith('{')) {
-        final json = _parseJson(jsonContent);
-        final dash = json['data']?['dash'];
-        final audioList = dash?['audio'] as List?;
-        if (audioList != null && audioList.isNotEmpty) {
-          return '${ApiConfig.baseUrl}${audioList[0]['baseUrl']}';
-        }
-      }
-    } catch (_) {
-      // 音频请求失败不影响主流程
-    }
-    return null;
-  }
-
-  /// 将 m3u8 内容写入临时文件
-  Future<String> _writeTempM3u8File(String content) async {
-    await _initCacheDir();
-    final fileName = 'playlist_${DateTime.now().millisecondsSinceEpoch}.m3u8';
-    final filePath = '${_cacheDir!.path}/$fileName';
-    final file = File(filePath);
-    await file.writeAsString(content);
-    _tempFilePaths.add(filePath);
-    return filePath;
-  }
-
-  /// 解析 JSON 字符串
-  Map<String, dynamic> _parseJson(String content) {
-    try {
-      return jsonDecode(content) as Map<String, dynamic>;
-    } catch (e) {
-      return {};
-    }
-  }
-
-  /// 将 m3u8 内容中的相对路径转换为绝对URL
-  /// 支持 TS 切片 (.ts) 和 fMP4 切片 (.m4s + _init.mp4)
-  String _convertToAbsoluteUrls(String m3u8Content) {
-    final lines = m3u8Content.split('\n');
-    final convertedLines = <String>[];
-    bool hasAddedCacheTag = false;
-
-    for (var line in lines) {
-      final trimmedLine = line.trim();
-
-      // 处理 fMP4 格式的初始化文件 (EXT-X-MAP:URI="xxx")
-      if (trimmedLine.startsWith('#EXT-X-MAP:URI=')) {
-        final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(trimmedLine);
-        if (uriMatch != null) {
-          final uri = uriMatch.group(1)!;
-          if (uri.startsWith('/api/v1/video/slice/')) {
-            convertedLines.add('#EXT-X-MAP:URI="${ApiConfig.baseUrl}$uri"');
-          } else {
-            convertedLines.add(line);
-          }
-        } else {
-          convertedLines.add(line);
-        }
-      }
-      // 如果是切片文件路径
-      else if (trimmedLine.startsWith('/api/v1/video/slice/')) {
-        if (!hasAddedCacheTag) {
-          convertedLines.add('#EXT-X-ALLOW-CACHE:YES');
-          hasAddedCacheTag = true;
-        }
-        convertedLines.add('${ApiConfig.baseUrl}$trimmedLine');
-      } else {
-        convertedLines.add(line);
-      }
-    }
-
-    return convertedLines.join('\n');
-  }
-
   // ============ 缓存清理 ============
-
-  /// 清理所有临时文件
-  Future<void> cleanupTempFiles() async {
-    try {
-      for (final filePath in _tempFilePaths) {
-        final file = File(filePath);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      }
-      _tempFilePaths.clear();
-    } catch (e) {
-    }
-  }
-
-  /// 清理过期的缓存文件（超过1小时的文件）
-  Future<void> cleanupExpiredCache() async {
-    try {
-      await _initCacheDir();
-      final now = DateTime.now();
-      final files = _cacheDir!.listSync();
-
-      for (final file in files) {
-        if (file is File && file.path.endsWith('.m3u8')) {
-          final stat = await file.stat();
-          final age = now.difference(stat.modified);
-          if (age.inHours > 1) {
-            await file.delete();
-          }
-        }
-      }
-    } catch (e) {
-    }
-  }
-
-  /// 清理所有缓存目录（包括HLS缓存和MPV缓存）
-  Future<void> clearAllCache() async {
-    try {
-      await _initCacheDir();
-      if (await _cacheDir!.exists()) {
-        await _cacheDir!.delete(recursive: true);
-        await _cacheDir!.create();
-        _tempFilePaths.clear();
-      }
-      await cleanupMpvCache();
-    } catch (e) {
-    }
-  }
 
   /// 清理 MPV 播放器缓存
   Future<void> cleanupMpvCache() async {
@@ -281,6 +125,7 @@ class HlsService {
         Directory('${tempDir.path}/media_kit_cache'),
         Directory('${tempDir.path}/libmpv'),
         Directory('${tempDir.path}/mpv'),
+        Directory('${tempDir.path}/hls_cache'),
       ];
 
       for (final dir in mpvCacheDirs) {
@@ -290,7 +135,7 @@ class HlsService {
             if (file is File) {
               try {
                 await file.delete();
-              } catch (e) {
+              } catch (_) {
               }
             }
           }
@@ -298,7 +143,7 @@ class HlsService {
             if (dir.listSync().isEmpty) {
               await dir.delete();
             }
-          } catch (e) {
+          } catch (_) {
           }
         }
       }
@@ -317,24 +162,30 @@ class HlsService {
                 fileName.startsWith('libmpv')) {
               try {
                 await entity.delete();
-              } catch (e) {
+              } catch (_) {
               }
             }
           }
         }
-      } catch (e) {
+      } catch (_) {
       }
-    } catch (e) {
+    } catch (_) {
     }
+  }
+
+  /// 清理所有缓存
+  Future<void> clearAllCache() async {
+    await cleanupMpvCache();
   }
 
   /// 清理所有临时缓存（退出播放时调用）
   Future<void> cleanupAllTempCache() async {
-    try {
-      await cleanupTempFiles();
-      await cleanupMpvCache();
-    } catch (e) {
-    }
+    await cleanupMpvCache();
+  }
+
+  /// 清理过期的缓存文件
+  Future<void> cleanupExpiredCache() async {
+    // 不再需要清理 m3u8 临时文件，保留接口兼容性
   }
 
   // ============ 静态工具方法 ============

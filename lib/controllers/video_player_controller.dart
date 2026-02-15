@@ -52,11 +52,14 @@ class VideoPlayerController extends ChangeNotifier {
   bool _hasJustCompleted = false; // 刚播放完毕，用于区分循环重播
   bool _isInitializing = false;
   bool _hasPlaybackStarted = false;
-  bool _useDash = false;
+  bool _supportsDash = true; // 新资源=true(JSON直链), 旧资源=false(m3u8 URL)
   bool _isSeeking = false;
 
   Duration _userIntendedPosition = Duration.zero;
   Duration _lastReportedPosition = Duration.zero;
+  Duration? _seekAfterOpen; // open() 后 surface 重建恢复用：检测到位置回跳时自动 seek
+  int _seekAfterOpenRetries = 0; // 防止无限重试
+  static const int _maxSeekAfterOpenRetries = 3;
   int? _lastProgressFetchTime;
 
   // pilipala 风格：用 List 管理所有 stream subscription，方便批量取消/重建
@@ -112,8 +115,7 @@ class VideoPlayerController extends ChangeNotifier {
       final qualityInfo = await _hlsService.getQualityInfo(resourceId);
       if (qualityInfo.qualities.isEmpty) throw Exception('没有可用的清晰度');
 
-      _useDash = HlsService.shouldUseDash() && qualityInfo.supportsDash;
-
+      _supportsDash = qualityInfo.supportsDash;
       availableQualities.value = HlsService.sortQualities(qualityInfo.qualities);
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
@@ -121,7 +123,7 @@ class VideoPlayerController extends ChangeNotifier {
       final dataSource = await _hlsService.getDataSource(
         resourceId,
         currentQuality.value!,
-        useDash: _useDash,
+        supportsDash: _supportsDash,
       );
 
       if (_isDisposed || _currentResourceId != resourceId) return;
@@ -148,14 +150,14 @@ class VideoPlayerController extends ChangeNotifier {
 
   // ============ 核心方法：setDataSource（照搬 pilipala）============
 
-  /// 设置播放数据源
+  /// 设置播放数据源（pilipala 风格）
   ///
   /// 流程：
   /// 1. removeListeners()，清空缓冲状态
-  /// 2. 创建 Player（??= 复用），配置 audio-files（仅 HLS 需要）
-  /// 3. player.open(Media(url), play: false) — 不用 start 参数
+  /// 2. 创建 Player（??= 复用），配置 audio-files 挂载独立音频
+  /// 3. player.open(Media(videoUrl, start: seekTo)) 加载视频直链
   /// 4. startListeners()
-  /// 5. 等初始缓冲完成 → 等 duration → seek → 确认到位 → play
+  /// 5. _seekAfterOpen 机制处理 surface 重建后的进度恢复
   Future<void> setDataSource(
     DataSource dataSource, {
     Duration seekTo = Duration.zero,
@@ -176,8 +178,8 @@ class VideoPlayerController extends ChangeNotifier {
       _hasTriggeredCompletion = false;
       _hasJustCompleted = false;
       _isRecoveringFromSurfaceReset = false;
-      _lastValidPosition = Duration.zero; // 重置，防止新 listener 误触 surface 重置检测
-      _isSeeking = false; // Media(start:) 处理 seek，不需要冻结 position 推送
+      _lastValidPosition = Duration.zero;
+      _isSeeking = false;
 
       final isNewPlayer = _player == null;
       _player ??= Player(
@@ -187,8 +189,6 @@ class VideoPlayerController extends ChangeNotifier {
           logLevel: MPVLogLevel.error,
         ),
       );
-
-      // 新创建的 Player 绑定到 AudioService（通知栏控件）
       if (isNewPlayer) {
         audioHandler.attachPlayer(_player!);
       }
@@ -220,8 +220,7 @@ class VideoPlayerController extends ChangeNotifier {
       await _syncLoopProperty();
       await _player!.setAudioTrack(AudioTrack.auto());
 
-      // 音轨设置：DASH 的 MPD 自带音频 AdaptationSet，不需要外挂
-      // 仅 HLS 模式需要通过 audio-files 挂载独立音频
+      // pilipala 风格：视频和音频是独立 URL，通过 audio-files 挂载外部音频
       if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
         final escapedAudio = Platform.isWindows
             ? dataSource.audioSource!.replaceAll(';', '\\;')
@@ -240,11 +239,17 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 通过 Media(start:) 设置起始位置
-      // media_kit 的 on_load hook 会在 mpv 加载媒体时设置 start 属性
-      // on_unload hook 会自动清除 start，不影响后续 seek
-      // surface 重建会导致 position 短暂回跳到 0-1s，但 mpv 会自动恢复
-      // _lastValidPosition 已重置为 0，不会误触 surface 重置检测
+      // 设置 _seekAfterOpen：open() 后 surface 重建会导致 position 回跳到 0-1s
+      // 位置监听器检测到回跳时会自动 seek 到此目标位置
+      if (seekTo > Duration.zero) {
+        _seekAfterOpen = seekTo;
+        _seekAfterOpenRetries = 0;
+        _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s');
+      } else {
+        _seekAfterOpen = null;
+        _seekAfterOpenRetries = 0;
+      }
+
       _logger.logDebug('setDataSource: open with start=${seekTo.inSeconds}s');
       await _player!.open(
         Media(dataSource.videoSource, start: seekTo),
@@ -381,7 +386,7 @@ class VideoPlayerController extends ChangeNotifier {
       final dataSource = await _hlsService.getDataSource(
         _currentResourceId!,
         quality,
-        useDash: _useDash,
+        supportsDash: _supportsDash,
       );
 
       if (_isDisposed) return;
@@ -499,6 +504,28 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
+        // _seekAfterOpen 恢复逻辑：open() 后 surface 重建导致位置回跳
+        // 检测到位置在 <=2s 且有待恢复目标时，自动 seek
+        if (_seekAfterOpen != null && _seekAfterOpen!.inSeconds > 2) {
+          if (position.inSeconds <= 2) {
+            // 等 duration 就绪后再 seek，否则 seek 会被忽略
+            if (_player!.state.duration.inSeconds > 0 &&
+                _seekAfterOpenRetries < _maxSeekAfterOpenRetries) {
+              _seekAfterOpenRetries++;
+              final target = _seekAfterOpen!;
+              _logger.logDebug('_seekAfterOpen 恢复: position=${position.inSeconds}s, '
+                  'target=${target.inSeconds}s, retry=$_seekAfterOpenRetries');
+              _player!.seek(target);
+            }
+            return; // 不推送回跳的位置给 UI
+          } else if ((position.inMilliseconds - _seekAfterOpen!.inMilliseconds).abs() < 5000) {
+            // 位置已接近目标，恢复成功
+            _logger.logDebug('_seekAfterOpen 恢复成功: position=${position.inSeconds}s');
+            _seekAfterOpen = null;
+            _seekAfterOpenRetries = 0;
+          }
+        }
+
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
           _hasPlaybackStarted = true;
@@ -513,9 +540,10 @@ class VideoPlayerController extends ChangeNotifier {
             (_player!.state.duration.inSeconds - _lastValidPosition.inSeconds).abs() <= 3;
         final isLegitRestart = isLooping || _hasJustCompleted || isNearEnd;
 
-        // Surface 重置检测：从 >3秒 跳回 <=1秒
-        // 排除合法回到开头的场景
+        // Surface 重置检测：从 >3秒 跳回 <=1秒（正常播放中的意外 surface 重建）
+        // 排除合法回到开头的场景和 _seekAfterOpen 场景（已在上面处理）
         if (!_isRecoveringFromSurfaceReset &&
+            _seekAfterOpen == null &&
             !isLegitRestart &&
             _lastValidPosition.inSeconds > 3 &&
             position.inSeconds <= 1) {
@@ -618,7 +646,7 @@ class VideoPlayerController extends ChangeNotifier {
       final dataSource = await _hlsService.getDataSource(
         _currentResourceId!,
         currentQuality.value!,
-        useDash: _useDash,
+        supportsDash: _supportsDash,
       );
 
       if (_isDisposed) return;
@@ -642,10 +670,10 @@ class VideoPlayerController extends ChangeNotifier {
     if (index == -1) return;
 
     if (index > 0) {
-      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index - 1], useDash: _useDash));
+      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index - 1], supportsDash: _supportsDash));
     }
     if (index < qualities.length - 1) {
-      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index + 1], useDash: _useDash));
+      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index + 1], supportsDash: _supportsDash));
     }
   }
 

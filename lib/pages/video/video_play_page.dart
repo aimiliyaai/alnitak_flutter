@@ -186,7 +186,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           _actionStatus = actionStatus;
         });
       }
-    } catch (e) {
+    } catch (_) {
     }
   }
 
@@ -239,7 +239,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         if (playerDuration.inSeconds > 0 && currentPosition.inSeconds > 0) {
           progressToSave = currentPosition.inSeconds.toDouble();
         }
-      } catch (e) {
+      } catch (_) {
       }
     }
 
@@ -412,7 +412,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               : null;
         });
       }
-    } catch (e) {
+    } catch (_) {
     }
   }
 
@@ -427,7 +427,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
           _videoDetail = videoDetail;
         });
       }
-    } catch (e) {
+    } catch (_) {
     }
   }
 
@@ -581,7 +581,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
       _fetchProgressAndRestoreSeamless(targetVid: targetVid, videoDetail: videoDetail);
 
-    } catch (e) {
+    } catch (_) {
     }
   }
 
