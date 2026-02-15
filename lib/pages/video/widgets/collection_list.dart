@@ -216,29 +216,38 @@ class CollectionListState extends State<CollectionList> {
     );
   }
 
-  Widget _buildListTile(int index, dynamic colors) {
-    final video = _displayList[index];
-    bool isCurrent;
-    
+  bool _isCurrentItem(int index) {
     if (_listType == 'parts') {
-      isCurrent = index + 1 == widget.currentPart;
-    } else {
-      // 合集类型：需要精确匹配 vid + currentPart
-      if (video.vid == widget.vid) {
-        // 找到当前视频的所有分P
-        final currentVideoParts = _videoList.where((v) => v.vid == widget.vid).toList();
-        if (currentVideoParts.length > 1) {
-          // 多分P视频，根据 currentPart 判断
-          final partIdx = index - _videoList.indexOf(currentVideoParts.first);
-          isCurrent = partIdx + 1 == widget.currentPart;
-        } else {
-          // 单分P或只有一个条目
-          isCurrent = true;
-        }
-      } else {
-        isCurrent = false;
+      return index + 1 == widget.currentPart;
+    }
+    final video = _displayList[index];
+    if (video.vid == widget.vid) {
+      final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
+      if (currentVideoParts.length > 1) {
+        final firstIndex = _displayList.indexOf(currentVideoParts.first);
+        return (index - firstIndex) + 1 == widget.currentPart;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  int? _getPartIndex(int index) {
+    final video = _displayList[index];
+    if (video.vid == widget.vid) {
+      final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
+      if (currentVideoParts.length > 1) {
+        final firstIndex = _displayList.indexOf(currentVideoParts.first);
+        return (index - firstIndex) + 1;
       }
     }
+    return null;
+  }
+
+  Widget _buildListTile(int index, dynamic colors) {
+    final video = _displayList[index];
+    final isCurrent = _isCurrentItem(index);
+    final partIndex = _getPartIndex(index);
 
     return ListTile(
       selected: isCurrent,
@@ -282,6 +291,8 @@ class CollectionListState extends State<CollectionList> {
         if (!isCurrent) {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
+          } else if (video.vid == widget.vid && partIndex != null) {
+            widget.onPartTap?.call(partIndex);
           } else {
             widget.onVideoTap(video.vid);
           }
@@ -304,29 +315,16 @@ class CollectionListState extends State<CollectionList> {
 
   Widget _buildGridItem(int index, dynamic colors) {
     final video = _displayList[index];
-    bool isCurrent;
-    
-    if (_listType == 'parts') {
-      isCurrent = index + 1 == widget.currentPart;
-    } else {
-      if (video.vid == widget.vid) {
-        final currentVideoParts = _videoList.where((v) => v.vid == widget.vid).toList();
-        if (currentVideoParts.length > 1) {
-          final partIdx = index - _videoList.indexOf(currentVideoParts.first);
-          isCurrent = partIdx + 1 == widget.currentPart;
-        } else {
-          isCurrent = true;
-        }
-      } else {
-        isCurrent = false;
-      }
-    }
+    final isCurrent = _isCurrentItem(index);
+    final partIndex = _getPartIndex(index);
 
     return InkWell(
       onTap: () {
         if (!isCurrent) {
-          if (_listType == 'parts' && video.vid == widget.vid) {
+          if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
+          } else if (video.vid == widget.vid && partIndex != null) {
+            widget.onPartTap?.call(partIndex);
           } else {
             widget.onVideoTap(video.vid);
           }
