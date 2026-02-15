@@ -18,9 +18,6 @@ import 'widgets/error_boundary.dart';
 /// 全局 AudioService handler，供 VideoPlayerController 使用
 late VideoAudioHandler audioHandler;
 
-/// 全局路由观察者，用于检测页面是否在栈顶（如播放页暂停/恢复）
-final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 初始化 media_kit
@@ -149,7 +146,7 @@ class _MyAppState extends State<MyApp> {
             child: child!,
             errorBuilder: (context, error, stack) => _defaultErrorWidget(context, error),
           ),
-          navigatorObservers: [routeObserver],
+          navigatorObservers: const [],
           routes: {
             '/settings': (context) => const SettingsPage(),
           },

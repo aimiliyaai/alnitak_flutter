@@ -9,7 +9,6 @@ import '../../controllers/video_player_controller.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
 import '../../theme/theme_extensions.dart';
-import '../../main.dart' show routeObserver;
 import '../user/user_space_page.dart';
 import 'widgets/media_player_widget.dart';
 import 'widgets/author_card.dart';
@@ -36,7 +35,7 @@ class VideoPlayPage extends StatefulWidget {
   State<VideoPlayPage> createState() => _VideoPlayPageState();
 }
 
-class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserver, RouteAware {
+class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserver {
   final VideoService _videoService = VideoService();
   final HistoryService _historyService = HistoryService();
   final AuthStateManager _authStateManager = AuthStateManager();
@@ -90,9 +89,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   final GlobalKey<CollectionListState> _collectionListKey = GlobalKey<CollectionListState>();
   final GlobalKey<RecommendListState> _recommendListKey = GlobalKey<RecommendListState>();
 
-  // 页面被覆盖前是否正在播放（用于恢复播放状态）
-  bool _wasPlayingBeforeCovered = false;
-
   @override
   void initState() {
     super.initState();
@@ -110,35 +106,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _loadVideoData();
     WidgetsBinding.instance.addObserver(this);
     _authStateManager.addListener(_onAuthStateChanged);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    routeObserver.subscribe(this, ModalRoute.of(context)!);
-  }
-
-  /// 有新页面被 push 到当前页面之上 → 暂停播放
-  @override
-  void didPushNext() {
-    final player = _playerController?.player;
-    if (player != null && player.state.playing) {
-      _wasPlayingBeforeCovered = true;
-      _playerController?.pause();
-      _danmakuController.pause();
-    } else {
-      _wasPlayingBeforeCovered = false;
-    }
-  }
-
-  /// 上层页面被 pop，当前页面回到栈顶 → 恢复播放
-  @override
-  void didPopNext() {
-    if (_wasPlayingBeforeCovered) {
-      _wasPlayingBeforeCovered = false;
-      _playerController?.play();
-      _danmakuController.play();
-    }
   }
 
   /// 登录状态变化回调
@@ -238,7 +205,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   @override
   void dispose() {
-    routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _authStateManager.removeListener(_onAuthStateChanged);
 
