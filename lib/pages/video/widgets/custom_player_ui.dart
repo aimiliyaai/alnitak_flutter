@@ -1272,6 +1272,9 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
             return ValueListenableBuilder<String?>(
               valueListenable: widget.logic.currentQuality,
               builder: (context, currentQuality, _) {
+                final qualityDisplayName = currentQuality != null
+                    ? widget.logic.getQualityDisplayName(currentQuality)
+                    : '画质';
                 return TextButton(
                   key: _qualityButtonKey,
                   onPressed: _toggleQualityPanel,
@@ -1281,12 +1284,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: Text(
-                    currentQuality != null
-                        ? widget.logic.getQualityDisplayName(currentQuality)
-                        : '画质',
-                    style: const TextStyle(fontSize: 13),
-                  ),
+                  child: _buildQualityLabel(qualityDisplayName, false),
                 );
               },
             );
@@ -1390,15 +1388,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                     alignment: Alignment.center,
-                    child: Text(
-                      displayName,
-                      style: TextStyle(
-                        color: isSelected ? Colors.blue : Colors.white,
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                    child: _buildQualityLabel(displayName, isSelected),
                   ),
                 );
               }).toList(),
@@ -1406,6 +1396,49 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
           ),
         ),
       ),
+    );
+  }
+
+  /// 构建清晰度标签，高帧率后缀（如"60"）使用特殊样式
+  Widget _buildQualityLabel(String displayName, bool isSelected) {
+    // 匹配末尾的帧率数字，如 "1080P60" → base="1080P", fps="60"
+    final match = RegExp(r'^(.+?P|[24]K)(\d+)$').firstMatch(displayName);
+    if (match == null) {
+      return Text(
+        displayName,
+        style: TextStyle(
+          color: isSelected ? Colors.blue : Colors.white,
+          fontSize: 13,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+        textAlign: TextAlign.center,
+      );
+    }
+
+    final base = match.group(1)!;
+    final fps = match.group(2)!;
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: base,
+            style: TextStyle(
+              color: isSelected ? Colors.blue : Colors.white,
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          TextSpan(
+            text: fps,
+            style: TextStyle(
+              color: isSelected ? Colors.blue : const Color(0xFF4FC3F7),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+      textAlign: TextAlign.center,
     );
   }
 

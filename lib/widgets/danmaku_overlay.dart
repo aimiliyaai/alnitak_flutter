@@ -38,6 +38,9 @@ class DanmakuOverlay extends StatelessWidget {
         final activeDanmakus = controller.activeDanmakus;
         final isPlaying = controller.isPlaying;
 
+        // 通知控制器当前显示尺寸，用于动态计算轨道数
+        controller.setDisplaySize(width, height);
+
         return ClipRect(
           child: SizedBox(
             width: width,
@@ -160,8 +163,8 @@ class _DanmakuItemWidgetState extends State<_DanmakuItemWidget>
     final config = widget.config;
     final trackIndex = widget.item.trackIndex;
 
-    // 计算轨道高度
-    final trackHeight = config.fontSize * 1.5;
+    // 计算轨道高度（字体大小 + 描边偏移2px + 间距）
+    final trackHeight = config.fontSize * 1.2 + 2 + 6;
     final topOffset = trackIndex * trackHeight;
 
     return AnimatedBuilder(

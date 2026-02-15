@@ -123,6 +123,9 @@ class DanmakuController extends ChangeNotifier {
   /// 记录最近一次的屏幕宽度，用于发送弹幕时立即计算轨道
   double _lastScreenWidth = 0;
 
+  /// 记录最近一次的屏幕高度，用于动态计算轨道数
+  double _lastScreenHeight = 0;
+
   /// 是否正在初始化阶段（surface 重建期间）
   bool _isInitializing = true;
 
@@ -441,9 +444,19 @@ class DanmakuController extends ChangeNotifier {
     }
   }
 
+  /// 根据显示区域高度计算实际可用轨道数
+  /// 轨道高度公式与 DanmakuOverlay 渲染一致：fontSize * 1.2 + 2(描边) + 6(间距)
+  int _effectiveTrackCount(int configTrackCount) {
+    if (_lastScreenHeight <= 0) return configTrackCount;
+    final displayHeight = _lastScreenHeight * _config.displayArea;
+    final trackHeight = _config.fontSize * 1.2 + 2 + 6;
+    final maxTracks = (displayHeight / trackHeight).floor();
+    return maxTracks.clamp(1, configTrackCount);
+  }
+
   /// 分配滚动弹幕轨道
   int _allocateScrollTrack(int now, double screenWidth) {
-    final trackCount = _config.scrollTrackCount;
+    final trackCount = _effectiveTrackCount(_config.scrollTrackCount);
     final duration = _config.scrollDuration.inMilliseconds;
 
     // 估算弹幕完全进入屏幕所需时间（假设弹幕宽度为屏幕的1/4）
@@ -464,7 +477,7 @@ class DanmakuController extends ChangeNotifier {
 
   /// 分配固定弹幕轨道
   int _allocateFixedTrack(Map<int, int> trackEndTimes, int now) {
-    final trackCount = _config.fixedTrackCount;
+    final trackCount = _effectiveTrackCount(_config.fixedTrackCount);
     final duration = _config.fixedDuration.inMilliseconds;
 
     for (int i = 0; i < trackCount; i++) {
@@ -561,6 +574,12 @@ class DanmakuController extends ChangeNotifier {
     }
     _saveSettings();
     notifyListeners();
+  }
+
+  /// 更新显示区域尺寸（由 DanmakuOverlay 调用，用于动态计算轨道数）
+  void setDisplaySize(double width, double height) {
+    if (width > 0) _lastScreenWidth = width;
+    if (height > 0) _lastScreenHeight = height;
   }
 
   /// 更新弹幕配置

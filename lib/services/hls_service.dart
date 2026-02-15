@@ -193,19 +193,25 @@ class HlsService {
   /// 解析清晰度字符串，返回友好的显示名称
   ///
   /// 新资源格式: "1920x1080_3000k_30" → "1080P"
+  /// 新资源高帧率: "1920x1080_8000k_60" → "1080P60"
   /// 旧资源格式: "720p" → "720P"
   static String getQualityLabel(String quality) {
+    final fps = _parseFrameRate(quality);
+    final fpsSuffix = fps > 30 ? '$fps' : '';
+
     // 新资源格式：包含 "x" 分辨率
-    if (quality.contains('1920x1080')) {
-      return '1080P';
+    if (quality.contains('3840x2160')) {
+      return '4K$fpsSuffix';
+    } else if (quality.contains('2560x1440')) {
+      return '2K$fpsSuffix';
+    } else if (quality.contains('1920x1080')) {
+      return '1080P$fpsSuffix';
     } else if (quality.contains('1280x720')) {
-      return '720P';
+      return '720P$fpsSuffix';
     } else if (quality.contains('854x480')) {
-      return '480P';
+      return '480P$fpsSuffix';
     } else if (quality.contains('640x360')) {
-      return '360P';
-    } else if (quality.contains('3840x2160')) {
-      return '4K';
+      return '360P$fpsSuffix';
     }
     // 旧资源格式：直接是 "720p"、"480p" 等，统一转大写
     final lowerQ = quality.toLowerCase();
