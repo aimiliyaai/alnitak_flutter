@@ -285,4 +285,21 @@ class PlaylistApiService {
       return [];
     }
   }
+
+  /// 获取合集视频列表（包含多分P展开和当前视频分P）
+  Future<Map<String, dynamic>?> getPlaylistVideoListWithParts(int vid) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/playlist/video/listWithParts',
+        queryParameters: {'vid': vid},
+      );
+      if (response.data['code'] == 200) {
+        return response.data['data'] as Map<String, dynamic>?;
+      }
+      return null;
+    } catch (e) {
+      print('获取合集视频列表（含分P）失败: $e');
+      return null;
+    }
+  }
 }

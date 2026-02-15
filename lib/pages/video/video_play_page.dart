@@ -971,21 +971,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
               if (MediaQuery.of(context).size.width <= 900)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: PartList(
-                    key: _partListKey,
-                    resources: _videoDetail!.resources,
-                    currentPart: _currentPart,
-                    onPartChange: _changePart,
-                  ),
-                ),
-
-              if (MediaQuery.of(context).size.width <= 900)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: CollectionList(
                     key: _collectionListKey,
                     vid: _currentVid,
+                    currentPart: _currentPart,
                     onVideoTap: _switchToVideo,
+                    onPartTap: _changePart,
                   ),
                 ),
 
@@ -1044,18 +1035,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             ),
             const SizedBox(height: 16),
 
-            if (_videoDetail!.resources.length > 1)
-              PartList(
-                key: _partListKey,
-                resources: _videoDetail!.resources,
-                currentPart: _currentPart,
-                onPartChange: _changePart,
-              ),
-
             CollectionList(
               key: _collectionListKey,
               vid: _currentVid,
+              currentPart: _currentPart,
               onVideoTap: _switchToVideo,
+              onPartTap: _changePart,
             ),
 
             const SizedBox(height: 16),

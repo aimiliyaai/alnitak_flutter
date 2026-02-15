@@ -2,18 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/playlist.dart';
 import '../../../services/playlist_api_service.dart';
-import '../../../services/video_service.dart';
 import '../../../theme/theme_extensions.dart';
 
 /// 合集列表组件（样式与 PartList 一致）
 class CollectionList extends StatefulWidget {
   final int vid;
+  final int currentPart;
   final Function(int vid) onVideoTap;
+  final Function(int part)? onPartTap;
 
   const CollectionList({
     super.key,
     required this.vid,
+    this.currentPart = 1,
     required this.onVideoTap,
+    this.onPartTap,
   });
 
   @override
@@ -22,18 +25,23 @@ class CollectionList extends StatefulWidget {
 
 class CollectionListState extends State<CollectionList> {
   final PlaylistApiService _playlistApi = PlaylistApiService();
-  final VideoService _videoService = VideoService();
 
   bool _showTitleMode = true;
   bool _autoNext = true;
   bool _isLoading = true;
-  bool _isExpandingParts = false;
 
   PlaylistInfo? _playlist;
   List<PlaylistVideoItem> _videoList = [];
+  List<PlaylistVideoItem> _partList = [];
 
   /// 是否有合集
   bool get hasPlaylist => _playlist != null;
+  
+  /// 列表类型
+  String get _listType => _playlist != null ? 'collection' : 'parts';
+  
+  /// 当前显示的列表
+  List<PlaylistVideoItem> get _displayList => _playlist != null ? _videoList : _partList;
 
   /// 是否开启自动连播
   bool get autoNext => _autoNext;
@@ -71,102 +79,106 @@ class CollectionListState extends State<CollectionList> {
     setState(() => _isLoading = true);
 
     try {
-      final playlists = await _playlistApi.getVideoPlaylists(vid);
-      if (playlists.isEmpty) {
-        setState(() {
-          _playlist = null;
-          _videoList = [];
-          _isLoading = false;
-        });
+      // 使用合并API获取合集和分P数据
+      final data = await _playlistApi.getPlaylistVideoListWithParts(vid);
+      
+      if (data == null) {
+        if (mounted) {
+          setState(() {
+            _playlist = null;
+            _videoList = [];
+            _partList = [];
+            _isLoading = false;
+          });
+        }
         return;
       }
 
-      final first = PlaylistInfo.fromJson(playlists[0]);
-      final videosRaw = await _playlistApi.getPlaylistVideos(first.id);
-      final rawVideoList = videosRaw.map((v) => PlaylistVideoItem.fromJson(v)).toList();
+      final hasCollection = data['hasCollection'] == true;
+      final playlistData = data['playlist'] as Map<String, dynamic>?;
+      final videosData = data['videos'] as List<dynamic>?;
+      final currentPartsData = data['currentVideoParts'] as List<dynamic>?;
 
-      // 展开多分P视频
-      final expandedList = await _expandMultiPartVideos(rawVideoList);
-
-      if (mounted) {
-        setState(() {
-          _playlist = first;
-          _videoList = expandedList;
-          _isLoading = false;
-        });
+      if (hasCollection && playlistData != null) {
+        // 有合集
+        _playlist = PlaylistInfo.fromJson(playlistData);
+        
+        if (videosData != null) {
+          _videoList = videosData.map((v) => PlaylistVideoItem.fromJson(v)).toList();
+        }
+        
+        if (mounted) {
+          setState(() {
+            _partList = [];
+            _isLoading = false;
+          });
+        }
+      } else if (currentPartsData != null && currentPartsData.isNotEmpty) {
+        // 没有合集但有分P
+        _playlist = null;
+        _partList = currentPartsData.asMap().entries.map((entry) {
+          final r = entry.value as Map<String, dynamic>;
+          return PlaylistVideoItem(
+            vid: vid,
+            title: '',
+            cover: '',
+            duration: (r['duration'] ?? 0).toDouble(),
+            clicks: 0,
+            desc: '',
+            resourceId: r['resourceId'] ?? r['ID'],
+            partTitle: r['title'] ?? r['Title'] ?? 'P${entry.key + 1}',
+          );
+        }).toList();
+        
+        if (mounted) {
+          setState(() {
+            _videoList = [];
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _playlist = null;
+            _videoList = [];
+            _partList = [];
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _playlist = null;
           _videoList = [];
+          _partList = [];
           _isLoading = false;
         });
       }
     }
   }
 
-  /// 展开多分P视频
-  Future<List<PlaylistVideoItem>> _expandMultiPartVideos(List<PlaylistVideoItem> rawVideos) async {
-    if (_isExpandingParts) return rawVideos;
-    _isExpandingParts = true;
-
-    final expandedList = <PlaylistVideoItem>[];
-
-    for (final video in rawVideos) {
-      try {
-        final detail = await _videoService.getVideoDetail(video.vid);
-        if (detail != null && detail.resources.isNotEmpty && detail.resources.length > 1) {
-          // 视频有多分P，展开为多个项
-          for (final resource in detail.resources) {
-            expandedList.add(PlaylistVideoItem(
-              vid: video.vid,
-              title: video.title,
-              cover: video.cover,
-              duration: resource.duration,
-              clicks: video.clicks,
-              desc: video.desc,
-              resourceId: resource.id,
-              partTitle: resource.title,
-            ));
-          }
-        } else {
-          // 单分P或无资源，保持原样
-          final resourceId = detail?.resources.isNotEmpty == true ? detail!.resources.first.id : null;
-          final partTitle = detail?.resources.isNotEmpty == true ? detail!.resources.first.title : null;
-          expandedList.add(PlaylistVideoItem(
-            vid: video.vid,
-            title: video.title,
-            cover: video.cover,
-            duration: video.duration,
-            clicks: video.clicks,
-            desc: video.desc,
-            resourceId: resourceId,
-            partTitle: partTitle,
-          ));
-        }
-      } catch (e) {
-        // 获取视频详情失败，保持原样
-        expandedList.add(video);
-      }
-    }
-
-    _isExpandingParts = false;
-    return expandedList;
-  }
-
-  /// 获取下一个合集视频 vid
+  /// 获取下一个视频
   int? getNextVideo() {
-    if (!_autoNext || _videoList.isEmpty) return null;
-    final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
-    if (idx >= 0 && idx < _videoList.length - 1) {
-      return _videoList[idx + 1].vid;
+    if (!_autoNext || _displayList.isEmpty) return null;
+    
+    if (_listType == 'parts') {
+      // 分P类型
+      if (widget.currentPart < _displayList.length) {
+        return _displayList[widget.currentPart].vid;
+      }
+    } else {
+      // 合集类型
+      final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
+      if (idx >= 0 && idx < _videoList.length - 1) {
+        return _videoList[idx + 1].vid;
+      }
     }
     return null;
   }
 
   int get _currentIndex {
-    // 优先精确匹配 vid（当前分P）
+    // 合集类型：优先精确匹配 vid
     final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
     return idx >= 0 ? idx + 1 : 0;
   }
@@ -196,7 +208,7 @@ class CollectionListState extends State<CollectionList> {
     final colors = context.colors;
     return Column(
       children: [
-        for (int index = 0; index < _videoList.length; index++) ...[
+        for (int index = 0; index < _displayList.length; index++) ...[
           if (index > 0) Divider(height: 1, color: colors.divider),
           _buildListTile(index, colors),
         ],
@@ -205,8 +217,28 @@ class CollectionListState extends State<CollectionList> {
   }
 
   Widget _buildListTile(int index, dynamic colors) {
-    final video = _videoList[index];
-    final isCurrent = video.vid == widget.vid;
+    final video = _displayList[index];
+    bool isCurrent;
+    
+    if (_listType == 'parts') {
+      isCurrent = index + 1 == widget.currentPart;
+    } else {
+      // 合集类型：需要精确匹配 vid + currentPart
+      if (video.vid == widget.vid) {
+        // 找到当前视频的所有分P
+        final currentVideoParts = _videoList.where((v) => v.vid == widget.vid).toList();
+        if (currentVideoParts.length > 1) {
+          // 多分P视频，根据 currentPart 判断
+          final partIdx = index - _videoList.indexOf(currentVideoParts.first);
+          isCurrent = partIdx + 1 == widget.currentPart;
+        } else {
+          // 单分P或只有一个条目
+          isCurrent = true;
+        }
+      } else {
+        isCurrent = false;
+      }
+    }
 
     return ListTile(
       selected: isCurrent,
@@ -248,7 +280,11 @@ class CollectionListState extends State<CollectionList> {
           : null,
       onTap: () {
         if (!isCurrent) {
-          widget.onVideoTap(video.vid);
+          if (_listType == 'parts') {
+            widget.onPartTap?.call(index + 1);
+          } else {
+            widget.onVideoTap(video.vid);
+          }
         }
       },
     );
@@ -260,19 +296,41 @@ class CollectionListState extends State<CollectionList> {
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (int index = 0; index < _videoList.length; index++)
+        for (int index = 0; index < _displayList.length; index++)
           _buildGridItem(index, colors),
       ],
     );
   }
 
   Widget _buildGridItem(int index, dynamic colors) {
-    final video = _videoList[index];
-    final isCurrent = video.vid == widget.vid;
+    final video = _displayList[index];
+    bool isCurrent;
+    
+    if (_listType == 'parts') {
+      isCurrent = index + 1 == widget.currentPart;
+    } else {
+      if (video.vid == widget.vid) {
+        final currentVideoParts = _videoList.where((v) => v.vid == widget.vid).toList();
+        if (currentVideoParts.length > 1) {
+          final partIdx = index - _videoList.indexOf(currentVideoParts.first);
+          isCurrent = partIdx + 1 == widget.currentPart;
+        } else {
+          isCurrent = true;
+        }
+      } else {
+        isCurrent = false;
+      }
+    }
 
     return InkWell(
       onTap: () {
-        if (!isCurrent) widget.onVideoTap(video.vid);
+        if (!isCurrent) {
+          if (_listType == 'parts' && video.vid == widget.vid) {
+            widget.onPartTap?.call(index + 1);
+          } else {
+            widget.onVideoTap(video.vid);
+          }
+        }
       },
       borderRadius: BorderRadius.circular(8),
       child: Container(
@@ -301,12 +359,14 @@ class CollectionListState extends State<CollectionList> {
 
   @override
   Widget build(BuildContext context) {
-    // 加载中或无合集时不显示
-    if (_isLoading || _playlist == null || _videoList.isEmpty) {
+    // 加载中或内容少于2条时不显示
+    if (_isLoading || _displayList.length < 2) {
       return const SizedBox.shrink();
     }
 
     final colors = context.colors;
+    final title = _playlist != null ? _playlist!.title : '视频分集';
+    final currentIndex = _listType == 'parts' ? widget.currentPart : _currentIndex;
     return Card(
       elevation: 2,
       color: colors.card,
@@ -319,9 +379,9 @@ class CollectionListState extends State<CollectionList> {
             // 头部
             Row(
               children: [
-                Expanded(
+              Expanded(
                   child: Text(
-                    '${_playlist!.title} ($_currentIndex/${_videoList.length})',
+                    '$title ($currentIndex/${_displayList.length})',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
