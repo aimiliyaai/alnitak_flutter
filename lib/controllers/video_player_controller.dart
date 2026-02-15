@@ -267,6 +267,7 @@ class VideoPlayerController extends ChangeNotifier {
         play: autoPlay,
       );
 
+      removeListeners();
       startListeners();
 
       // open() 完成后，等待 duration 就绪再显式 seek
@@ -886,6 +887,8 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+
+    WakelockManager.disable();
 
     _seekTimer?.cancel();
     _waitAndSeekTimer?.cancel();
