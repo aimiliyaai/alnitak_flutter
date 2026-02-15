@@ -57,10 +57,9 @@ class VideoPlayerController extends ChangeNotifier {
 
   Duration _userIntendedPosition = Duration.zero;
   Duration _lastReportedPosition = Duration.zero;
-  Duration? _seekAfterOpen; // open() 后 surface 重建恢复用：检测到位置回跳时自动 seek
-  int _seekAfterOpenRetries = 0; // 防止无限重试
-  bool _seekAfterOpenSawDrop = false; // 是否已观察到位置回跳（必须先 drop 再恢复才算成功）
-  static const int _maxSeekAfterOpenRetries = 3;
+  Duration? _seekAfterOpen; // open() 后等 duration 就绪再显式 seek，期间冻结 UI
+  int _seekAfterOpenRetries = 0; // _waitAndSeek 的重试计数
+  static const int _maxSeekAfterOpenRetries = 20; // 最多重试 20 次（每次 300ms = 6s）
   int? _lastProgressFetchTime;
 
   // pilipala 风格：用 List 管理所有 stream subscription，方便批量取消/重建
@@ -69,6 +68,7 @@ class VideoPlayerController extends ChangeNotifier {
 
   Timer? _stalledTimer;
   Timer? _seekTimer;
+  Timer? _waitAndSeekTimer;
 
   // Surface 重置检测
   Duration _lastValidPosition = Duration.zero;
@@ -240,26 +240,39 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 设置 _seekAfterOpen：open() 后 surface 重建会导致 position 回跳到 0-1s
-      // 位置监听器检测到回跳时会自动 seek 到此目标位置
+      // 不使用 Media(start:) —— media_kit 的 on_load/on_unload 钩子存在竞态：
+      // on_unload（卸载旧媒体）可能在 on_load（加载新媒体）之后触发，
+      // 导致 start 属性被重置为 'none'，进度丢失。
+      // 改用：open() 后监听 duration > 0，然后显式 seek()。
       if (seekTo > Duration.zero) {
         _seekAfterOpen = seekTo;
         _seekAfterOpenRetries = 0;
-        _seekAfterOpenSawDrop = false; // 必须先看到位置回跳，才开始恢复
         _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s');
+        // 安全超时：10秒后强制解冻 UI，防止网络慢时永久冻结
+        Future.delayed(const Duration(seconds: 10), () {
+          if (_seekAfterOpen != null && !_isDisposed) {
+            _logger.logDebug('_seekAfterOpen 超时 10s，强制清除');
+            _seekAfterOpen = null;
+            _seekAfterOpenRetries = 0;
+          }
+        });
       } else {
         _seekAfterOpen = null;
         _seekAfterOpenRetries = 0;
-        _seekAfterOpenSawDrop = false;
       }
 
-      _logger.logDebug('setDataSource: open with start=${seekTo.inSeconds}s');
+      _logger.logDebug('setDataSource: open (不带 start，后续显式 seek)');
       await _player!.open(
-        Media(dataSource.videoSource, start: seekTo),
+        Media(dataSource.videoSource),
         play: autoPlay,
       );
 
       startListeners();
+
+      // open() 完成后，等待 duration 就绪再显式 seek
+      if (_seekAfterOpen != null) {
+        _waitAndSeek(_seekAfterOpen!);
+      }
 
       isLoading.value = false;
       isPlayerInitialized.value = true;
@@ -272,6 +285,66 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+
+  /// open() 后等待 duration 就绪，然后显式 seek 到目标位置
+  ///
+  /// 为什么不用 Media(start:)：media_kit 通过 on_load/on_unload 钩子设置 mpv 的
+  /// start 属性，但 on_unload（卸载旧媒体）可能在 on_load（加载新媒体）之后触发，
+  /// 导致 start 被重置为 'none'。这在复用 Player 切换清晰度时尤其容易发生。
+  ///
+  /// 此方法使用 Timer.periodic 轮询 duration，一旦 > 0 就执行 seek。
+  /// 整个过程中 _seekAfterOpen 保持非 null，位置监听器会冻结 UI。
+  void _waitAndSeek(Duration target) {
+    _seekAfterOpenRetries = 0;
+    _waitAndSeekTimer?.cancel();
+    _waitAndSeekTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) async {
+      if (_isDisposed || _player == null || _seekAfterOpen == null) {
+        timer.cancel();
+        _waitAndSeekTimer = null;
+        return;
+      }
+
+      _seekAfterOpenRetries++;
+
+      // 超过最大重试次数，放弃
+      if (_seekAfterOpenRetries > _maxSeekAfterOpenRetries) {
+        _logger.logDebug('_waitAndSeek: 超过最大重试 $_maxSeekAfterOpenRetries 次，放弃');
+        timer.cancel();
+        _waitAndSeekTimer = null;
+        _seekAfterOpen = null;
+        _seekAfterOpenRetries = 0;
+        return;
+      }
+
+      final duration = _player!.state.duration;
+      if (duration.inSeconds > 0) {
+        timer.cancel();
+        _waitAndSeekTimer = null;
+        _logger.logDebug('_waitAndSeek: duration 就绪 (${duration.inSeconds}s)，seek to ${target.inSeconds}s');
+        try {
+          await _player!.seek(target);
+          // 短暂延迟确认 seek 生效
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (_isDisposed) return;
+          final pos = _player!.state.position;
+          _logger.logDebug('_waitAndSeek: seek 后 position=${pos.inSeconds}s');
+          // 如果位置偏差过大，再试一次
+          if ((pos.inMilliseconds - target.inMilliseconds).abs() > 3000 &&
+              _player != null && !_isDisposed) {
+            _logger.logDebug('_waitAndSeek: 偏差过大，重试 seek');
+            await _player!.seek(target);
+            await Future.delayed(const Duration(milliseconds: 300));
+          }
+        } catch (e) {
+          _logger.logDebug('_waitAndSeek: seek 失败: $e');
+        } finally {
+          _seekAfterOpen = null;
+          _seekAfterOpenRetries = 0;
+          _logger.logDebug('_waitAndSeek: 解冻 UI');
+        }
+      }
+    });
+  }
 
   /// 等待 seek 引发的缓冲完成
   ///
@@ -374,10 +447,20 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> changeQuality(String quality) async {
     if (currentQuality.value == quality || _currentResourceId == null) return;
 
-    // pilipala: defaultST = plPlayerController.position.value
-    final defaultST = _player != null && _player!.state.position.inMilliseconds > 0
-        ? _player!.state.position
-        : _userIntendedPosition;
+    // 保存当前播放位置，优先级：
+    // 1. player.state.position（真实播放位置）
+    // 2. _userIntendedPosition（用户拖拽/seek 的目标位置，或上次位置监听器推送的位置）
+    // 3. _lastValidPosition（surface 重置前的最后有效位置）
+    // 关键：必须在 removeListeners / setDataSource 之前读取，否则 open() 会重置为 0
+    final playerPos = _player?.state.position ?? Duration.zero;
+    final defaultST = playerPos.inMilliseconds > 0
+        ? playerPos
+        : (_userIntendedPosition.inMilliseconds > 0
+            ? _userIntendedPosition
+            : _lastValidPosition);
+    _logger.logDebug('changeQuality: 保存位置 defaultST=${defaultST.inSeconds}s '
+        '(playerPos=${playerPos.inSeconds}s, userIntended=${_userIntendedPosition.inSeconds}s, '
+        'lastValid=${_lastValidPosition.inSeconds}s)');
 
     // pilipala: removeListeners + 清空状态
     removeListeners();
@@ -507,33 +590,9 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
-        // _seekAfterOpen 恢复逻辑：open() 后 surface 重建导致位置回跳
-        // 流程：先观察到位置回跳(<=2s) → 标记 sawDrop → seek 恢复 → 位置接近目标 → 清除
-        // 关键：open() 后 position 可能残留旧值，必须先 sawDrop 才算恢复成功
-        if (_seekAfterOpen != null && _seekAfterOpen!.inSeconds > 2) {
-          if (position.inSeconds <= 2) {
-            // 位置回跳到开头，标记已观察到 drop
-            _seekAfterOpenSawDrop = true;
-            // 等 duration 就绪后再 seek，否则 seek 会被忽略
-            if (_player!.state.duration.inSeconds > 0 &&
-                _seekAfterOpenRetries < _maxSeekAfterOpenRetries) {
-              _seekAfterOpenRetries++;
-              final target = _seekAfterOpen!;
-              _logger.logDebug('_seekAfterOpen 恢复: position=${position.inSeconds}s, '
-                  'target=${target.inSeconds}s, retry=$_seekAfterOpenRetries');
-              _player!.seek(target);
-            }
-            return; // 不推送回跳的位置给 UI
-          } else if (_seekAfterOpenSawDrop &&
-              (position.inMilliseconds - _seekAfterOpen!.inMilliseconds).abs() < 5000) {
-            // 已经历过 drop 且位置接近目标，恢复成功
-            _logger.logDebug('_seekAfterOpen 恢复成功: position=${position.inSeconds}s');
-            _seekAfterOpen = null;
-            _seekAfterOpenRetries = 0;
-            _seekAfterOpenSawDrop = false;
-          }
-          // 未 sawDrop 时看到接近目标的位置 → 是旧残留值，忽略不清除
-        }
+        // _seekAfterOpen 期间冻结 UI：_waitAndSeek 正在等 duration 就绪后 seek
+        // 整个过程不推送任何位置给 UI，避免进度条跳动
+        if (_seekAfterOpen != null) return;
 
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
@@ -829,6 +888,7 @@ class VideoPlayerController extends ChangeNotifier {
     _isDisposed = true;
 
     _seekTimer?.cancel();
+    _waitAndSeekTimer?.cancel();
     _stalledTimer?.cancel();
 
     // pilipala: removeListeners + 清空 audio-files

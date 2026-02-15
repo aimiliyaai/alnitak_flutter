@@ -65,6 +65,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   int? _lastSavedSeconds; // 最后一次保存到服务器的播放秒数（用于节流）
   double _currentDuration = 0;
 
+  // 【关键】进度上报用的 vid/part，在播放开始时锁定，防止切换视频/分P时的竞态
+  // _onProgressUpdate 使用这两个值而非 _currentVid/_currentPart
+  int? _progressReportVid;
+  int? _progressReportPart;
+
   // 播放器控制器引用（通过 onControllerReady 回调获取）
   VideoPlayerController? _playerController;
 
@@ -353,11 +358,18 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 设置视频上下文（用于进度恢复）
     _playerController?.setVideoContext(vid: _currentVid, part: part);
 
+    // 锁定进度上报的 vid/part，防止切换时竞态
+    _progressReportVid = _currentVid;
+    _progressReportPart = part;
+
     setState(() {
       _currentPart = part;
       _currentResourceId = currentResource.id;
       _currentInitialPosition = position;
     });
+
+    // 加载弹幕
+    _danmakuController.loadDanmaku(vid: _currentVid, part: part);
   }
 
   /// 后台加载次要数据（统计、操作状态、评论预览）
@@ -442,8 +454,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
+    // 【关键】立即清空进度上报锁定，防止旧播放器的位置事件用新 part 上报
+    _progressReportVid = null;
+    _progressReportPart = null;
+
     // 在切换前，先上报当前分P的最后播放进度
-    if (_lastReportedPosition != null) {
+    if (_lastReportedPosition != null && _currentDuration > 0) {
       await _historyService.addHistory(
         vid: _currentVid,
         part: _currentPart,
@@ -472,6 +488,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 设置视频上下文（分P切换）
     _playerController?.setVideoContext(vid: _currentVid, part: part);
 
+    // 锁定新的进度上报 vid/part
+    _progressReportVid = _currentVid;
+    _progressReportPart = part;
+
     // 通过更新 _currentResourceId 触发 didUpdateWidget -> initialize
     setState(() {
       _currentPart = part;
@@ -480,6 +500,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       _lastReportedPosition = null;
       _hasReportedCompleted = false;
       _lastSavedSeconds = null;
+      _currentDuration = 0;
     });
 
     // 切换分P时重新加载弹幕
@@ -505,16 +526,23 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _isSwitchingVideo = true;
 
     final oldVid = _currentVid;
+    final oldPart = _currentPart;
+    final oldDuration = _currentDuration;
+    final oldPosition = _lastReportedPosition;
+
+    // 【关键】立即清空进度上报锁定，防止旧播放器的位置事件用新 vid 上报
+    _progressReportVid = null;
+    _progressReportPart = null;
     _currentVid = vid;
 
     try {
-      // 1. 上报当前视频的播放进度
-      if (_lastReportedPosition != null && _currentDuration > 0) {
+      // 1. 上报当前视频的播放进度（使用保存的旧值，不受 _currentVid 变化影响）
+      if (oldPosition != null && oldDuration > 0) {
         _historyService.addHistory(
           vid: oldVid,
-          part: _currentPart,
-          time: _hasReportedCompleted ? -1 : _lastReportedPosition!.inSeconds.toDouble(),
-          duration: _currentDuration.toInt(),
+          part: oldPart,
+          time: _hasReportedCompleted ? -1 : oldPosition.inSeconds.toDouble(),
+          duration: oldDuration.toInt(),
         );
       }
 
@@ -574,7 +602,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         _errorMessage = null;
       });
 
-      _danmakuController.loadDanmaku(vid: targetVid, part: 1);
       _onlineWebSocketService.connect(targetVid);
 
       _loadSecondaryData(videoDetail.author.uid);
@@ -632,12 +659,19 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 设置视频上下文
     _playerController?.setVideoContext(vid: videoDetail.vid, part: part);
 
+    // 锁定进度上报的 vid/part，防止切换时竞态
+    _progressReportVid = videoDetail.vid;
+    _progressReportPart = part;
+
     // 通过更新 _currentResourceId 触发 didUpdateWidget -> initialize
     setState(() {
       _currentPart = part;
       _currentResourceId = currentResource.id;
       _currentInitialPosition = position;
     });
+
+    // 加载弹幕
+    _danmakuController.loadDanmaku(vid: videoDetail.vid, part: part);
   }
 
   /// 播放状态变化回调（控制弹幕播放/暂停）
@@ -651,7 +685,10 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   /// 播放进度更新回调（每秒触发一次）
   void _onProgressUpdate(Duration position, Duration totalDuration) {
-    _currentDuration = totalDuration.inSeconds.toDouble();
+    // 只在 duration > 0 时更新，避免 open() 重置期间覆盖为 0
+    if (totalDuration.inSeconds > 0) {
+      _currentDuration = totalDuration.inSeconds.toDouble();
+    }
     _lastReportedPosition = position;
 
     // 同步弹幕进度
@@ -663,11 +700,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
+    // 【关键】使用锁定的 vid/part 上报，防止切换视频/分P时的竞态
+    final reportVid = _progressReportVid;
+    final reportPart = _progressReportPart;
+    if (reportVid == null || reportPart == null) return;
+
+    // 【防御】duration 为 0 时不上报（可能是 open() 重置期间）
+    if (_currentDuration <= 0) return;
+
+    // 【防御】进度不应超过总时长（允许 2 秒误差）
+    if (currentSeconds > _currentDuration + 2) return;
+
     if (_lastSavedSeconds == null ||
         (currentSeconds - _lastSavedSeconds!) >= 5) {
       _historyService.addHistory(
-        vid: _currentVid,
-        part: _currentPart,
+        vid: reportVid,
+        part: reportPart,
         time: currentSeconds.toDouble(),
         duration: _currentDuration.toInt(),
       );
@@ -681,11 +729,15 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       return;
     }
 
+    // 使用锁定的 vid/part，防止切换过程中的竞态
+    final reportVid = _progressReportVid ?? _currentVid;
+    final reportPart = _progressReportPart ?? _currentPart;
+
     _historyService.addHistory(
-      vid: _currentVid,
-      part: _currentPart,
+      vid: reportVid,
+      part: reportPart,
       time: -1,
-      duration: _currentDuration.toInt(),
+      duration: _currentDuration > 0 ? _currentDuration.toInt() : 0,
     );
     _hasReportedCompleted = true;
 

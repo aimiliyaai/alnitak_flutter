@@ -677,7 +677,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
 
   Widget _buildInputBar() {
     return Container(
-      height: 40.h,
+      height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
@@ -710,7 +710,7 @@ class _DanmakuSendBarState extends State<DanmakuSendBar> {
               child: Icon(
                 Icons.text_fields,
                 color: _showStylePanel ? Colors.blue : Colors.white70,
-size: 20.sp,
+                size: 20,
               ),
             ),
           ),
@@ -730,9 +730,9 @@ size: 20.sp,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 decoration: InputDecoration(
                   hintText: '发个弹幕呗~',
-                  hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4),
-                    fontSize: 13.sp,
+                  hintStyle: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 13,
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                   border: InputBorder.none,
@@ -749,25 +749,25 @@ size: 20.sp,
           GestureDetector(
             onTap: _isSending ? null : _sendDanmaku,
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 6.h),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
                 color: _isSending ? Colors.grey : Colors.blue,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: _isSending
-                  ? SizedBox(
-width: 14.w,
-                height: 14.h,
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : Text(
+                  : const Text(
                       '发送',
                       style: TextStyle(
                         color: Colors.white,
-fontSize: 12.sp,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -817,8 +817,8 @@ fontSize: 12.sp,
               const Spacer(),
               // 当前颜色预览
               Container(
-                width: 20.w,
-                height: 20.h,
+                width: 20,
+                height: 20,
                 decoration: BoxDecoration(
                   color: Color(int.parse('FF$_danmakuColor', radix: 16)),
                   shape: BoxShape.circle,
@@ -830,8 +830,8 @@ fontSize: 12.sp,
           const SizedBox(height: 8),
           // 颜色选择
           Wrap(
-            spacing: 8.w,
-            runSpacing: 8.h,
+            spacing: 8,
+            runSpacing: 8,
             children: _presetColors.map((color) {
               final isSelected = color == _danmakuColor;
               // 白色或浅色需要用深色勾选图标
@@ -840,7 +840,7 @@ fontSize: 12.sp,
                 onTap: () => setState(() => _danmakuColor = color),
                 child: Container(
                   width: 28,
-height: 28.h,
+                  height: 28,
                   decoration: BoxDecoration(
                     color: Color(int.parse('FF$color', radix: 16)),
                     shape: BoxShape.circle,
@@ -890,7 +890,7 @@ height: 28.h,
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: isSelected ? Colors.blue.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(4.r),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(
               color: isSelected ? Colors.blue : Colors.white24,
             ),
