@@ -89,14 +89,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.1"
-  call_state_handler:
-    dependency: "direct main"
-    description:
-      name: call_state_handler
-      sha256: e808dfee033378fca81b4c61699be46cf07f1a5c0bd54b4361d9297022a27f1e
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.1"
   characters:
     dependency: transitive
     description:

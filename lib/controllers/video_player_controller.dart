@@ -10,6 +10,7 @@ import '../services/hls_service.dart';
 import '../services/history_service.dart';
 import '../services/logger_service.dart';
 import '../models/data_source.dart';
+import '../models/dash_models.dart';
 import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
 import '../utils/error_handler.dart';
@@ -54,6 +55,7 @@ class VideoPlayerController extends ChangeNotifier {
   bool _isInitializing = false;
   bool _hasPlaybackStarted = false;
   bool _supportsDash = true; // 新资源=true(JSON直链), 旧资源=false(m3u8 URL)
+  DashManifest? _dashManifest; // 缓存完整 DASH 数据（仿 pili_plus）
   bool _isSeeking = false;
 
   Duration _userIntendedPosition = Duration.zero;
@@ -61,6 +63,7 @@ class VideoPlayerController extends ChangeNotifier {
   Duration? _seekAfterOpen; // open() 后等 duration 就绪再显式 seek，期间冻结 UI
   int _seekAfterOpenRetries = 0; // _waitAndSeek 的重试计数
   static const int _maxSeekAfterOpenRetries = 20; // 最多重试 20 次（每次 300ms = 6s）
+  int _seekAfterOpenGeneration = 0; // 用于使过期的 _seekAfterOpen 超时失效
   int? _lastProgressFetchTime;
 
   // pilipala 风格：用 List 管理所有 stream subscription，方便批量取消/重建
@@ -123,20 +126,30 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (!_settingsLoaded) await _loadSettings();
 
-      // 获取清晰度列表
-      final qualityInfo = await _hlsService.getQualityInfo(resourceId);
-      if (qualityInfo.qualities.isEmpty) throw Exception('没有可用的清晰度');
+      // 仿 pili_plus：一次性获取所有清晰度的 DASH 数据
+      final manifest = await _hlsService.getDashManifest(resourceId);
+      _dashManifest = manifest;
+      _supportsDash = manifest.supportsDash;
+      availableQualities.value = manifest.qualities;
+      if (manifest.qualities.isEmpty) throw Exception('没有可用的清晰度');
 
-      _supportsDash = qualityInfo.supportsDash;
-      availableQualities.value = HlsService.sortQualities(qualityInfo.qualities);
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
-      // 获取 DataSource
-      final dataSource = await _hlsService.getDataSource(
-        resourceId,
-        currentQuality.value!,
-        supportsDash: _supportsDash,
-      );
+      if (_isDisposed || _currentResourceId != resourceId) return;
+
+      // 获取 DataSource：DASH 从缓存取，旧资源回退 m3u8
+      final DataSource dataSource;
+      if (_supportsDash) {
+        final cached = manifest.getDataSource(currentQuality.value!);
+        if (cached == null) throw Exception('DASH 数据获取失败');
+        dataSource = cached;
+      } else {
+        dataSource = await _hlsService.getDataSource(
+          resourceId,
+          currentQuality.value!,
+          supportsDash: false,
+        );
+      }
 
       if (_isDisposed || _currentResourceId != resourceId) return;
 
@@ -148,11 +161,6 @@ class VideoPlayerController extends ChangeNotifier {
             : Duration.zero,
         autoPlay: true,
       );
-
-      // 延迟预加载相邻清晰度，避免和首帧加载抢网络
-      Future.delayed(const Duration(seconds: 3), () {
-        if (!_isDisposed) _preloadAdjacentQualities();
-      });
     } catch (e) {
       _logger.logError(message: '初始化失败', error: e, stackTrace: StackTrace.current);
       isLoading.value = false;
@@ -235,14 +243,20 @@ class VideoPlayerController extends ChangeNotifier {
       // on_unload（卸载旧媒体）可能在 on_load（加载新媒体）之后触发，
       // 导致 start 属性被重置为 'none'，进度丢失。
       // 改用：open() 后监听 duration > 0，然后显式 seek()。
+      // 取消旧的 _waitAndSeek timer（防止快速切换时新旧 timer 并行）
+      _waitAndSeekTimer?.cancel();
+      _waitAndSeekTimer = null;
+
       if (seekTo > Duration.zero) {
         _seekAfterOpen = seekTo;
         _seekAfterOpenRetries = 0;
-        _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s');
+        final generation = ++_seekAfterOpenGeneration;
+        _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s (gen=$generation)');
         // 安全超时：10秒后强制解冻 UI，防止网络慢时永久冻结
         Future.delayed(const Duration(seconds: 10), () {
-          if (_seekAfterOpen != null && !_isDisposed) {
-            _logger.logDebug('_seekAfterOpen 超时 10s，强制清除');
+          // 仅当 generation 匹配时才清除（防止新 setDataSource 的 _seekAfterOpen 被旧超时误清）
+          if (_seekAfterOpen != null && !_isDisposed && _seekAfterOpenGeneration == generation) {
+            _logger.logDebug('_seekAfterOpen 超时 10s，强制清除 (gen=$generation)');
             _seekAfterOpen = null;
             _seekAfterOpenRetries = 0;
           }
@@ -394,33 +408,38 @@ class VideoPlayerController extends ChangeNotifier {
         // 等待 seek 引发的缓冲完成
         await _waitForSeekBuffering();
         if (_isDisposed) return;
-        
+
         // 确认位置是否到位
         final currentPos = _player!.state.position;
         if ((currentPos.inMilliseconds - position.inMilliseconds).abs() > 3000) {
           await _player!.seek(position);
           await _waitForSeekBuffering();
         }
+        _isSeeking = false;
       } else {
         // duration 未就绪，定时重试
+        // 注意：_isSeeking 在 timer 回调中完成 seek 后才置 false
         _seekTimer?.cancel();
         _seekTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
           if (_isDisposed || _player == null) {
             t.cancel();
             _seekTimer = null;
+            _isSeeking = false;
             return;
           }
           if (_player!.state.duration.inSeconds != 0) {
             t.cancel();
             _seekTimer = null;
-            await _player!.seek(position);
-            await _waitForSeekBuffering();
+            try {
+              await _player!.seek(position);
+              await _waitForSeekBuffering();
+            } catch (_) {}
+            _isSeeking = false;
           }
         });
       }
     } catch (e) {
       _logger.logDebug('seek 错误: $e');
-    } finally {
       _isSeeking = false;
     }
   }
@@ -437,6 +456,7 @@ class VideoPlayerController extends ChangeNotifier {
   ///
   /// surface 短暂重置是 media_kit 的正常行为，pilipala 也一样。
   Future<void> changeQuality(String quality) async {
+    if (_isDisposed) return;
     if (currentQuality.value == quality || _currentResourceId == null) return;
 
     // 保存当前播放位置，优先级：
@@ -457,15 +477,25 @@ class VideoPlayerController extends ChangeNotifier {
     // pilipala: removeListeners + 清空状态
     removeListeners();
     isBuffering.value = false;
+    _stalledTimer?.cancel(); // 防止质量切换期间 _handleStalled 触发
 
     isSwitchingQuality.value = true;
 
     try {
-      final dataSource = await _hlsService.getDataSource(
-        _currentResourceId!,
-        quality,
-        supportsDash: _supportsDash,
-      );
+      // 仿 pili_plus：优先从缓存的 manifest 获取 DataSource，无需网络请求
+      final DataSource dataSource;
+      if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
+        final cached = _dashManifest!.getDataSource(quality);
+        if (cached != null) {
+          dataSource = cached;
+        } else {
+          dataSource = await _hlsService.getDataSource(
+            _currentResourceId!, quality, supportsDash: _supportsDash);
+        }
+      } else {
+        dataSource = await _hlsService.getDataSource(
+          _currentResourceId!, quality, supportsDash: _supportsDash);
+      }
 
       if (_isDisposed) return;
 
@@ -481,7 +511,6 @@ class VideoPlayerController extends ChangeNotifier {
       _userIntendedPosition = defaultST;
 
       onQualityChanged?.call(quality);
-      _preloadAdjacentQualities();
     } catch (e) {
       errorMessage.value = '切换清晰度失败';
     } finally {
@@ -738,21 +767,47 @@ class VideoPlayerController extends ChangeNotifier {
     _subscriptions = [];
     _positionPollingTimer?.cancel();
     _positionPollingTimer = null;
+    _stalledTimer?.cancel();
+    _stalledTimer = null;
+    _seekTimer?.cancel();
+    _seekTimer = null;
   }
 
   /// 处理卡顿恢复
   Future<void> _handleStalled() async {
     if (_isInitializing || isLoading.value) return;
+    if (isSwitchingQuality.value) return; // 质量切换期间不处理卡顿
     if (_currentResourceId == null || currentQuality.value == null) return;
 
     try {
       final position = _userIntendedPosition;
 
-      final dataSource = await _hlsService.getDataSource(
-        _currentResourceId!,
-        currentQuality.value!,
-        supportsDash: _supportsDash,
-      );
+      // 卡顿可能是 URL 过期导致的：过期则刷新 manifest，否则用缓存
+      final DataSource dataSource;
+      if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
+        final cached = _dashManifest!.getDataSource(currentQuality.value!);
+        if (cached != null) {
+          dataSource = cached;
+        } else {
+          dataSource = await _hlsService.getDataSource(
+            _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
+        }
+      } else {
+        // manifest 过期或不存在，重新获取（刷新 URL）
+        if (_supportsDash) {
+          _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
+          final cached = _dashManifest!.getDataSource(currentQuality.value!);
+          if (cached != null) {
+            dataSource = cached;
+          } else {
+            dataSource = await _hlsService.getDataSource(
+              _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
+          }
+        } else {
+          dataSource = await _hlsService.getDataSource(
+            _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
+        }
+      }
 
       if (_isDisposed) return;
 
@@ -791,22 +846,6 @@ class VideoPlayerController extends ChangeNotifier {
     // 循环模式
     await _syncLoopProperty();
     await _player!.setAudioTrack(AudioTrack.auto());
-  }
-
-  void _preloadAdjacentQualities() {
-    final current = currentQuality.value;
-    if (current == null || _currentResourceId == null) return;
-
-    final qualities = availableQualities.value;
-    final index = qualities.indexOf(current);
-    if (index == -1) return;
-
-    if (index > 0) {
-      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index - 1], supportsDash: _supportsDash));
-    }
-    if (index < qualities.length - 1) {
-      unawaited(_hlsService.getDataSource(_currentResourceId!, qualities[index + 1], supportsDash: _supportsDash));
-    }
   }
 
   // ============ 设置持久化 ============
@@ -914,15 +953,19 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   void handleAppLifecycleState(bool isPaused) {
-    if (_player == null) return;
+    if (_player == null || _isDisposed) return;
 
     if (isPaused) {
       // 进入后台
       if (!backgroundPlayEnabled.value) {
-        // 未开启后台播放，暂停
         _player!.pause();
       }
-      // 开启了后台播放，AudioService 的通知栏控件自动接管
+      // 进入后台时快照一次当前位置（确保即使后台被杀也有可恢复的位置）
+      final pos = _player!.state.position;
+      if (pos.inSeconds > 0) {
+        _lastValidPosition = pos;
+        _userIntendedPosition = pos;
+      }
     } else {
       // 回到前台，刷新通知栏信息
       if (_videoTitle != null) {
@@ -1044,6 +1087,7 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+    _dashManifest = null;
 
     WakelockManager.disable();
     await _disposeAudioSession();

@@ -216,7 +216,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         double distFromRight = overlaySize.width - (buttonGlobalPos.dx + buttonSize.width);
         
         // 【修改 1】：减去 10.0，使面板向右边缘移动 10 像素。
-        _panelRight = distFromRight.clamp(0.0, overlaySize.width) - 15.0;
+        _panelRight = (distFromRight - 15.0).clamp(0.0, overlaySize.width - 76);
 
 
         // ==================== 2. 垂直调整 (Bottom) ====================

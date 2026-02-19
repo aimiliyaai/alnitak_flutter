@@ -123,7 +123,18 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> stop() async {
     await _player?.pause();
 
-    playbackState.add(playbackState.value.copyWith(
+    // 清除媒体信息（移除通知栏显示内容）
+    mediaItem.add(null);
+
+    // pili_plus 模式：先转 completed 再转 idle，触发 AudioService 内部 _stop()
+    // AudioService 源码中仅在 idle 且 previousState != idle 时调用 _stop() 清理通知
+    if (playbackState.value.processingState == AudioProcessingState.idle) {
+      playbackState.add(PlaybackState(
+        processingState: AudioProcessingState.completed,
+        playing: false,
+      ));
+    }
+    playbackState.add(PlaybackState(
       processingState: AudioProcessingState.idle,
       playing: false,
     ));
@@ -167,12 +178,20 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     _durationSubscription = null;
   }
 
-  /// 解绑播放器
+  /// 解绑播放器并清除通知
   void detachPlayer() {
     _disposeListeners();
     _player = null;
-    // 重置为 idle 状态
-    playbackState.add(playbackState.value.copyWith(
+    // 清除媒体信息
+    mediaItem.add(null);
+    // pili_plus 模式：completed → idle 触发 AudioService 清理通知
+    if (playbackState.value.processingState == AudioProcessingState.idle) {
+      playbackState.add(PlaybackState(
+        processingState: AudioProcessingState.completed,
+        playing: false,
+      ));
+    }
+    playbackState.add(PlaybackState(
       processingState: AudioProcessingState.idle,
       playing: false,
     ));

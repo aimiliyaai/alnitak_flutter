@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../config/api_config.dart';
 import '../models/data_source.dart';
+import '../models/dash_models.dart';
 
 /// 清晰度查询结果
 class QualityInfo {
@@ -109,6 +111,89 @@ class HlsService {
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  /// 获取完整 DASH manifest（所有清晰度并行请求）
+  ///
+  /// 仿 pili_plus：一次性获取所有清晰度数据并缓存，
+  /// 切换清晰度时直接从缓存取 DataSource，无需再次请求 API。
+  ///
+  /// 对于旧资源（supportsDash=false），返回空 streams 的 manifest，
+  /// 调用方应回退到 getDataSource() 的 m3u8 模式。
+  Future<DashManifest> getDashManifest(int resourceId) async {
+    final qualityInfo = await getQualityInfo(resourceId);
+    final sortedQualities = sortQualities(qualityInfo.qualities);
+
+    if (!qualityInfo.supportsDash) {
+      // 旧资源不支持 DASH，返回空 manifest，调用方回退到 m3u8
+      return DashManifest(
+        streams: const {},
+        qualities: sortedQualities,
+        supportsDash: false,
+        fetchedAt: DateTime.now(),
+      );
+    }
+
+    // 并行请求所有清晰度的 DASH 数据
+    final futures = <String, Future<DashStreamInfo?>>{};
+    for (final quality in sortedQualities) {
+      futures[quality] = _fetchDashStream(resourceId, quality);
+    }
+
+    final streams = <String, DashStreamInfo>{};
+    for (final entry in futures.entries) {
+      final stream = await entry.value;
+      if (stream != null) {
+        streams[entry.key] = stream;
+      }
+    }
+
+    return DashManifest(
+      streams: streams,
+      qualities: sortedQualities,
+      supportsDash: true,
+      fetchedAt: DateTime.now(),
+    );
+  }
+
+  /// 请求单个清晰度的 DASH JSON 并解析为 DashStreamInfo
+  Future<DashStreamInfo?> _fetchDashStream(int resourceId, String quality) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/video/getVideoFile',
+        queryParameters: {
+          'resourceId': resourceId,
+          'quality': quality,
+          'format': 'json',
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      final jsonContent = (response.data as String).trim();
+      if (!jsonContent.startsWith('{')) return null;
+
+      final json = jsonDecode(jsonContent) as Map<String, dynamic>;
+      final data = json['data'] as Map<String, dynamic>?;
+      final dash = data?['dash'] as Map<String, dynamic>?;
+      if (dash == null) return null;
+
+      final videoList = dash['video'] as List?;
+      if (videoList == null || videoList.isEmpty) return null;
+
+      final audioList = dash['audio'] as List?;
+
+      return DashStreamInfo(
+        quality: quality,
+        duration: (data?['duration'] as num?)?.toDouble() ?? 0,
+        video: DashVideoItem.fromJson(videoList[0] as Map<String, dynamic>),
+        audio: (audioList != null && audioList.isNotEmpty)
+            ? DashAudioItem.fromJson(audioList[0] as Map<String, dynamic>)
+            : null,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('获取 DASH 流失败 ($quality): $e');
+      return null;
     }
   }
 
