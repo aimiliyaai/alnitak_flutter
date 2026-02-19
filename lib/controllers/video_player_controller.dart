@@ -553,37 +553,9 @@ class VideoPlayerController extends ChangeNotifier {
     isSwitchingQuality.value = true;
 
     try {
-      // 仿 pili_plus：优先从缓存的 manifest 获取 DataSource，无需网络请求
-      final DataSource dataSource;
-      if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
-        final cached = _dashManifest!.getDataSource(quality);
-        if (cached != null) {
-          dataSource = cached;
-        } else {
-          dataSource = await _hlsService.getDataSource(
-            _currentResourceId!, quality, supportsDash: _supportsDash);
-        }
-      } else {
-        // manifest 过期或不存在，重新获取并缓存
-        if (_supportsDash) {
-          _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
-          availableQualities.value = _dashManifest!.qualities;
-          final cached = _dashManifest!.getDataSource(quality);
-          if (cached != null) {
-            dataSource = cached;
-          } else {
-            dataSource = await _hlsService.getDataSource(
-              _currentResourceId!, quality, supportsDash: _supportsDash);
-          }
-        } else {
-          dataSource = await _hlsService.getDataSource(
-            _currentResourceId!, quality, supportsDash: _supportsDash);
-        }
-      }
-
+      final dataSource = await _getDataSourceForQuality(quality);
       if (_isDisposed) return;
 
-      // pilipala: playerInit() → setDataSource(seekTo: defaultST)
       await setDataSource(
         dataSource,
         seekTo: defaultST,
@@ -870,34 +842,7 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       final position = _userIntendedPosition;
 
-      // 卡顿可能是 URL 过期导致的：过期则刷新 manifest，否则用缓存
-      final DataSource dataSource;
-      if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
-        final cached = _dashManifest!.getDataSource(currentQuality.value!);
-        if (cached != null) {
-          dataSource = cached;
-        } else {
-          dataSource = await _hlsService.getDataSource(
-            _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
-        }
-      } else {
-        // manifest 过期或不存在，重新获取（刷新 URL）
-        if (_supportsDash) {
-          _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
-          availableQualities.value = _dashManifest!.qualities;
-          final cached = _dashManifest!.getDataSource(currentQuality.value!);
-          if (cached != null) {
-            dataSource = cached;
-          } else {
-            dataSource = await _hlsService.getDataSource(
-              _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
-          }
-        } else {
-          dataSource = await _hlsService.getDataSource(
-            _currentResourceId!, currentQuality.value!, supportsDash: _supportsDash);
-        }
-      }
-
+      final dataSource = await _getDataSourceForQuality(currentQuality.value!);
       if (_isDisposed) return;
 
       await setDataSource(
@@ -909,6 +854,28 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   // ============ 辅助方法 ============
+
+  /// 获取指定清晰度的 DataSource（统一入口）
+  ///
+  /// 优先从缓存的 manifest 获取；manifest 过期或缺失则重新请求；
+  /// 旧资源直接回退到 m3u8。
+  Future<DataSource> _getDataSourceForQuality(String quality) async {
+    // DASH 缓存命中且未过期
+    if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
+      final cached = _dashManifest!.getDataSource(quality);
+      if (cached != null) return cached;
+    }
+    // DASH 缓存过期或缺失，重新获取
+    if (_supportsDash) {
+      _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
+      availableQualities.value = _dashManifest!.qualities;
+      final cached = _dashManifest!.getDataSource(quality);
+      if (cached != null) return cached;
+    }
+    // 最终回退：旧资源 m3u8 或 DASH 缓存里没有该清晰度
+    return _hlsService.getDataSource(
+      _currentResourceId!, quality, supportsDash: _supportsDash);
+  }
 
   /// 首次创建 Player 时配置不变的 mpv 属性
   /// 这些属性在整个 Player 生命周期内只需设置一次
