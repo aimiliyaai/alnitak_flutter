@@ -9,9 +9,9 @@ import '../../../widgets/danmaku_overlay.dart';
 /// 自定义播放器 UI (V8 完整版)
 ///
 /// 包含修改：
-/// 1. 进度条 Stream 监听 `logic.positionStream` (防跳变关键)。
-/// 2. 清晰度切换时隐藏播放按钮。
-/// 3. 清晰度 UI 更透明。
+/// 1. 进度条使用 pili_plus 风格秒级 ValueNotifier（sliderPositionSeconds），最多 1Hz 更新。
+/// 2. 拖拽时冻结 position 更新（onSliderDragStart/Update/End），防止 thumb 跳变。
+/// 3. 清晰度切换时隐藏播放按钮。
 /// 4. 面板右对齐、手势优化等所有累积修复。
 class CustomPlayerUI extends StatefulWidget {
   final VideoController controller;
@@ -1050,59 +1050,75 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   }
 
   /// 构建进度条行（时间 + 进度条 + 时间）
+  ///
+  /// pili_plus 风格：使用 ValueListenableBuilder + 秒级 ValueNotifier，
+  /// 最多 1Hz 更新，拖拽时冻结不接收 mpv 回报的位置。
   Widget _buildProgressRow() {
-    return StreamBuilder<Duration>(
-      stream: widget.logic.positionStream,
-      builder: (context, snapshot) {
-        final pos = snapshot.data ?? Duration.zero;
-        final dur = widget.controller.player.state.duration;
-        final bufferDur = widget.controller.player.state.buffer;
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.logic.sliderPositionSeconds,
+      builder: (context, posSeconds, _) {
+        return ValueListenableBuilder<int>(
+          valueListenable: widget.logic.durationSeconds,
+          builder: (context, durSeconds, _) {
+            return ValueListenableBuilder<int>(
+              valueListenable: widget.logic.bufferedSeconds,
+              builder: (context, bufSeconds, _) {
+                final maxVal = durSeconds > 0 ? durSeconds.toDouble() : 1.0;
+                final displayPos = Duration(seconds: posSeconds);
+                final displayDur = Duration(seconds: durSeconds);
 
-        // 修复：视频结束时进度条归零的问题
-        final isCompleted = widget.controller.player.state.completed;
-        final displayPos = (isCompleted && dur.inSeconds > 0) ? dur : pos;
-
-        return Row(
-          children: [
-            Text(
-              _formatDuration(displayPos),
-              style: const TextStyle(color: Colors.white, fontSize: 11),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4.0,
-                  thumbShape: const _CustomSliderThumbShape(
-                    enabledThumbRadius: 7,
-                    thumbColor: Colors.blue,
-                    borderColor: Colors.white,
-                    borderWidth: 2,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
-                  activeTrackColor: Colors.blue,
-                  inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
-                  thumbColor: Colors.blue,
-                  secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.5),
-                ),
-                child: Slider(
-                  value: displayPos.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
-                  min: 0,
-                  max: dur.inSeconds.toDouble() > 0 ? dur.inSeconds.toDouble() : 1.0,
-                  secondaryTrackValue: bufferDur.inSeconds.toDouble().clamp(0.0, dur.inSeconds.toDouble()),
-                  onChanged: (v) {
-                    widget.logic.seek(Duration(seconds: v.toInt()));
-                    _startHideTimer();
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _formatDuration(dur),
-              style: const TextStyle(color: Colors.white, fontSize: 11),
-            ),
-          ],
+                return Row(
+                  children: [
+                    Text(
+                      _formatDuration(displayPos),
+                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4.0,
+                          thumbShape: const _CustomSliderThumbShape(
+                            enabledThumbRadius: 7,
+                            thumbColor: Colors.blue,
+                            borderColor: Colors.white,
+                            borderWidth: 2,
+                          ),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
+                          activeTrackColor: Colors.blue,
+                          inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
+                          thumbColor: Colors.blue,
+                          secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.5),
+                        ),
+                        child: Slider(
+                          value: posSeconds.toDouble().clamp(0.0, maxVal),
+                          min: 0,
+                          max: maxVal,
+                          secondaryTrackValue: bufSeconds.toDouble().clamp(0.0, maxVal),
+                          onChangeStart: (_) {
+                            widget.logic.onSliderDragStart();
+                          },
+                          onChanged: (v) {
+                            widget.logic.onSliderDragUpdate(Duration(seconds: v.toInt()));
+                            _startHideTimer();
+                          },
+                          onChangeEnd: (v) {
+                            widget.logic.onSliderDragEnd(Duration(seconds: v.toInt()));
+                            _startHideTimer();
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _formatDuration(displayDur),
+                      style: const TextStyle(color: Colors.white, fontSize: 11),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
         );
       },
     );

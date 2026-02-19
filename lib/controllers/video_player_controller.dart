@@ -38,6 +38,21 @@ class VideoPlayerController extends ChangeNotifier {
   final ValueNotifier<bool> backgroundPlayEnabled = ValueNotifier(false);
   final ValueNotifier<bool> isBuffering = ValueNotifier(false);
 
+  // ============ pili_plus 风格进度条状态（秒级粒度，防跳变） ============
+  /// 进度条显示位置（秒），拖拽时冻结不接收 mpv 更新
+  final ValueNotifier<int> sliderPositionSeconds = ValueNotifier(0);
+  /// 总时长（秒）
+  final ValueNotifier<int> durationSeconds = ValueNotifier(0);
+  /// 缓冲位置（秒）
+  final ValueNotifier<int> bufferedSeconds = ValueNotifier(0);
+  /// 用户是否正在拖拽进度条
+  final ValueNotifier<bool> isSliderMoving = ValueNotifier(false);
+
+  /// 原始位置（每次 mpv 事件都更新，内部使用）
+  Duration _position = Duration.zero;
+  /// 滑块位置（拖拽时独立于 _position）
+  Duration _sliderPosition = Duration.zero;
+
   final StreamController<Duration> _positionStreamController = StreamController.broadcast();
   Stream<Duration> get positionStream => _positionStreamController.stream;
 
@@ -101,6 +116,56 @@ class VideoPlayerController extends ChangeNotifier {
   bool _settingsLoaded = false;
 
   VideoPlayerController();
+
+  // ============ pili_plus 风格：秒级更新方法（只在秒数变化时通知 UI）============
+
+  void _updateSliderPositionSecond() {
+    final newSecond = _sliderPosition.inSeconds;
+    if (sliderPositionSeconds.value != newSecond) {
+      sliderPositionSeconds.value = newSecond;
+    }
+  }
+
+  void _updatePositionSecond() {
+    // sliderPosition 在非拖拽时跟随 position
+    if (!isSliderMoving.value) {
+      _sliderPosition = _position;
+      _updateSliderPositionSecond();
+    }
+  }
+
+  void _updateDurationSecond() {
+    final newSecond = _player?.state.duration.inSeconds ?? 0;
+    if (durationSeconds.value != newSecond) {
+      durationSeconds.value = newSecond;
+    }
+  }
+
+  void _updateBufferedSecond() {
+    final newSecond = _player?.state.buffer.inSeconds ?? 0;
+    if (bufferedSeconds.value != newSecond) {
+      bufferedSeconds.value = newSecond;
+    }
+  }
+
+  /// 用户开始拖拽进度条
+  void onSliderDragStart() {
+    isSliderMoving.value = true;
+  }
+
+  /// 用户拖拽中更新（乐观 UI）
+  void onSliderDragUpdate(Duration position) {
+    _sliderPosition = position;
+    _updateSliderPositionSecond();
+  }
+
+  /// 用户拖拽结束，执行 seek
+  void onSliderDragEnd(Duration position) {
+    isSliderMoving.value = false;
+    _sliderPosition = position;
+    _updateSliderPositionSecond();
+    seek(position);
+  }
 
   // ============ 核心方法：initialize ============
 
@@ -202,6 +267,12 @@ class VideoPlayerController extends ChangeNotifier {
       _isRecoveringFromSurfaceReset = false;
       _lastValidPosition = Duration.zero;
       _isSeeking = false;
+
+      // pili_plus 风格：removeListeners 后立即预设 sliderPosition = seekTo
+      // 防止 UI 在 open() → startListeners() 之间看到 position=0 的闪跳
+      _position = _sliderPosition = seekTo;
+      _updateSliderPositionSecond();
+      _updateBufferedSecond();
 
       final isNewPlayer = _player == null;
       _player ??= Player(
@@ -689,6 +760,9 @@ class VideoPlayerController extends ChangeNotifier {
           _lastValidPosition = position;
         }
 
+        // pili_plus 风格：更新内部 position，秒级粒度通知 UI
+        _position = position;
+        _updatePositionSecond();
         _positionStreamController.add(position);
         _userIntendedPosition = position;
 
@@ -704,14 +778,13 @@ class VideoPlayerController extends ChangeNotifier {
       }),
 
       _player!.stream.duration.listen((duration) {
-        // pilipala: 只在 duration > 0 时更新
         if (duration > Duration.zero) {
-          // duration 更新通知（用于 UI）
+          _updateDurationSecond();
         }
       }),
 
       _player!.stream.buffer.listen((buffer) {
-        // 缓冲位置更新
+        _updateBufferedSecond();
       }),
 
       _player!.stream.buffering.listen((buffering) {
@@ -758,6 +831,8 @@ class VideoPlayerController extends ChangeNotifier {
       final diff = (position.inMilliseconds - _userIntendedPosition.inMilliseconds).abs();
       if (diff >= 800) {
         _lastValidPosition = position;
+        _position = position;
+        _updatePositionSecond();
         _positionStreamController.add(position);
         _userIntendedPosition = position;
 
@@ -1132,6 +1207,11 @@ class VideoPlayerController extends ChangeNotifier {
     }
 
     _positionStreamController.close();
+
+    sliderPositionSeconds.dispose();
+    durationSeconds.dispose();
+    bufferedSeconds.dispose();
+    isSliderMoving.dispose();
 
     super.dispose();
   }
