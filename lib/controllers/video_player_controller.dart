@@ -493,8 +493,21 @@ class VideoPlayerController extends ChangeNotifier {
             _currentResourceId!, quality, supportsDash: _supportsDash);
         }
       } else {
-        dataSource = await _hlsService.getDataSource(
-          _currentResourceId!, quality, supportsDash: _supportsDash);
+        // manifest 过期或不存在，重新获取并缓存
+        if (_supportsDash) {
+          _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
+          availableQualities.value = _dashManifest!.qualities;
+          final cached = _dashManifest!.getDataSource(quality);
+          if (cached != null) {
+            dataSource = cached;
+          } else {
+            dataSource = await _hlsService.getDataSource(
+              _currentResourceId!, quality, supportsDash: _supportsDash);
+          }
+        } else {
+          dataSource = await _hlsService.getDataSource(
+            _currentResourceId!, quality, supportsDash: _supportsDash);
+        }
       }
 
       if (_isDisposed) return;
@@ -796,6 +809,7 @@ class VideoPlayerController extends ChangeNotifier {
         // manifest 过期或不存在，重新获取（刷新 URL）
         if (_supportsDash) {
           _dashManifest = await _hlsService.getDashManifest(_currentResourceId!);
+          availableQualities.value = _dashManifest!.qualities;
           final cached = _dashManifest!.getDataSource(currentQuality.value!);
           if (cached != null) {
             dataSource = cached;
