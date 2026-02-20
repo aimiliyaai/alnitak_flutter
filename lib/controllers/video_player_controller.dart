@@ -87,10 +87,6 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _positionPollingTimer;
   Timer? _waitAndSeekTimer;
 
-  // Surface 重置检测
-  Duration _lastValidPosition = Duration.zero;
-  bool _isRecoveringFromSurfaceReset = false;
-
   int? _currentVid;
   int _currentPart = 1;
 
@@ -172,6 +168,7 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> initialize({
     required int resourceId,
     double? initialPosition,
+    double? duration,
   }) async {
     // 如果正在初始化同一个资源，忽略；否则允许切换到新资源
     if (_isInitializing && _currentResourceId == resourceId) return;
@@ -185,6 +182,11 @@ class VideoPlayerController extends ChangeNotifier {
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
+
+      // 预设总时长，防止 mpv duration 就绪前进度条因 duration=0 显示满格
+      if (duration != null && duration > 0) {
+        durationSeconds.value = duration.toInt();
+      }
 
       if (!_settingsLoaded) await _loadSettings();
 
@@ -261,8 +263,6 @@ class VideoPlayerController extends ChangeNotifier {
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
       _hasJustCompleted = false;
-      _isRecoveringFromSurfaceReset = false;
-      _lastValidPosition = Duration.zero;
       _isSeeking = false;
 
       // pili_plus 风格：removeListeners 后立即预设 sliderPosition = seekTo
@@ -401,17 +401,13 @@ class VideoPlayerController extends ChangeNotifier {
     // 保存当前播放位置，优先级：
     // 1. player.state.position（真实播放位置）
     // 2. _userIntendedPosition（用户拖拽/seek 的目标位置，或上次位置监听器推送的位置）
-    // 3. _lastValidPosition（surface 重置前的最后有效位置）
     // 关键：必须在 removeListeners / setDataSource 之前读取，否则 open() 会重置为 0
     final playerPos = _player?.state.position ?? Duration.zero;
     final defaultST = playerPos.inMilliseconds > 0
         ? playerPos
-        : (_userIntendedPosition.inMilliseconds > 0
-            ? _userIntendedPosition
-            : _lastValidPosition);
+        : _userIntendedPosition;
     _logger.logDebug('changeQuality: 保存位置 defaultST=${defaultST.inSeconds}s '
-        '(playerPos=${playerPos.inSeconds}s, userIntended=${_userIntendedPosition.inSeconds}s, '
-        'lastValid=${_lastValidPosition.inSeconds}s)');
+        '(playerPos=${playerPos.inSeconds}s, userIntended=${_userIntendedPosition.inSeconds}s)');
 
     // pilipala: removeListeners + 清空状态
     removeListeners();
@@ -548,53 +544,15 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
+        // 过滤首帧 position=0 噪音（open 后 mpv 初始推送）
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
           _hasPlaybackStarted = true;
         }
 
-        // 判断是否为合法的"回到开头"场景：
-        // 1. 循环模式：completed 后手动 seek(0)，position 从接近 duration 跳回 0
-        // 2. 刚播放完毕后重新开始（onVideoEnd 触发后用户点重播等）
-        final isLooping = loopMode.value == LoopMode.on;
-        final isNearEnd = _lastValidPosition.inSeconds > 0 &&
-            _player!.state.duration.inSeconds > 0 &&
-            (_player!.state.duration.inSeconds - _lastValidPosition.inSeconds).abs() <= 3;
-        final isLegitRestart = isLooping || _hasJustCompleted || isNearEnd;
-
-        // Surface 重置检测：从 >3秒 跳回 <=1秒（正常播放中的意外 surface 重建）
-        // 排除合法回到开头的场景
-        if (!_isRecoveringFromSurfaceReset &&
-            !isLegitRestart &&
-            _lastValidPosition.inSeconds > 3 &&
-            position.inSeconds <= 1) {
-
-          _logger.logDebug('Surface 重置检测: ${_lastValidPosition.inSeconds}s -> ${position.inSeconds}s, 准备恢复');
-          _isRecoveringFromSurfaceReset = true;
-
-          final recoveryPosition = _lastValidPosition;
-
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (_player != null && !_isDisposed) {
-              _logger.logDebug('Surface 重置恢复: seek to ${recoveryPosition.inSeconds}s');
-              _player!.seek(recoveryPosition).then((_) {
-                _isRecoveringFromSurfaceReset = false;
-              });
-            }
-          });
-
-          return;
-        }
-
         // 回到开头时重置标记
-        if (position.inSeconds <= 1 && isLegitRestart) {
+        if (position.inSeconds <= 1 && _hasJustCompleted) {
           _hasJustCompleted = false;
-          _lastValidPosition = position;
-        }
-
-        // 更新最后有效位置
-        if (!_isRecoveringFromSurfaceReset) {
-          _lastValidPosition = position;
         }
 
         // pili_plus 风格：更新内部 position，秒级粒度通知 UI
@@ -667,7 +625,6 @@ class VideoPlayerController extends ChangeNotifier {
       // 只有当 stream 长时间没推送时才由 polling 补发
       final diff = (position.inMilliseconds - _userIntendedPosition.inMilliseconds).abs();
       if (diff >= 800) {
-        _lastValidPosition = position;
         _position = position;
         _updatePositionSecond();
         _positionStreamController.add(position);
@@ -698,6 +655,9 @@ class VideoPlayerController extends ChangeNotifier {
     _seekTimer = null;
     _waitAndSeekTimer?.cancel();
     _waitAndSeekTimer = null;
+    if (_waitAndSeekCompleter != null && !_waitAndSeekCompleter!.isCompleted) {
+      _waitAndSeekCompleter!.complete();
+    }
   }
 
   /// 等待 duration 就绪后 seek，seek 完成后再 play()
@@ -705,17 +665,35 @@ class VideoPlayerController extends ChangeNotifier {
   /// 解决音画不同步：open(play:false) 后音频和视频都未播放，
   /// 等 mpv 获取到 duration 后一次性 seek 所有流到目标位置，
   /// 再统一 play()，确保音视频从同一位置同时开始解码。
-  Future<void> _waitAndSeek(Duration target, {bool autoPlay = true}) async {
+  ///
+  /// 使用 Completer 确保调用方 await 时能等到 seek+play 真正完成，
+  /// 避免 DASH（duration 就绪慢）场景下 Timer 分支不被 await 导致进度归零。
+  Completer<void>? _waitAndSeekCompleter;
+
+  Future<void> _waitAndSeek(Duration target, {bool autoPlay = true}) {
     _waitAndSeekTimer?.cancel();
+    if (_waitAndSeekCompleter != null && !_waitAndSeekCompleter!.isCompleted) {
+      _waitAndSeekCompleter!.complete();
+    }
+    _waitAndSeekCompleter = Completer<void>();
+    final completer = _waitAndSeekCompleter!;
 
     // duration 已就绪，直接 seek
     if (_player != null && _player!.state.duration.inSeconds > 0) {
       _logger.logDebug('_waitAndSeek: duration ready, seeking to ${target.inSeconds}s');
-      await _player!.seek(target);
-      if (autoPlay && !_isDisposed && _player != null) {
-        await _player!.play();
-      }
-      return;
+      _player!.seek(target).then((_) async {
+        if (autoPlay && !_isDisposed && _player != null) {
+          await _player!.play();
+        }
+        if (!completer.isCompleted) completer.complete();
+      }).catchError((e) {
+        _logger.logDebug('_waitAndSeek seek error: $e');
+        if (autoPlay && !_isDisposed && _player != null) {
+          _player!.play();
+        }
+        if (!completer.isCompleted) completer.complete();
+      });
+      return completer.future;
     }
 
     // duration 未就绪，轮询等待
@@ -724,6 +702,7 @@ class VideoPlayerController extends ChangeNotifier {
       if (_isDisposed || _player == null) {
         t.cancel();
         _waitAndSeekTimer = null;
+        if (!completer.isCompleted) completer.complete();
         return;
       }
       if (_player!.state.duration.inSeconds > 0) {
@@ -737,13 +716,15 @@ class VideoPlayerController extends ChangeNotifier {
           }
         } catch (e) {
           _logger.logDebug('_waitAndSeek seek error: $e');
-          // seek 失败也要播放，否则卡住
           if (autoPlay && !_isDisposed && _player != null) {
             await _player!.play();
           }
         }
+        if (!completer.isCompleted) completer.complete();
       }
     });
+
+    return completer.future;
   }
 
   /// 处理卡顿恢复
@@ -816,8 +797,8 @@ class VideoPlayerController extends ChangeNotifier {
     // Android 特有配置
     if (Platform.isAndroid) {
       await nativePlayer.setProperty('volume-max', '100');
-      // autosync=30: 每 30 帧重新同步音视频（仿 pili_plus Android 配置）
-      await nativePlayer.setProperty('autosync', '30');
+      // autosync=10: 每 10 帧重新同步音视频，加速 surface 重建后的 AV 同步恢复
+      await nativePlayer.setProperty('autosync', '10');
       final decodeMode = await getDecodeMode();
       await nativePlayer.setProperty('hwdec', decodeMode);
     }
@@ -942,7 +923,6 @@ class VideoPlayerController extends ChangeNotifier {
       // 进入后台时快照一次当前位置（确保即使后台被杀也有可恢复的位置）
       final pos = _player!.state.position;
       if (pos.inSeconds > 0) {
-        _lastValidPosition = pos;
         _userIntendedPosition = pos;
       }
     } else {

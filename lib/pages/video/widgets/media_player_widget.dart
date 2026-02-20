@@ -33,6 +33,8 @@ class MediaPlayerWidget extends StatefulWidget {
   final DanmakuController? danmakuController;
   /// 播放状态变化回调
   final Function(bool playing)? onPlayingStateChanged;
+  /// 资源总时长（秒），用于预设进度条，防止 mpv duration 就绪前显示满格
+  final double? duration;
   /// 在看人数（可选）
   final ValueNotifier<int>? onlineCount;
 
@@ -40,6 +42,7 @@ class MediaPlayerWidget extends StatefulWidget {
     super.key,
     this.resourceId,
     this.initialPosition,
+    this.duration,
     this.onVideoEnd,
     this.onProgressUpdate,
     this.onQualityChanged,
@@ -78,6 +81,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       _controller!.initialize(
         resourceId: widget.resourceId!,
         initialPosition: widget.initialPosition,
+        duration: widget.duration,
       );
     }
 
@@ -143,6 +147,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       _controller!.initialize(
         resourceId: widget.resourceId!,
         initialPosition: widget.initialPosition,
+        duration: widget.duration,
       );
     }
   }
@@ -319,6 +324,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
       _controller!.initialize(
         resourceId: widget.resourceId!,
         initialPosition: widget.initialPosition,
+        duration: widget.duration,
       );
     }
   }

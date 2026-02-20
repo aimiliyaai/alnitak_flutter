@@ -877,6 +877,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             key: _playerKey,
             resourceId: _currentResourceId,
             initialPosition: _currentInitialPosition,
+            duration: currentResource.duration,
             onVideoEnd: _onVideoEnded,
             onProgressUpdate: _onProgressUpdate,
             onControllerReady: (controller) {

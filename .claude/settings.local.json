@@ -64,7 +64,12 @@
       "WebFetch(domain:pub.dev)",
       "Bash(if exist \"E:\\\\bili_tube\" echo \"Directory exists\" else echo \"Directory not found\")",
       "Bash(del \"e:\\\\alnitak_flutter\\\\nul\")",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(gh auth status:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": [],
