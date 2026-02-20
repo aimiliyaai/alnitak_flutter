@@ -231,7 +231,14 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   /// 页面关闭时保存进度
   void _saveProgressOnDispose() {
-    if (_currentDuration <= 0) {
+    // 当 listeners 异常死亡导致 _currentDuration 未更新时，直接从 player 读取
+    var duration = _currentDuration;
+    if (duration <= 0 && _playerController != null) {
+      try {
+        duration = _playerController!.player.state.duration.inSeconds.toDouble();
+      } catch (_) {}
+    }
+    if (duration <= 0) {
       return;
     }
 
@@ -259,7 +266,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       vid: _currentVid,
       part: _currentPart,
       time: time,
-      duration: _currentDuration.toInt(),
+      duration: duration.toInt(),
     );
   }
 

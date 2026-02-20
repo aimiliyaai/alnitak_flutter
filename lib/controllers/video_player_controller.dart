@@ -72,13 +72,10 @@ class VideoPlayerController extends ChangeNotifier {
   bool _supportsDash = true; // 新资源=true(JSON直链), 旧资源=false(m3u8 URL)
   DashManifest? _dashManifest; // 缓存完整 DASH 数据（仿 pili_plus）
   bool _isSeeking = false;
+  bool _isHandlingStall = false;
 
   Duration _userIntendedPosition = Duration.zero;
   Duration _lastReportedPosition = Duration.zero;
-  Duration? _seekAfterOpen; // open() 后等 duration 就绪再显式 seek，期间冻结 UI
-  int _seekAfterOpenRetries = 0; // _waitAndSeek 的重试计数
-  static const int _maxSeekAfterOpenRetries = 20; // 最多重试 20 次（每次 300ms = 6s）
-  int _seekAfterOpenGeneration = 0; // 用于使过期的 _seekAfterOpen 超时失效
   int? _lastProgressFetchTime;
 
   // pilipala 风格：用 List 管理所有 stream subscription，方便批量取消/重建
@@ -87,8 +84,8 @@ class VideoPlayerController extends ChangeNotifier {
 
   Timer? _stalledTimer;
   Timer? _seekTimer;
-  Timer? _waitAndSeekTimer;
   Timer? _positionPollingTimer;
+  Timer? _waitAndSeekTimer;
 
   // Surface 重置检测
   Duration _lastValidPosition = Duration.zero;
@@ -242,9 +239,9 @@ class VideoPlayerController extends ChangeNotifier {
   /// 流程：
   /// 1. removeListeners()，清空缓冲状态
   /// 2. 创建 Player（??= 复用），配置 audio-files 挂载独立音频
-  /// 3. player.open(Media(videoUrl, start: seekTo)) 加载视频直链
+  /// 3. player.open(Media(videoUrl, start: seekTo), play: false) — mpv 原子 seek 所有流
   /// 4. startListeners()
-  /// 5. _seekAfterOpen 机制处理 surface 重建后的进度恢复
+  /// 5. play()
   Future<void> setDataSource(
     DataSource dataSource, {
     Duration seekTo = Duration.zero,
@@ -310,45 +307,22 @@ class VideoPlayerController extends ChangeNotifier {
         ),
       );
 
-      // 不使用 Media(start:) —— media_kit 的 on_load/on_unload 钩子存在竞态：
-      // on_unload（卸载旧媒体）可能在 on_load（加载新媒体）之后触发，
-      // 导致 start 属性被重置为 'none'，进度丢失。
-      // 改用：open() 后监听 duration > 0，然后显式 seek()。
-      // 取消旧的 _waitAndSeek timer（防止快速切换时新旧 timer 并行）
-      _waitAndSeekTimer?.cancel();
-      _waitAndSeekTimer = null;
-
-      if (seekTo > Duration.zero) {
-        _seekAfterOpen = seekTo;
-        _seekAfterOpenRetries = 0;
-        final generation = ++_seekAfterOpenGeneration;
-        _logger.logDebug('setDataSource: 设置 _seekAfterOpen=${seekTo.inSeconds}s (gen=$generation)');
-        // 安全超时：10秒后强制解冻 UI，防止网络慢时永久冻结
-        Future.delayed(const Duration(seconds: 10), () {
-          // 仅当 generation 匹配时才清除（防止新 setDataSource 的 _seekAfterOpen 被旧超时误清）
-          if (_seekAfterOpen != null && !_isDisposed && _seekAfterOpenGeneration == generation) {
-            _logger.logDebug('_seekAfterOpen 超时 10s，强制清除 (gen=$generation)');
-            _seekAfterOpen = null;
-            _seekAfterOpenRetries = 0;
-          }
-        });
-      } else {
-        _seekAfterOpen = null;
-        _seekAfterOpenRetries = 0;
-      }
-
-      _logger.logDebug('setDataSource: open (不带 start，后续显式 seek)');
+      // 不使用 Media(start:) — 因为 Player 复用(??=)时 on_unload(旧media)会在
+      // on_load(新media)之后触发，将 mpv 的 start 属性重置为 'none'，导致进度丢失。
+      // 改用 play:false → _waitAndSeek → play() 保证音画同步。
+      _logger.logDebug('setDataSource: open (seekTo=${seekTo.inSeconds}s)');
       await _player!.open(
         Media(dataSource.videoSource),
-        play: autoPlay,
+        play: false, // 不自动播放，等 seek 到位后再 play()
       );
 
-      // open() 完成后注册 listener，确保监听新媒体的事件流
       startListeners();
 
-      // open() 完成后，等待 duration 就绪再显式 seek
-      if (_seekAfterOpen != null) {
-        _waitAndSeek(_seekAfterOpen!);
+      if (seekTo > Duration.zero) {
+        // 等 duration 就绪后 seek，seek 完成后再 play（防音画不同步）
+        await _waitAndSeek(seekTo, autoPlay: autoPlay);
+      } else if (autoPlay) {
+        await _player!.play();
       }
 
       isLoading.value = false;
@@ -356,6 +330,8 @@ class VideoPlayerController extends ChangeNotifier {
 
     } catch (e) {
       _isSeeking = false;
+      // 失败后恢复 listeners，防止播放器变成"聋子"（进度不再上报）
+      if (_player != null) startListeners();
       isLoading.value = false;
       errorMessage.value = ErrorHandler.getErrorMessage(e);
       _logger.logError(message: 'setDataSource 失败', error: e, stackTrace: StackTrace.current);
@@ -363,109 +339,13 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
 
-  /// open() 后等待 duration 就绪，然后显式 seek 到目标位置
-  ///
-  /// 为什么不用 Media(start:)：media_kit 通过 on_load/on_unload 钩子设置 mpv 的
-  /// start 属性，但 on_unload（卸载旧媒体）可能在 on_load（加载新媒体）之后触发，
-  /// 导致 start 被重置为 'none'。这在复用 Player 切换清晰度时尤其容易发生。
-  ///
-  /// 此方法使用 Timer.periodic 轮询 duration，一旦 > 0 就执行 seek。
-  /// 整个过程中 _seekAfterOpen 保持非 null，位置监听器会冻结 UI。
-  void _waitAndSeek(Duration target) {
-    _seekAfterOpenRetries = 0;
-    _waitAndSeekTimer?.cancel();
-    _waitAndSeekTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) async {
-      if (_isDisposed || _player == null || _seekAfterOpen == null) {
-        timer.cancel();
-        _waitAndSeekTimer = null;
-        return;
-      }
-
-      _seekAfterOpenRetries++;
-
-      // 超过最大重试次数，放弃
-      if (_seekAfterOpenRetries > _maxSeekAfterOpenRetries) {
-        _logger.logDebug('_waitAndSeek: 超过最大重试 $_maxSeekAfterOpenRetries 次，放弃');
-        timer.cancel();
-        _waitAndSeekTimer = null;
-        _seekAfterOpen = null;
-        _seekAfterOpenRetries = 0;
-        return;
-      }
-
-      final duration = _player!.state.duration;
-      if (duration.inSeconds > 0) {
-        timer.cancel();
-        _waitAndSeekTimer = null;
-        _logger.logDebug('_waitAndSeek: duration 就绪 (${duration.inSeconds}s)，seek to ${target.inSeconds}s');
-        try {
-          await _player!.seek(target);
-          // 短暂等待 seek 生效，不做长时间缓冲等待（避免冻结 UI 过久）
-          await Future.delayed(const Duration(milliseconds: 300));
-          if (_isDisposed) return;
-          final pos = _player!.state.position;
-          _logger.logDebug('_waitAndSeek: seek 后 position=${pos.inSeconds}s');
-          // 如果位置偏差过大，再试一次
-          if ((pos.inMilliseconds - target.inMilliseconds).abs() > 3000 &&
-              _player != null && !_isDisposed) {
-            _logger.logDebug('_waitAndSeek: 偏差过大，重试 seek');
-            await _player!.seek(target);
-          }
-        } catch (e) {
-          _logger.logDebug('_waitAndSeek: seek 失败: $e');
-        } finally {
-          _seekAfterOpen = null;
-          _seekAfterOpenRetries = 0;
-          _logger.logDebug('_waitAndSeek: 解冻 UI');
-        }
-      }
-    });
-  }
-
-  /// 等待 seek 引发的缓冲完成
-  ///
-  /// DASH 下 seek 会触发 buffering=true（加载目标位置的分片），
-  /// 等到 buffering=false 时 mpv 才真正准备好从目标位置播放。
-  ///
-  /// 注意：不能用 position stream 判断 seek 是否完成 —— mpv 在 seek 命令后
-  /// 会立刻把 state.position 设为目标值（内部标记），但数据还没加载到，
-  /// 随后 position 可能跳回 0。
-  Future<void> _waitForSeekBuffering() async {
-    if (_player == null) return;
-
-    // 如果当前已经不在缓冲状态，说明 seek 很快完成或不需要缓冲
-    if (!_player!.state.buffering) {
-      // 短暂等待，给 mpv 时间触发 buffering 事件
-      await Future.delayed(const Duration(milliseconds: 100));
-      if (_player == null || !_player!.state.buffering) {
-        _logger.logDebug('_waitForSeekBuffering: 未进入缓冲状态, 直接继续');
-        return;
-      }
-    }
-
-    final c = Completer<void>();
-
-    final sub = _player!.stream.buffering.listen((buffering) {
-      if (!buffering && !c.isCompleted) {
-        c.complete();
-      }
-    });
-
-    try {
-      await c.future.timeout(const Duration(seconds: 5), onTimeout: () {
-        _logger.logDebug('_waitForSeekBuffering: 超时 5s');
-      });
-    } finally {
-      await sub.cancel();
-    }
-  }
-
   // ============ seek ============
 
-  /// 跳转到指定位置
+  /// 跳转到指定位置（仿 pili_plus 的 seekTo）
   ///
-  /// 直接调用 player.seek()，mpv 会自动丢弃旧缓冲、从目标位置的分片开始加载
-  /// duration 未就绪时用 Timer.periodic 重试
+  /// pili_plus 做法：立即写入 position → player.seek()
+  /// duration 未就绪时用 Timer.periodic 轮询
+  /// 没有 _waitForSeekBuffering、没有确认到位重试
   Future<void> seek(Duration position) async {
     if (_isDisposed || _player == null) return;
     if (position < Duration.zero) position = Duration.zero;
@@ -476,20 +356,9 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       if (_player!.state.duration.inSeconds != 0) {
         await _player!.seek(position);
-        // 等待 seek 引发的缓冲完成
-        await _waitForSeekBuffering();
-        if (_isDisposed) return;
-
-        // 确认位置是否到位
-        final currentPos = _player!.state.position;
-        if ((currentPos.inMilliseconds - position.inMilliseconds).abs() > 3000) {
-          await _player!.seek(position);
-          await _waitForSeekBuffering();
-        }
         _isSeeking = false;
       } else {
-        // duration 未就绪，定时重试
-        // 注意：_isSeeking 在 timer 回调中完成 seek 后才置 false
+        // pili_plus: duration 未就绪，Timer.periodic 轮询
         _seekTimer?.cancel();
         _seekTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
           if (_isDisposed || _player == null) {
@@ -503,7 +372,6 @@ class VideoPlayerController extends ChangeNotifier {
             _seekTimer = null;
             try {
               await _player!.seek(position);
-              await _waitForSeekBuffering();
             } catch (_) {}
             _isSeeking = false;
           }
@@ -568,6 +436,8 @@ class VideoPlayerController extends ChangeNotifier {
 
       onQualityChanged?.call(quality);
     } catch (e) {
+      // 失败后恢复 listeners，防止播放器变成"聋子"（进度不再上报）
+      if (_player != null) startListeners();
       errorMessage.value = '切换清晰度失败';
     } finally {
       isSwitchingQuality.value = false;
@@ -678,10 +548,6 @@ class VideoPlayerController extends ChangeNotifier {
         // _isSeeking 期间完全不推送，进度条冻结
         if (_isSeeking) return;
 
-        // _seekAfterOpen 期间冻结 UI：_waitAndSeek 正在等 duration 就绪后 seek
-        // 整个过程不推送任何位置给 UI，避免进度条跳动
-        if (_seekAfterOpen != null) return;
-
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
           _hasPlaybackStarted = true;
@@ -697,9 +563,8 @@ class VideoPlayerController extends ChangeNotifier {
         final isLegitRestart = isLooping || _hasJustCompleted || isNearEnd;
 
         // Surface 重置检测：从 >3秒 跳回 <=1秒（正常播放中的意外 surface 重建）
-        // 排除合法回到开头的场景和 _seekAfterOpen 场景（已在上面处理）
+        // 排除合法回到开头的场景
         if (!_isRecoveringFromSurfaceReset &&
-            _seekAfterOpen == null &&
             !isLegitRestart &&
             _lastValidPosition.inSeconds > 3 &&
             position.inSeconds <= 1) {
@@ -789,7 +654,7 @@ class VideoPlayerController extends ChangeNotifier {
     _positionPollingTimer?.cancel();
     _positionPollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_isDisposed || _player == null) return;
-      if (_isSeeking || _seekAfterOpen != null) return;
+      if (_isSeeking) return;
       if (!_player!.state.playing) return;
 
       final position = _player!.state.position;
@@ -831,14 +696,64 @@ class VideoPlayerController extends ChangeNotifier {
     _stalledTimer = null;
     _seekTimer?.cancel();
     _seekTimer = null;
+    _waitAndSeekTimer?.cancel();
+    _waitAndSeekTimer = null;
+  }
+
+  /// 等待 duration 就绪后 seek，seek 完成后再 play()
+  ///
+  /// 解决音画不同步：open(play:false) 后音频和视频都未播放，
+  /// 等 mpv 获取到 duration 后一次性 seek 所有流到目标位置，
+  /// 再统一 play()，确保音视频从同一位置同时开始解码。
+  Future<void> _waitAndSeek(Duration target, {bool autoPlay = true}) async {
+    _waitAndSeekTimer?.cancel();
+
+    // duration 已就绪，直接 seek
+    if (_player != null && _player!.state.duration.inSeconds > 0) {
+      _logger.logDebug('_waitAndSeek: duration ready, seeking to ${target.inSeconds}s');
+      await _player!.seek(target);
+      if (autoPlay && !_isDisposed && _player != null) {
+        await _player!.play();
+      }
+      return;
+    }
+
+    // duration 未就绪，轮询等待
+    _logger.logDebug('_waitAndSeek: waiting for duration...');
+    _waitAndSeekTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
+      if (_isDisposed || _player == null) {
+        t.cancel();
+        _waitAndSeekTimer = null;
+        return;
+      }
+      if (_player!.state.duration.inSeconds > 0) {
+        t.cancel();
+        _waitAndSeekTimer = null;
+        _logger.logDebug('_waitAndSeek: duration ready, seeking to ${target.inSeconds}s');
+        try {
+          await _player!.seek(target);
+          if (autoPlay && !_isDisposed && _player != null) {
+            await _player!.play();
+          }
+        } catch (e) {
+          _logger.logDebug('_waitAndSeek seek error: $e');
+          // seek 失败也要播放，否则卡住
+          if (autoPlay && !_isDisposed && _player != null) {
+            await _player!.play();
+          }
+        }
+      }
+    });
   }
 
   /// 处理卡顿恢复
   Future<void> _handleStalled() async {
+    if (_isHandlingStall) return;
     if (_isInitializing || isLoading.value) return;
     if (isSwitchingQuality.value) return; // 质量切换期间不处理卡顿
     if (_currentResourceId == null || currentQuality.value == null) return;
 
+    _isHandlingStall = true;
     try {
       final position = _userIntendedPosition;
 
@@ -850,7 +765,9 @@ class VideoPlayerController extends ChangeNotifier {
         seekTo: position.inSeconds > 0 ? position : Duration.zero,
         autoPlay: true,
       );
-    } catch (_) {}
+    } catch (_) {} finally {
+      _isHandlingStall = false;
+    }
   }
 
   // ============ 辅助方法 ============
@@ -892,9 +809,15 @@ class VideoPlayerController extends ChangeNotifier {
     await nativePlayer.setProperty('prefetch-playlist', 'no');
     await nativePlayer.setProperty('demuxer-max-bytes', '150MiB');
 
+    // 音画同步配置（仿 pili_plus）
+    // display-resample: mpv 重采样音频以匹配显示帧率，保证 AV 同步
+    await nativePlayer.setProperty('video-sync', 'display-resample');
+
     // Android 特有配置
     if (Platform.isAndroid) {
       await nativePlayer.setProperty('volume-max', '100');
+      // autosync=30: 每 30 帧重新同步音视频（仿 pili_plus Android 配置）
+      await nativePlayer.setProperty('autosync', '30');
       final decodeMode = await getDecodeMode();
       await nativePlayer.setProperty('hwdec', decodeMode);
     }
@@ -1149,9 +1072,9 @@ class VideoPlayerController extends ChangeNotifier {
     await _disposeAudioSession();
 
     _seekTimer?.cancel();
-    _waitAndSeekTimer?.cancel();
     _stalledTimer?.cancel();
     _positionPollingTimer?.cancel();
+    _waitAndSeekTimer?.cancel();
 
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();

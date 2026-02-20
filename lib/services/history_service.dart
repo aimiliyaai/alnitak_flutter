@@ -135,6 +135,8 @@ class HistoryService {
         _lastSuccessfulVid = vid;
         _lastSuccessfulPart = part;
         _lastSuccessfulProgress = time;
+        // 同步写入本地缓存，断网时可作为 fallback
+        _saveLocalProgress(vid, part, time);
         return true;
       }
 
