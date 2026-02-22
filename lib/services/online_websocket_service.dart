@@ -18,6 +18,7 @@ class OnlineWebSocketService {
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 10;
   bool _isManualClose = false;
+  bool _isPaused = false; // 后台暂停重连
   DateTime? _lastMessageTime;
 
   int? _currentVid;
@@ -183,7 +184,7 @@ class OnlineWebSocketService {
   }
 
   void _scheduleReconnect() {
-    if (_isManualClose || _currentVid == null) return;
+    if (_isManualClose || _isPaused || _currentVid == null) return;
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       if (kDebugMode) {
         print('[OnlineWS] 达到最大重连次数');
@@ -220,9 +221,33 @@ class OnlineWebSocketService {
     onlineCount.value = 0;
   }
 
+  /// 后台暂停：断开连接但保留 vid，回前台自动恢复
+  void pause() {
+    if (_isPaused) return;
+    _isPaused = true;
+    _cleanup();
+    if (kDebugMode) {
+      print('[OnlineWS] 后台暂停');
+    }
+  }
+
+  /// 前台恢复：重新连接之前的 vid
+  void resume() {
+    if (!_isPaused) return;
+    _isPaused = false;
+    if (_currentVid != null && !_isManualClose) {
+      _reconnectAttempts = 0;
+      _doConnect();
+      if (kDebugMode) {
+        print('[OnlineWS] 前台恢复, vid=$_currentVid');
+      }
+    }
+  }
+
   /// 断开连接
   void disconnect() {
     _isManualClose = true;
+    _isPaused = false;
     _currentVid = null;
     _cleanup();
   }

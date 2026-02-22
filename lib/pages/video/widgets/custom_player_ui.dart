@@ -951,13 +951,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
               final playing = playingSnapshot.data ?? widget.controller.player.state.playing;
               if (playing) return const SizedBox.shrink();
 
-              // 监听播放完成状态
+              // 只在播放完成时显示重播按钮，暂停时不显示大号播放按钮
               return StreamBuilder<bool>(
                 stream: widget.controller.player.stream.completed,
                 builder: (context, completedSnapshot) {
                   final completed = completedSnapshot.data ?? widget.controller.player.state.completed;
 
-                  // 播放结束时显示带背景的重播按钮，更明显
                   if (completed) {
                     return GestureDetector(
                       onTap: () {
@@ -994,18 +993,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     );
                   }
 
-                  // 暂停时显示播放按钮
-                  return IconButton(
-                    iconSize: 64,
-                    icon: Icon(
-                      Icons.play_circle_fill,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                    onPressed: () {
-                      widget.controller.player.play();
-                      _startHideTimer();
-                    },
-                  );
+                  return const SizedBox.shrink();
                 },
               );
             },

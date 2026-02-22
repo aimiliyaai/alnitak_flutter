@@ -519,6 +519,23 @@ class VideoPlayerController extends ChangeNotifier {
 
       _player!.stream.completed.listen((completed) {
         if (completed && !_hasTriggeredCompletion && !_isSeeking) {
+          // 断网假完成检测：HLS 加载不到后续 ts 分片时 mpv 会发出 completed=true，
+          // 但实际并没有播放到结尾。用播放进度比例判断：超过 90% 视为真正结束。
+          // dur=0（未获取到时长）时不阻塞连播，默认为真完成。
+          final pos = _player!.state.position;
+          final dur = _player!.state.duration;
+          final progress = dur.inSeconds > 0
+              ? pos.inMilliseconds / dur.inMilliseconds
+              : 1.0; // dur=0 时默认为播完
+          final isRealEnd = progress >= 0.9;
+
+          if (!isRealEnd && pos.inSeconds > 0) {
+            // 假完成（断网导致流中断）：不触发结束逻辑，改为重试
+            _logger.logDebug('断网假完成检测: pos=${pos.inSeconds}s, dur=${dur.inSeconds}s, progress=${(progress * 100).toInt()}%, 尝试重试');
+            _handleStalled();
+            return;
+          }
+
           _hasTriggeredCompletion = true;
           _hasJustCompleted = true;
 
@@ -586,6 +603,8 @@ class VideoPlayerController extends ChangeNotifier {
         isBuffering.value = buffering;
 
         if (buffering) {
+          // 不在 buffering 时暂停播放（PiliPlus 方式）：
+          // mpv 内部会自行处理 DASH 音视频流的同步，暂停反而会导致 seek 后卡住。
           _stalledTimer?.cancel();
           _stalledTimer = Timer(const Duration(seconds: 15), () {
             if (_player != null && _player!.state.buffering) {
@@ -594,6 +613,27 @@ class VideoPlayerController extends ChangeNotifier {
           });
         } else {
           _stalledTimer?.cancel();
+        }
+      }),
+
+      // 网络错误监听（PiliPlus 方式）：通过 error stream 检测断网/加载失败，
+      // 双重确认（isBuffering + buffer==0）后重试，避免误判。
+      _player!.stream.error.listen((error) {
+        if (error.isEmpty) return;
+        _logger.logDebug('播放错误: $error');
+
+        // 网络相关错误：tcp 超时、URL 打开失败、外部音频文件打开失败（DASH）
+        if (error.startsWith('tcp: ') ||
+            error.startsWith('Failed to open ') ||
+            error.startsWith('Can not open external file ')) {
+          // 延迟 3 秒后双重确认：仍在 buffering 且缓冲为空才重试
+          Future.delayed(const Duration(seconds: 3), () {
+            if (_isDisposed || _player == null) return;
+            if (_player!.state.buffering && _player!.state.buffer == Duration.zero) {
+              _logger.logDebug('网络错误确认: buffering 且缓冲为空, 重试');
+              _handleStalled();
+            }
+          });
         }
       }),
     ]);
