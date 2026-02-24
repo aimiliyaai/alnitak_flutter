@@ -6,36 +6,22 @@ import '../../../controllers/danmaku_controller.dart';
 import 'custom_player_ui.dart';
 
 /// 视频播放器组件
-///
-/// 使用 media_kit (基于 libmpv) 播放 HLS/DASH 视频流
-///
-/// 传入 resourceId，组件内部创建并管理 Controller
-///
-/// UI 和手势由 CustomPlayerUI 负责
 class MediaPlayerWidget extends StatefulWidget {
-  /// 资源ID
   final int? resourceId;
-
   final double? initialPosition;
+  final double? duration;
   final VoidCallback? onVideoEnd;
-  // 【关键】参数签名必须匹配 Controller 中的定义 (进度, 总时长)
   final Function(Duration position, Duration totalDuration)? onProgressUpdate;
   final Function(String quality)? onQualityChanged;
   final String? title;
   final String? author;
   final String? coverUrl;
-  final VoidCallback? onFullscreenToggle;
   final int? totalParts;
   final int? currentPart;
   final Function(int part)? onPartChange;
   final Function(VideoPlayerController)? onControllerReady;
-  /// 弹幕控制器（可选）
   final DanmakuController? danmakuController;
-  /// 播放状态变化回调
   final Function(bool playing)? onPlayingStateChanged;
-  /// 资源总时长（秒），用于预设进度条，防止 mpv duration 就绪前显示满格
-  final double? duration;
-  /// 在看人数（可选）
   final ValueNotifier<int>? onlineCount;
 
   const MediaPlayerWidget({
@@ -49,7 +35,6 @@ class MediaPlayerWidget extends StatefulWidget {
     this.title,
     this.author,
     this.coverUrl,
-    this.onFullscreenToggle,
     this.totalParts,
     this.currentPart,
     this.onPartChange,
@@ -74,16 +59,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     _controller = VideoPlayerController();
     _bindCallbacks();
     _setMetadata();
-
     _controllerReady = true;
 
-    if (widget.resourceId != null) {
-      _controller!.initialize(
-        resourceId: widget.resourceId!,
-        initialPosition: widget.initialPosition,
-        duration: widget.duration,
-      );
-    }
+    _initializePlayer();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _controller != null) {
@@ -94,26 +72,29 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
   }
 
-  /// 绑定回调函数
   void _bindCallbacks() {
     if (_controller == null) return;
-
     _controller!.onVideoEnd = widget.onVideoEnd;
-    _controller!.onProgressUpdate = (pos, total) {
-      widget.onProgressUpdate?.call(pos, total);
-    };
+    _controller!.onProgressUpdate = widget.onProgressUpdate;
     _controller!.onQualityChanged = widget.onQualityChanged;
     _controller!.onPlayingStateChanged = widget.onPlayingStateChanged;
   }
 
-  /// 设置视频元数据
   void _setMetadata() {
     if (_controller == null || widget.title == null) return;
-
     _controller!.setVideoMetadata(
       title: widget.title!,
       author: widget.author,
       coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
+    );
+  }
+
+  void _initializePlayer() {
+    if (_controller == null || widget.resourceId == null) return;
+    _controller!.initialize(
+      resourceId: widget.resourceId!,
+      initialPosition: widget.initialPosition,
+      duration: widget.duration,
     );
   }
 
@@ -123,35 +104,18 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
 
     if (_controller == null) return;
 
-    // 更新回调绑定
-    if (oldWidget.onProgressUpdate != widget.onProgressUpdate) {
-      _controller!.onProgressUpdate = (pos, total) => widget.onProgressUpdate?.call(pos, total);
-    }
-    if (oldWidget.onVideoEnd != widget.onVideoEnd) {
-      _controller!.onVideoEnd = widget.onVideoEnd;
-    }
-    if (oldWidget.onPlayingStateChanged != widget.onPlayingStateChanged) {
-      _controller!.onPlayingStateChanged = widget.onPlayingStateChanged;
-    }
-    if (oldWidget.onQualityChanged != widget.onQualityChanged) {
-      _controller!.onQualityChanged = widget.onQualityChanged;
+    // 回调变化时重新绑定
+    if (oldWidget.onVideoEnd != widget.onVideoEnd ||
+        oldWidget.onProgressUpdate != widget.onProgressUpdate ||
+        oldWidget.onQualityChanged != widget.onQualityChanged ||
+        oldWidget.onPlayingStateChanged != widget.onPlayingStateChanged) {
+      _bindCallbacks();
     }
 
-    // 如果 resourceId 变了，重新初始化
-    if (oldWidget.resourceId != widget.resourceId && widget.resourceId != null) {
-      if (widget.title != null) {
-        _controller!.setVideoMetadata(
-          title: widget.title!,
-          author: widget.author,
-          coverUri: widget.coverUrl != null ? Uri.tryParse(widget.coverUrl!) : null,
-        );
-      }
-
-      _controller!.initialize(
-        resourceId: widget.resourceId!,
-        initialPosition: widget.initialPosition,
-        duration: widget.duration,
-      );
+    // resourceId 变化时重新初始化
+    if (oldWidget.resourceId != widget.resourceId) {
+      _setMetadata();
+      _initializePlayer();
     }
   }
 
@@ -215,60 +179,46 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     );
   }
 
-  /// 构建带手势控制的播放器
   Widget _buildPlayerWithGestures() {
     if (_controller == null) return _buildLoadingWidget();
 
-    return Stack(
-      children: [
-        ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _controller!.isPlayerInitialized,
-                builder: (context, isInit, _) {
-                  // Player 和 VideoController 在 setDataSource 中 ??= 创建
-                  // 未初始化前不渲染 Video widget，避免 null 访问
-                  if (!isInit) {
-                    return const SizedBox.shrink();
-                  }
-                  return ValueListenableBuilder<bool>(
-                    valueListenable: _controller!.backgroundPlayEnabled,
-                    builder: (context, bgEnabled, _) {
-                      return Video(
-                        controller: _controller!.videoController,
-                        pauseUponEnteringBackgroundMode: !bgEnabled,
-                        controls: (state) {
-                          return CustomPlayerUI(
-                            controller: state.widget.controller,
-                            logic: _controller!,
-                            title: widget.title ?? '',
-                            onBack: () => Navigator.of(context).maybePop(),
-                            danmakuController: widget.danmakuController,
-                            onlineCount: widget.onlineCount,
-                          );
-                        },
-                      );
-                    },
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _controller!.isPlayerInitialized,
+            builder: (context, isInit, _) {
+              if (!isInit) return const SizedBox.shrink();
+              return ValueListenableBuilder<bool>(
+                valueListenable: _controller!.backgroundPlayEnabled,
+                builder: (context, bgEnabled, _) {
+                  return Video(
+                    controller: _controller!.videoController,
+                    pauseUponEnteringBackgroundMode: !bgEnabled,
+                    controls: (state) => CustomPlayerUI(
+                      controller: state.widget.controller,
+                      logic: _controller!,
+                      title: widget.title ?? '',
+                      onBack: () => Navigator.of(context).maybePop(),
+                      danmakuController: widget.danmakuController,
+                      onlineCount: widget.onlineCount,
+                    ),
                   );
                 },
-              ),
-            ),
+              );
+            },
           ),
         ),
-      ],
+      ),
     );
   }
 
-  // ============ UI 部分 ============
-
-  /// 加载中界面
   Widget _buildLoadingWidget() {
-    return ColoredBox(
+    return const ColoredBox(
       color: Colors.black,
-      child: const Center(
+      child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -278,21 +228,17 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
               child: CircularProgressIndicator(color: Colors.white),
             ),
             SizedBox(height: 12),
-            Text(
-              '加载中...',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
-            ),
+            Text('加载中...', style: TextStyle(color: Colors.white70, fontSize: 14)),
           ],
         ),
       ),
     );
   }
 
-  /// 错误界面
   Widget _buildErrorWidget(String errorMessage) {
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: Container(
+      child: ColoredBox(
         color: Colors.black,
         child: Center(
           child: Column(
@@ -321,14 +267,5 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     );
   }
 
-  /// 处理重试
-  void _handleRetry() {
-    if (_controller != null && widget.resourceId != null) {
-      _controller!.initialize(
-        resourceId: widget.resourceId!,
-        initialPosition: widget.initialPosition,
-        duration: widget.duration,
-      );
-    }
-  }
+  void _handleRetry() => _initializePlayer();
 }
