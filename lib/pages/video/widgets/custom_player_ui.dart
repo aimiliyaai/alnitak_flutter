@@ -41,6 +41,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   static const String _volumeKey = 'player_volume';
   static const String _brightnessKey = 'player_brightness';
 
+  SharedPreferences? _prefs;
+
   // ============ UI 状态 ============
   bool _showControls = true;
   bool _isLocked = false;
@@ -120,14 +122,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   /// 加载保存的音量和亮度设置
   Future<void> _loadSettings() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      _prefs ??= await SharedPreferences.getInstance();
 
-      // 恢复音量（默认 100%）
-      final savedVolume = prefs.getDouble(_volumeKey) ?? 100.0;
+      final savedVolume = _prefs!.getDouble(_volumeKey) ?? 100.0;
       widget.controller.player.setVolume(savedVolume);
 
-      // 恢复亮度（默认 100%）
-      final savedBrightness = prefs.getDouble(_brightnessKey) ?? 1.0;
+      final savedBrightness = _prefs!.getDouble(_brightnessKey) ?? 1.0;
       setState(() {
         _playerBrightness = savedBrightness;
       });
@@ -136,21 +136,19 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     }
   }
 
-  /// 保存音量设置
   Future<void> _saveVolume(double volume) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(_volumeKey, volume);
+      _prefs ??= await SharedPreferences.getInstance();
+      await _prefs!.setDouble(_volumeKey, volume);
     } catch (e) {
       // 保存音量设置失败
     }
   }
 
-  /// 保存亮度设置
   Future<void> _saveBrightness(double brightness) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(_brightnessKey, brightness);
+      _prefs ??= await SharedPreferences.getInstance();
+      await _prefs!.setDouble(_brightnessKey, brightness);
     } catch (e) {
       // 保存亮度设置失败
     }

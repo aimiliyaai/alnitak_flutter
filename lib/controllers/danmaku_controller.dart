@@ -430,11 +430,8 @@ class DanmakuController extends ChangeNotifier {
   }
 
   /// 分配弹幕轨道
-  /// 返回 -1 表示没有可用轨道（丢弃弹幕）
   int _allocateTrack(Danmaku danmaku, int now, double screenWidth) {
-    final type = danmaku.danmakuType;
-
-    switch (type) {
+    switch (danmaku.danmakuType) {
       case DanmakuType.scroll:
         return _allocateScrollTrack(now, screenWidth);
       case DanmakuType.top:
@@ -444,52 +441,33 @@ class DanmakuController extends ChangeNotifier {
     }
   }
 
-  /// 根据显示区域高度计算实际可用轨道数
-  /// 轨道高度公式与 DanmakuOverlay 渲染一致：fontSize * 1.2 + 2(描边) + 6(间距)
   int _effectiveTrackCount(int configTrackCount) {
     if (_lastScreenHeight <= 0) return configTrackCount;
     final displayHeight = _lastScreenHeight * _config.displayArea;
     final trackHeight = _config.fontSize * 1.2 + 2 + 6;
-    final maxTracks = (displayHeight / trackHeight).floor();
-    return maxTracks.clamp(1, configTrackCount);
+    return (displayHeight / trackHeight).floor().clamp(1, configTrackCount);
   }
 
-  /// 分配滚动弹幕轨道
   int _allocateScrollTrack(int now, double screenWidth) {
     final trackCount = _effectiveTrackCount(_config.scrollTrackCount);
     final duration = _config.scrollDuration.inMilliseconds;
-
-    // 估算弹幕完全进入屏幕所需时间（假设弹幕宽度为屏幕的1/4）
-    final enterTime = duration ~/ 4;
-
-    for (int i = 0; i < trackCount; i++) {
-      final endTime = _scrollTrackEndTimes[i] ?? 0;
-      if (now >= endTime) {
-        // 轨道空闲，分配
-        _scrollTrackEndTimes[i] = now + enterTime;
-        return i;
-      }
-    }
-
-    // 没有空闲轨道
-    return _config.allowOverlap ? 0 : -1;
+    return _findAvailableTrack(_scrollTrackEndTimes, trackCount, duration ~/ 4, now);
   }
 
-  /// 分配固定弹幕轨道
   int _allocateFixedTrack(Map<int, int> trackEndTimes, int now) {
     final trackCount = _effectiveTrackCount(_config.fixedTrackCount);
     final duration = _config.fixedDuration.inMilliseconds;
+    return _findAvailableTrack(trackEndTimes, trackCount, duration, now);
+  }
 
+  int _findAvailableTrack(Map<int, int> trackEndTimes, int trackCount, int stayDuration, int now) {
     for (int i = 0; i < trackCount; i++) {
       final endTime = trackEndTimes[i] ?? 0;
       if (now >= endTime) {
-        // 轨道空闲，分配
-        trackEndTimes[i] = now + duration;
+        trackEndTimes[i] = now + stayDuration;
         return i;
       }
     }
-
-    // 没有空闲轨道
     return _config.allowOverlap ? 0 : -1;
   }
 
@@ -523,27 +501,25 @@ class DanmakuController extends ChangeNotifier {
 
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // 恢复播放时，调整弹幕的开始时间
     if (_pauseTime > 0) {
       final pauseDuration = now - _pauseTime;
       for (final item in _activeDanmakus) {
         item.startTime += pauseDuration;
       }
-      // 同时调整轨道占用时间
-      for (final key in _scrollTrackEndTimes.keys.toList()) {
-        _scrollTrackEndTimes[key] = (_scrollTrackEndTimes[key] ?? 0) + pauseDuration;
-      }
-      for (final key in _topTrackEndTimes.keys.toList()) {
-        _topTrackEndTimes[key] = (_topTrackEndTimes[key] ?? 0) + pauseDuration;
-      }
-      for (final key in _bottomTrackEndTimes.keys.toList()) {
-        _bottomTrackEndTimes[key] = (_bottomTrackEndTimes[key] ?? 0) + pauseDuration;
-      }
+      _adjustTrackTimes(_scrollTrackEndTimes, pauseDuration);
+      _adjustTrackTimes(_topTrackEndTimes, pauseDuration);
+      _adjustTrackTimes(_bottomTrackEndTimes, pauseDuration);
     }
 
     _isPlaying = true;
     _pauseTime = 0;
     notifyListeners();
+  }
+
+  void _adjustTrackTimes(Map<int, int> trackTimes, int duration) {
+    for (final key in trackTimes.keys.toList()) {
+      trackTimes[key] = (trackTimes[key] ?? 0) + duration;
+    }
   }
 
   /// 暂停播放

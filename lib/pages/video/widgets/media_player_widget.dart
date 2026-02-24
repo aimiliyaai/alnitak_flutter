@@ -133,6 +133,9 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget> with WidgetsBindi
     if (oldWidget.onPlayingStateChanged != widget.onPlayingStateChanged) {
       _controller!.onPlayingStateChanged = widget.onPlayingStateChanged;
     }
+    if (oldWidget.onQualityChanged != widget.onQualityChanged) {
+      _controller!.onQualityChanged = widget.onQualityChanged;
+    }
 
     // 如果 resourceId 变了，重新初始化
     if (oldWidget.resourceId != widget.resourceId && widget.resourceId != null) {
