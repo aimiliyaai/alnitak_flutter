@@ -43,6 +43,11 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
   SharedPreferences? _prefs;
 
+  ButtonStyle get _lockButtonStyle => IconButton.styleFrom(
+    backgroundColor: Colors.black.withValues(alpha: 0.5),
+    padding: const EdgeInsets.all(12),
+  );
+
   // ============ UI 状态 ============
   bool _showControls = true;
   bool _isLocked = false;
@@ -190,58 +195,32 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     if (_showControls) _startHideTimer();
   }
 
-  // 💡 修复后的 _toggleQualityPanel 逻辑
-  // 在 _CustomPlayerUIState 类中:
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
       _startHideTimer();
-    } else {
-      final RenderBox? buttonBox = _qualityButtonKey.currentContext?.findRenderObject() as RenderBox?;
-
-      if (buttonBox != null) {
-        final bool isFull = isFullscreen(context);
-
-      final Offset buttonGlobalPos = buttonBox.localToGlobal(Offset.zero);
-      final Size buttonSize = buttonBox.size;
-      final Size overlaySize = (context.findRenderObject() as RenderBox).size;
-      
-      setState(() {
-        // ==================== 1. 水平调整 (Right) ====================
-        // 目标：向右移动 10 像素。需要减小 _panelRight 的值。
-        
-        // 计算原始的右对齐距离 (面板右边缘对齐按钮右边缘)
-        double distFromRight = overlaySize.width - (buttonGlobalPos.dx + buttonSize.width);
-        
-        // 【修改 1】：减去 10.0，使面板向右边缘移动 10 像素。
-        _panelRight = (distFromRight - 15.0).clamp(0.0, overlaySize.width - 76);
-
-
-        // ==================== 2. 垂直调整 (Bottom) ====================
-        
-        // 按钮底部到屏幕底部的距离 (即底部控制栏底部到屏幕底部的距离)
-        double buttonBottomToScreenBottom = overlaySize.height - (buttonGlobalPos.dy + buttonSize.height);
-        
-        double verticalOffset;
-        
-        if (isFull) {
-          // 【全屏模式】太低，需要往高调整一点（增大 bottom 值）。
-          // 全屏时底部控制栏可能紧贴屏幕边缘。加大偏移量避免面板被截断。
-          // 抬高约 30 像素，确保有足够空间。
-          verticalOffset = buttonBottomToScreenBottom + 30.0; 
-        } else {
-          // 【非全屏模式】还好/太高，需要往低调整一点（减小 bottom 值）。
-          // 此时底部安全区已经使控制栏抬高。贴着按钮底部向上留 1\55 像素的间距。
-          verticalOffset = buttonBottomToScreenBottom + 55.0; 
-        }
-
-        _panelBottom = verticalOffset;
-        _showQualityPanel = true;
-      });
-      _hideTimer?.cancel();
+      return;
     }
+
+    final buttonBox = _qualityButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (buttonBox == null) return;
+
+    final isFull = isFullscreen(context);
+    final buttonGlobalPos = buttonBox.localToGlobal(Offset.zero);
+    final buttonSize = buttonBox.size;
+    final overlaySize = (context.findRenderObject() as RenderBox).size;
+
+    setState(() {
+      final distFromRight = overlaySize.width - (buttonGlobalPos.dx + buttonSize.width);
+      _panelRight = (distFromRight - 15.0).clamp(0.0, overlaySize.width - 76);
+
+      final buttonBottomToScreenBottom = overlaySize.height - (buttonGlobalPos.dy + buttonSize.height);
+      _panelBottom = buttonBottomToScreenBottom + (isFull ? 30.0 : 55.0);
+      _showQualityPanel = true;
+    });
+    _hideTimer?.cancel();
   }
-}
+
   // ============ 手势处理逻辑 ============
 
   void _onDragStart(DragStartDetails details, double width) {
@@ -341,28 +320,27 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     final rightZone = width * 0.7;
 
     if (pos.dx < leftZone) {
-      final currentPos = widget.controller.player.state.position;
-      final newPos = currentPos - const Duration(seconds: 10);
-      // 使用封装的seek方法，支持缓冲检测
-      widget.logic.seek(newPos < Duration.zero ? Duration.zero : newPos);
-      _showFeedbackUI(Icons.fast_rewind, '-10秒', null);
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (mounted) setState(() => _showFeedback = false);
-      });
+      _seekRelative(-10, Icons.fast_rewind, '-10秒');
     } else if (pos.dx > rightZone) {
-      final currentPos = widget.controller.player.state.position;
-      final maxPos = widget.controller.player.state.duration;
-      final newPos = currentPos + const Duration(seconds: 10);
-      // 使用封装的seek方法，支持缓冲检测
-      widget.logic.seek(newPos > maxPos ? maxPos : newPos);
-      _showFeedbackUI(Icons.fast_forward, '+10秒', null);
-      Future.delayed(const Duration(milliseconds: 600), () {
-        if (mounted) setState(() => _showFeedback = false);
-      });
+      _seekRelative(10, Icons.fast_forward, '+10秒');
     } else {
       widget.controller.player.playOrPause();
-      _toggleControls(); 
+      _toggleControls();
     }
+  }
+
+  void _seekRelative(int seconds, IconData icon, String label) {
+    final currentPos = widget.controller.player.state.position;
+    final maxPos = widget.controller.player.state.duration;
+    final newPos = currentPos + Duration(seconds: seconds);
+    final clampedPos = Duration(
+      milliseconds: newPos.inMilliseconds.clamp(0, maxPos.inMilliseconds),
+    );
+    widget.logic.seek(clampedPos);
+    _showFeedbackUI(icon, label, null);
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _showFeedback = false);
+    });
   }
 
   void _showFeedbackUI(IconData icon, String text, double? value) {
@@ -452,10 +430,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                             _startHideTimer();
                           },
                           icon: const Icon(Icons.lock_outline, color: Colors.white, size: 24),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.black.withValues(alpha: 0.5),
-                            padding: const EdgeInsets.all(12),
-                          ),
+                          style: _lockButtonStyle,
                         ),
                       ),
                     ),
@@ -926,10 +901,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
               _startHideTimer();
             }
           },
-          style: IconButton.styleFrom(
-            backgroundColor: Colors.black.withValues(alpha: 0.5),
-            padding: const EdgeInsets.all(12),
-          ),
+          style: _lockButtonStyle,
         ),
       ),
     );

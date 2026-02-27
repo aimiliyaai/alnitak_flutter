@@ -39,9 +39,8 @@ dependencies:
   http: ^1.2.0
   path_provider: ^2.1.1
   dio: ^5.4.0
-  # 视频播放器 - media_kit
-  # media_kit_video 通过 dependency_overrides 指向 fork，修复 widListener seek(0) bug
-  media_kit: ^1.1.10+1
+  # 视频播放器 - media-kit（使用 pili_plus 的第三方 fork）
+  media_kit: ^1.2.6
   media_kit_video: ^1.3.1
   media_kit_libs_video: ^1.0.5
   shared_preferences: ^2.2.0
@@ -52,9 +51,9 @@ dependencies:
   image_picker: ^1.0.7
   uuid: ^4.2.0
   web_socket_channel: ^3.0.3
-  package_info_plus: ^8.0.0
+  package_info_plus: ^9.0.0
   url_launcher: ^6.1.0
-  wakelock_plus: ^1.2.8
+  wakelock_plus: ^1.4.0
   # 后台播放
   audio_service: ^0.18.12
   # 屏幕适配
@@ -77,11 +76,12 @@ dependencies:
   # HTML 渲染
   flutter_widget_from_html: ^0.15.2
 dependency_overrides:
-  # 关联本地 media-kit 仓库，用于调试修改
-  media_kit:
-    path: E:\media-kit\media_kit
+  # 使用 pili_plus 的第三方 fork
   media_kit_video:
-    path: E:\media-kit\media_kit_video
+    git:
+      url: https://github.com/bggRGjQaUbCoE/media-kit.git
+      path: media_kit_video
+      ref: main
 
 dev_dependencies:
   flutter_test:

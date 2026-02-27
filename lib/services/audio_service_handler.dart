@@ -106,6 +106,9 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
       androidCompactActionIndices: const [0, 1, 2],
       updatePosition: currentPosition,
       processingState: AudioProcessingState.ready,
+      systemActions: const {
+        MediaAction.seek,
+      },
     ));
   }
 
@@ -126,9 +129,9 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     // 清除媒体信息（移除通知栏显示内容）
     mediaItem.add(null);
 
-    // pili_plus 模式：先转 completed 再转 idle，触发 AudioService 内部 _stop()
-    // AudioService 源码中仅在 idle 且 previousState != idle 时调用 _stop() 清理通知
-    if (playbackState.value.processingState == AudioProcessingState.idle) {
+    // pili_plus 模式：无论当前什么状态，都先转 completed 再转 idle
+    // 这样 AudioService 才会调用内部 _stop() 销毁通知栏
+    if (playbackState.value.processingState != AudioProcessingState.completed) {
       playbackState.add(PlaybackState(
         processingState: AudioProcessingState.completed,
         playing: false,

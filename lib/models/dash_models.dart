@@ -109,8 +109,15 @@ class DashManifest {
     return DataSource(
       videoSource: videoUrl,
       audioSource: audioUrl,
+      httpHeaders: _defaultHttpHeaders,
     );
   }
+
+  /// 播放器默认 HTTP 请求头（参考 pili_plus）
+  static Map<String, String> get _defaultHttpHeaders => {
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'referer': ApiConfig.baseUrl,
+  };
 
   /// 缓存是否已过期（默认 25 分钟，服务端 key TTL 通常 30 分钟）
   bool get isExpired =>

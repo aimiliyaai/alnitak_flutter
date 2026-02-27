@@ -85,7 +85,6 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _stalledTimer;
   Timer? _seekTimer;
   Timer? _positionPollingTimer;
-  Timer? _waitAndSeekTimer;
 
   int? _currentVid;
   int _currentPart = 1;
@@ -135,7 +134,37 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   void _updateBufferedSecond() {
-    _updateNotifierValue(bufferedSeconds, _player?.state.buffer.inSeconds ?? 0);
+    final buffer = _player?.state.buffer.inSeconds ?? 0;
+    
+    if (_supportsDash && _player != null) {
+      _tryGetVideoBuffer().then((videoBuffer) {
+        if (videoBuffer > 0) {
+          _updateNotifierValue(bufferedSeconds, videoBuffer);
+          return;
+        }
+        _updateNotifierValue(bufferedSeconds, buffer);
+      });
+    } else {
+      _updateNotifierValue(bufferedSeconds, buffer);
+    }
+  }
+
+  Future<int> _tryGetVideoBuffer() async {
+    try {
+      final nativePlayer = _player!.platform as NativePlayer;
+      final cacheState = await nativePlayer.getProperty('demuxer-cache-state');
+      if (cacheState.toString().isEmpty) return 0;
+      
+      final cacheStr = cacheState.toString();
+      final videoRangeMatch = RegExp(r'video\[(\d+)\]:(\d+)-(\d+)').firstMatch(cacheStr);
+      if (videoRangeMatch != null) {
+        final end = int.tryParse(videoRangeMatch.group(3) ?? '') ?? 0;
+        final pos = _player?.state.position.inSeconds ?? 0;
+        final videoBuffer = end - pos;
+        if (videoBuffer > 0) return videoBuffer;
+      }
+    } catch (_) {}
+    return 0;
   }
 
   void _updateNotifierValue(ValueNotifier<int> notifier, int newValue) {
@@ -290,18 +319,27 @@ class VideoPlayerController extends ChangeNotifier {
       _updateBufferedSecond();
 
       final isNewPlayer = _player == null;
-      _player ??= Player(
-        configuration: const PlayerConfiguration(
-          title: '',
-          bufferSize: 32 * 1024 * 1024,
-          logLevel: MPVLogLevel.error,
-        ),
-      );
       if (isNewPlayer) {
+        final decodeMode = await getDecodeMode();
+        _player = Player(
+          configuration: PlayerConfiguration(
+            title: '',
+            bufferSize: 32 * 1024 * 1024,
+            logLevel: MPVLogLevel.error,
+          ),
+        );
         audioHandler.attachPlayer(_player!);
         await _initAudioSession();
-        // 只在首次创建 Player 时设置不变的 mpv 属性
-        await _configurePlayerOnce();
+        await _configurePlayerOnce(decodeMode);
+
+        _videoController = VideoController(
+          _player!,
+          configuration: VideoControllerConfiguration(
+            enableHardwareAcceleration: decodeMode != 'no',
+            androidAttachSurfaceAfterVideoParameters: false,
+            hwdec: decodeMode != 'no' ? decodeMode : null,
+          ),
+        );
       }
 
       final nativePlayer = _player!.platform as NativePlayer;
@@ -317,30 +355,27 @@ class VideoPlayerController extends ChangeNotifier {
         await nativePlayer.setProperty('audio-files', '');
       }
 
-      _videoController ??= VideoController(
-        _player!,
-        configuration: const VideoControllerConfiguration(
-          enableHardwareAcceleration: true,
-          androidAttachSurfaceAfterVideoParameters: false,
-        ),
-      );
-
-      // 不使用 Media(start:) — 因为 Player 复用(??=)时 on_unload(旧media)会在
-      // on_load(新media)之后触发，将 mpv 的 start 属性重置为 'none'，导致进度丢失。
-      // 改用 play:false → _waitAndSeek → play() 保证音画同步。
+      // 参考 pili_plus: Media(start:) 原子 seek + httpHeaders 传递请求头
       _logger.logDebug('setDataSource: open (seekTo=${seekTo.inSeconds}s)');
       await _player!.open(
-        Media(dataSource.videoSource),
-        play: false, // 不自动播放，等 seek 到位后再 play()
+        Media(
+          dataSource.videoSource,
+          start: seekTo,
+          httpHeaders: dataSource.httpHeaders,
+        ),
+        play: false,
       );
 
+      // 参考 pili_plus: 先注册监听器，再手动触发播放
       startListeners();
-
-      // 始终使用 _waitAndSeek 确保 position 状态正确，避免 media_kit 内部 seek 到错误位置
-      await _waitAndSeek(seekTo, autoPlay: autoPlay);
 
       isLoading.value = false;
       isPlayerInitialized.value = true;
+
+      // pili_plus 风格：监听器就位后再开始播放
+      if (autoPlay && !_isDisposed) {
+        await _player!.play();
+      }
 
     } catch (e) {
       _isSeeking = false;
@@ -351,9 +386,6 @@ class VideoPlayerController extends ChangeNotifier {
       _logger.logError(message: 'setDataSource 失败', error: e, stackTrace: StackTrace.current);
     }
   }
-
-
-  // ============ seek ============
 
   // ============ seek（统一封装）============
 
@@ -397,35 +429,33 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  // ============ changeQuality（照搬 pilipala 的 updatePlayer）============
+  // ============ changeQuality（照搬 pili_plus 的 updatePlayer）============
 
   Future<void> changeQuality(String quality) async {
-    if (_isDisposed) return;
+    if (_isDisposed || _player == null) return;
     if (currentQuality.value == quality || _currentResourceId == null) return;
 
-    final playerPos = _player?.state.position ?? Duration.zero;
+    final playerPos = _player!.state.position;
     final position = playerPos.inMilliseconds > 0 ? playerPos : _userIntendedPosition;
-    _logger.logDebug('changeQuality: 保存位置 ${position.inSeconds}s');
+    _logger.logDebug('changeQuality: $quality, 保存位置 ${position.inSeconds}s');
 
-    removeListeners();
-    isBuffering.value = false;
-    _stalledTimer?.cancel();
     isSwitchingQuality.value = true;
 
     try {
-      await _reloadWithDataSource(quality, position, setQuality: false);
+      await _reloadWithDataSource(quality, position);
       currentQuality.value = quality;
       await _savePreferredQuality(quality);
       _userIntendedPosition = position;
       onQualityChanged?.call(quality);
     } catch (e) {
-      if (_player != null) startListeners();
+      _logger.logError(message: '切换清晰度失败', error: e);
       errorMessage.value = '切换清晰度失败';
     } finally {
       isSwitchingQuality.value = false;
     }
   }
 
+  /// 重新加载数据源（用于卡顿恢复等场景）
   Future<void> _reloadWithDataSource(String? quality, Duration position, {bool setQuality = true}) async {
     final targetQuality = quality ?? currentQuality.value;
     if (targetQuality == null || _currentResourceId == null) return;
@@ -465,10 +495,6 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<void> _doFetchAndRestoreProgress() async {
     if (_currentVid == null) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (_lastProgressFetchTime != null && now - _lastProgressFetchTime! < 500) return;
-    _lastProgressFetchTime = now;
 
     final requestVid = _currentVid!;
     final requestPart = _currentPart;
@@ -518,7 +544,7 @@ class VideoPlayerController extends ChangeNotifier {
       }),
 
       _player!.stream.completed.listen((completed) {
-        if (completed && !_hasTriggeredCompletion && !_isSeeking) {
+        if (completed && !_hasTriggeredCompletion && !_isSeeking && !isSwitchingQuality.value) {
           // 断网假完成检测：HLS 加载不到后续 ts 分片时 mpv 会发出 completed=true，
           // 但实际并没有播放到结尾。用播放进度比例判断：超过 90% 视为真正结束。
           // dur=0（未获取到时长）时不阻塞连播，默认为真完成。
@@ -559,6 +585,8 @@ class VideoPlayerController extends ChangeNotifier {
 
       _player!.stream.position.listen((position) {
         if (_isSeeking) return;
+        // 切换清晰度期间忽略 position=0 的跳变（open 重置导致）
+        if (isSwitchingQuality.value && position.inSeconds <= 1) return;
 
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
@@ -630,24 +658,8 @@ class VideoPlayerController extends ChangeNotifier {
       }
     });
 
-    _positionPollingTimer?.cancel();
-    _positionPollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_isDisposed || _player == null) return;
-      if (_isSeeking) return;
-      if (!_player!.state.playing) return;
-
-      final position = _player!.state.position;
-      if (position.inSeconds <= 0) return;
-
-      if (!_hasPlaybackStarted) {
-        _hasPlaybackStarted = true;
-      }
-
-      final diff = (position.inMilliseconds - _userIntendedPosition.inMilliseconds).abs();
-      if (diff >= 800) {
-        _updatePositionState(position);
-      }
-    });
+    // 参考 pili_plus: 不使用轮询，直接依赖 stream.position 监听
+    // 移除 _positionPollingTimer，让播放器自己处理位置更新
   }
 
   /// 移除事件监听（照搬 pilipala 的 removeListeners）
@@ -662,104 +674,27 @@ class VideoPlayerController extends ChangeNotifier {
     _stalledTimer = null;
     _seekTimer?.cancel();
     _seekTimer = null;
-    _waitAndSeekTimer?.cancel();
-    _waitAndSeekTimer = null;
-    if (_waitAndSeekCompleter != null && !_waitAndSeekCompleter!.isCompleted) {
-      _waitAndSeekCompleter!.complete();
-    }
   }
 
-  /// 等待 duration 就绪后 seek，seek 完成后再 play()
-  ///
-  /// 解决音画不同步：open(play:false) 后音频和视频都未播放，
-  /// 等 mpv 获取到 duration 后一次性 seek 所有流到目标位置，
-  /// 再统一 play()，确保音视频从同一位置同时开始解码。
-  ///
-  /// 使用 Completer 确保调用方 await 时能等到 seek+play 真正完成，
-  /// 避免 DASH（duration 就绪慢）场景下 Timer 分支不被 await 导致进度归零。
-  Completer<void>? _waitAndSeekCompleter;
-
-  Future<void> _waitAndSeek(Duration target, {bool autoPlay = true}) async {
-    _waitAndSeekTimer?.cancel();
-    if (_waitAndSeekCompleter != null && !_waitAndSeekCompleter!.isCompleted) {
-      _waitAndSeekCompleter!.complete();
-    }
-    _waitAndSeekCompleter = Completer<void>();
-    final completer = _waitAndSeekCompleter!;
-
-    Future<void> doSeek() async {
-      try {
-        // 始终先 seek 到目标位置，确保状态正确
-        await _player!.seek(target);
-        // seek 完成后再 play，避免 media_kit 内部状态不一致
-        if (autoPlay && !_isDisposed && _player != null) {
-          await _player!.play();
-        }
-      } catch (e) {
-        _logger.logDebug('_waitAndSeek seek error: $e');
-        if (autoPlay && !_isDisposed && _player != null) {
-          await _player!.play();
-        }
-      }
-      if (!completer.isCompleted) completer.complete();
-    }
-
-    if (_player != null && _player!.state.duration.inSeconds > 0) {
-      _logger.logDebug('_waitAndSeek: duration ready, seeking to ${target.inSeconds}s');
-      // 等待 seek 完成后再返回
-      await doSeek();
-      return completer.future;
-    }
-
-    _logger.logDebug('_waitAndSeek: waiting for duration...');
-    int waitCount = 0;
-    _waitAndSeekTimer = Timer.periodic(const Duration(milliseconds: 200), (Timer t) async {
-      waitCount++;
-      // 超时保护：最多等待 30 秒（150 * 200ms），防止 duration 一直为 0（如直播流）
-      if (waitCount > 150) {
-        t.cancel();
-        _waitAndSeekTimer = null;
-        _logger.logDebug('_waitAndSeek: 超时，尝试播放');
-        // 超时时也要尝试 seek 到目标位置
-        if (_player != null && !_isDisposed) {
-          try {
-            await _player!.seek(target);
-          } catch (_) {}
-          if (autoPlay) {
-            await _player!.play();
-          }
-        }
-        if (!completer.isCompleted) completer.complete();
-        return;
-      }
-      if (_isDisposed || _player == null) {
-        t.cancel();
-        _waitAndSeekTimer = null;
-        if (!completer.isCompleted) completer.complete();
-        return;
-      }
-      if (_player!.state.duration.inSeconds > 0) {
-        t.cancel();
-        _waitAndSeekTimer = null;
-        _logger.logDebug('_waitAndSeek: duration ready, seeking to ${target.inSeconds}s');
-        doSeek();
-      }
-    });
-
-    return completer.future;
-  }
-
-  /// 处理卡顿恢复
+  /// 处理卡顿恢复（参考 pili_plus 的 refreshPlayer，复用 setDataSource）
   Future<void> _handleStalled() async {
     if (_isHandlingStall) return;
     if (_isInitializing || isLoading.value) return;
     if (isSwitchingQuality.value) return;
     if (_currentResourceId == null || currentQuality.value == null) return;
+    if (_player == null) return;
 
     _isHandlingStall = true;
     try {
-      await _reloadWithDataSource(null, _userIntendedPosition);
-    } catch (_) {} finally {
+      final currentPos = _player!.state.position;
+      if (currentPos <= Duration.zero) return;
+
+      _logger.logDebug('_handleStalled: refreshPlayer from ${currentPos.inSeconds}s');
+      await _reloadWithDataSource(currentQuality.value!, currentPos, setQuality: false);
+      _userIntendedPosition = currentPos;
+    } catch (e) {
+      _logger.logDebug('_handleStalled 失败: $e');
+    } finally {
       _isHandlingStall = false;
     }
   }
@@ -790,30 +725,42 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// 首次创建 Player 时配置不变的 mpv 属性
   /// 这些属性在整个 Player 生命周期内只需设置一次
-  Future<void> _configurePlayerOnce() async {
+  Future<void> _configurePlayerOnce(String decodeMode) async {
     if (_player == null) return;
     final nativePlayer = _player!.platform as NativePlayer;
 
-    // 缓存配置
+    // 缓存配置（参考 PC 端 dash.js：bufferTimeDefault=20, bufferTimeAtTopQuality=40, bufferTimeAtTopQualityLongForm=90）
     await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
-    await nativePlayer.setProperty('cache-secs', '300');
-    await nativePlayer.setProperty('cache-backbuffer', '300');
+    await nativePlayer.setProperty('cache-secs', '60');
+    await nativePlayer.setProperty('cache-backbuffer', '120');
     await nativePlayer.setProperty('cache-pause-initial', 'no');
     await nativePlayer.setProperty('cache-pause-wait', '0');
-    await nativePlayer.setProperty('prefetch-playlist', 'no');
-    await nativePlayer.setProperty('demuxer-max-bytes', '150MiB');
+    await nativePlayer.setProperty('prefetch-playlist', 'yes');
+    await nativePlayer.setProperty('demuxer-max-bytes', '200MiB');
 
-    // 音画同步配置（仿 pili_plus）
-    // display-resample: mpv 重采样音频以匹配显示帧率，保证 AV 同步
-    await nativePlayer.setProperty('video-sync', 'display-resample');
+    // seek 精度：双独立流(video+audio-files)必须用精确 seek，
+    // 否则两个流的关键帧位置不同导致 AV 错位 → 无声 + 鬼畜对齐
+    await nativePlayer.setProperty('hr-seek', 'yes');
+    await nativePlayer.setProperty('demuxer-lavf-analyzeduration', '1');
+    await nativePlayer.setProperty('demuxer-lavf-probesize', '1000000');
+
+    // 网络超时配置（防止卡顿后长时间等待）
+    await nativePlayer.setProperty('network-timeout', '10');
+
+    // 音画同步配置
+    // audio: 以音频时钟为基准，视频帧到了就显示、晚了就丢帧。
+    // 双独立 HTTP 流(video+audio-files)不能用 display-resample，
+    // 因为两个流的缓冲进度波动会导致 display-resample 过度补偿 → 鬼畜
+    await nativePlayer.setProperty('video-sync', 'audio');
+
+    // 解码模式配置（所有平台）
+    await nativePlayer.setProperty('hwdec', decodeMode);
 
     // Android 特有配置
     if (Platform.isAndroid) {
       await nativePlayer.setProperty('volume-max', '100');
-      // autosync=10: 每 10 帧重新同步音视频，加速 surface 重建后的 AV 同步恢复
       await nativePlayer.setProperty('autosync', '10');
-      final decodeMode = await getDecodeMode();
-      await nativePlayer.setProperty('hwdec', decodeMode);
+      await nativePlayer.setProperty('ao', 'audiotrack');
     }
 
     // 循环模式
@@ -1064,15 +1011,14 @@ class VideoPlayerController extends ChangeNotifier {
     _seekTimer?.cancel();
     _stalledTimer?.cancel();
     _positionPollingTimer?.cancel();
-    _waitAndSeekTimer?.cancel();
 
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();
     await _connectivitySubscription?.cancel();
 
-    // 停止 AudioService 通知栏
-    audioHandler.detachPlayer();
+    // 停止 AudioService 通知栏（先 stop 再 detach，确保状态转换正确）
     await audioHandler.stop();
+    audioHandler.detachPlayer();
 
     // 清理视频缓存
     _hlsService.cleanupAllTempCache();

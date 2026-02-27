@@ -26,6 +26,13 @@ class HlsService {
 
   final Dio _dio = HttpClient().dio;
 
+  /// 播放器默认 HTTP 请求头（参考 pili_plus）
+  /// 视频/音频 URL 请求需要携带这些头信息，否则可能被服务器拒绝
+  static Map<String, String> get _defaultHttpHeaders => {
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'referer': ApiConfig.baseUrl,
+  };
+
   /// 获取清晰度信息
   Future<QualityInfo> getQualityInfo(int resourceId) async {
     try {
@@ -97,6 +104,7 @@ class HlsService {
         return DataSource(
           videoSource: videoUrl,
           audioSource: audioUrl,
+          httpHeaders: _defaultHttpHeaders,
         );
       } else {
         // 旧资源：直接构造 m3u8 URL，mpv 原生支持 HTTP HLS
@@ -106,7 +114,7 @@ class HlsService {
 
         return DataSource(
           videoSource: m3u8Url,
-          // 旧资源 m3u8 音视频合一，不需要外挂音频
+          httpHeaders: _defaultHttpHeaders,
         );
       }
     } catch (e) {
