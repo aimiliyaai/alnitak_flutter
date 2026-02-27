@@ -647,6 +647,7 @@ class VideoPlayerController extends ChangeNotifier {
           });
         }
       }),
+
     ]);
 
     // 网络连接监听（全局只注册一次）
@@ -729,38 +730,28 @@ class VideoPlayerController extends ChangeNotifier {
     if (_player == null) return;
     final nativePlayer = _player!.platform as NativePlayer;
 
-    // 缓存配置（参考 PC 端 dash.js：bufferTimeDefault=20, bufferTimeAtTopQuality=40, bufferTimeAtTopQualityLongForm=90）
-    await nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
-    await nativePlayer.setProperty('cache-secs', '60');
-    await nativePlayer.setProperty('cache-backbuffer', '120');
-    await nativePlayer.setProperty('cache-pause-initial', 'no');
-    await nativePlayer.setProperty('cache-pause-wait', '0');
-    await nativePlayer.setProperty('prefetch-playlist', 'yes');
-    await nativePlayer.setProperty('demuxer-max-bytes', '200MiB');
-
     // seek 精度：双独立流(video+audio-files)必须用精确 seek，
-    // 否则两个流的关键帧位置不同导致 AV 错位 → 无声 + 鬼畜对齐
+    // 否则两个流的关键帧位置不同导致 AV 错位
     await nativePlayer.setProperty('hr-seek', 'yes');
-    await nativePlayer.setProperty('demuxer-lavf-analyzeduration', '1');
-    await nativePlayer.setProperty('demuxer-lavf-probesize', '1000000');
 
-    // 网络超时配置（防止卡顿后长时间等待）
+    // fMP4 容错：frag_keyframe+frag_duration 生成的 SegmentBase m4s 文件
+    // 在 fragment 边界可能出现非单调递增的 PTS（如 1179s→1168s），
+    // 让 demuxer 重新排序而不是触发 AV desync 纠正
+    await nativePlayer.setProperty('demuxer-lavf-o', 'fflags=+genpts+discardcorrupt');
+
+    // 网络超时配置
     await nativePlayer.setProperty('network-timeout', '10');
 
-    // 音画同步配置
-    // audio: 以音频时钟为基准，视频帧到了就显示、晚了就丢帧。
-    // 双独立 HTTP 流(video+audio-files)不能用 display-resample，
-    // 因为两个流的缓冲进度波动会导致 display-resample 过度补偿 → 鬼畜
-    await nativePlayer.setProperty('video-sync', 'audio');
-
-    // 解码模式配置（所有平台）
+    // 解码模式配置
     await nativePlayer.setProperty('hwdec', decodeMode);
 
-    // Android 特有配置
+    // Android 特有配置（参考 pili_plus）
     if (Platform.isAndroid) {
       await nativePlayer.setProperty('volume-max', '100');
-      await nativePlayer.setProperty('autosync', '10');
-      await nativePlayer.setProperty('ao', 'audiotrack');
+      // 音频输出：opensles 低延迟缓冲不易 underrun，audiotrack 作为兜底
+      await nativePlayer.setProperty('ao', 'opensles,aaudio,audiotrack');
+      // 音频缓冲：增大 AudioTrack 初始缓冲，防止播放启动时 underrun
+      await nativePlayer.setProperty('audio-buffer', '0.5');
     }
 
     // 循环模式
