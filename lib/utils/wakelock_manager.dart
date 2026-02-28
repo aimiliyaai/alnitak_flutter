@@ -84,6 +84,15 @@ class WakelockManager {
     }
   }
 
+  /// 切换屏幕常亮状态（参考 pili_plus: WakelockPlus.toggle）
+  static Future<void> toggle({required bool enable}) async {
+    if (enable) {
+      await WakelockManager.enable();
+    } else {
+      await WakelockManager.disable();
+    }
+  }
+
   /// 获取当前状态
   static bool get isEnabled => _isEnabled;
 }

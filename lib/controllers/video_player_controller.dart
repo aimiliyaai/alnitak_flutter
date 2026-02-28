@@ -302,7 +302,7 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
 
       if (_player != null && _player!.state.playing) {
-        await _player!.pause();
+        await pause();
       }
 
       removeListeners();
@@ -372,9 +372,9 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = false;
       isPlayerInitialized.value = true;
 
-      // pili_plus 风格：监听器就位后再开始播放
+      // pili_plus 风格：监听器就位后再开始播放（走 play() 激活 AudioSession）
       if (autoPlay && !_isDisposed) {
-        await _player!.play();
+        await play();
       }
 
     } catch (e) {
@@ -532,15 +532,8 @@ class VideoPlayerController extends ChangeNotifier {
 
         onPlayingStateChanged?.call(playing);
 
-        if (playing) {
-          WakelockManager.enable();
-        } else {
-          Future.delayed(const Duration(milliseconds: 200), () {
-            if (_player != null && !_player!.state.playing) {
-              WakelockManager.disable();
-            }
-          });
-        }
+        // 参考 pili_plus: WakelockPlus.toggle(enable: event)
+        WakelockManager.toggle(enable: playing);
       }),
 
       _player!.stream.completed.listen((completed) {
@@ -566,13 +559,11 @@ class VideoPlayerController extends ChangeNotifier {
           _hasJustCompleted = true;
 
           if (loopMode.value == LoopMode.on) {
-            // 循环模式：seek 回开头重新播放，复用已缓存的资源，不重新请求网络
+            // 循环模式（参考 pili_plus）：play(repeat:true) 原子 seek+play
             _hasTriggeredCompletion = false;
-            _logger.logDebug('循环模式: seek 到开头复用缓存');
-            _player!.seek(Duration.zero).then((_) {
-              _player?.play();
-              _hasJustCompleted = false;
-            });
+            _hasJustCompleted = false;
+            _logger.logDebug('循环模式: play(repeat:true)');
+            play(repeat: true);
           }
         }
         if (!completed) {
@@ -757,13 +748,9 @@ class VideoPlayerController extends ChangeNotifier {
     // 解码模式配置
     await nativePlayer.setProperty('hwdec', decodeMode);
 
-    // Android 特有配置（参考 pili_plus）
+    // Android 特有配置（参考 pili_plus：仅设 volume-max，ao/audio-buffer 用 mpv 默认）
     if (Platform.isAndroid) {
       await nativePlayer.setProperty('volume-max', '100');
-      // 音频输出：opensles 低延迟缓冲不易 underrun，audiotrack 作为兜底
-      await nativePlayer.setProperty('ao', 'opensles,aaudio,audiotrack');
-      // 音频缓冲：增大 AudioTrack 初始缓冲，防止播放启动时 underrun
-      await nativePlayer.setProperty('audio-buffer', '0.5');
     }
 
     // 循环模式
@@ -878,7 +865,7 @@ class VideoPlayerController extends ChangeNotifier {
     if (isPaused) {
       // 进入后台
       if (!backgroundPlayEnabled.value) {
-        _player!.pause();
+        pause();
       }
       // 进入后台时快照一次当前位置（确保即使后台被杀也有可恢复的位置）
       final pos = _player!.state.position;
@@ -898,12 +885,27 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> play() async {
-    await _player?.play();
+  /// 播放（参考 pili_plus）
+  ///
+  /// [repeat] 循环模式时传 true，会先 seek 到开头
+  Future<void> play({bool repeat = false}) async {
+    if (_isDisposed || _player == null) return;
+    if (repeat) {
+      await _player!.seek(Duration.zero);
+    }
+    await _player!.play();
+    _audioSession?.setActive(true);
   }
 
-  Future<void> pause() async {
-    await _player?.pause();
+  /// 暂停（参考 pili_plus）
+  ///
+  /// [isInterrupt] 系统中断（电话等）时传 true，不释放音频焦点
+  Future<void> pause({bool isInterrupt = false}) async {
+    if (_isDisposed || _player == null) return;
+    await _player!.pause();
+    if (!isInterrupt) {
+      _audioSession?.setActive(false);
+    }
   }
 
   // ============ dispose（照搬 pilipala）============
@@ -940,56 +942,52 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 处理音频中断（电话、语音助手等）
+  /// 处理音频中断（参考 pili_plus AudioSessionHandler）
   void _handleAudioInterruption(AudioInterruptionEvent event) {
     if (_player == null || _isDisposed) return;
 
     if (event.begin) {
-      // 中断开始
       switch (event.type) {
         case AudioInterruptionType.duck:
-          // 短暂中断（如导航语音）：降低音量即可
-          _wasPlayingBeforeInterruption = false;
-          _player!.setVolume(30);
-          _logger.logDebug('[AudioSession] duck 中断，已降低音量');
+          // 短暂中断（如导航语音）：降低音量（pili_plus: *0.5）
+          _player!.setVolume((_player!.state.volume * 0.5).clamp(0, 100));
+          _logger.logDebug('[AudioSession] duck 中断，音量减半');
           break;
         case AudioInterruptionType.pause:
         case AudioInterruptionType.unknown:
-          // 需要暂停的中断（如电话）
+          // 需要暂停的中断（电话等）：isInterrupt=true 不释放音频焦点
           _wasPlayingBeforeInterruption = _player!.state.playing;
           if (_wasPlayingBeforeInterruption) {
-            _player!.pause();
-            _logger.logDebug('[AudioSession] 中断开始(${event.type})，已暂停播放');
+            pause(isInterrupt: true);
+            _logger.logDebug('[AudioSession] 中断(${event.type})，已暂停');
           }
           break;
       }
     } else {
-      // 中断结束
       switch (event.type) {
         case AudioInterruptionType.duck:
-          // duck 结束：恢复音量
-          _player!.setVolume(100);
-          _logger.logDebug('[AudioSession] duck 中断结束，已恢复音量');
+          // duck 结束：恢复音量（pili_plus: *2）
+          _player!.setVolume((_player!.state.volume * 2).clamp(0, 100));
+          _logger.logDebug('[AudioSession] duck 结束，音量恢复');
           break;
         case AudioInterruptionType.pause:
         case AudioInterruptionType.unknown:
-          // 暂停中断结束：恢复播放（如果之前在播放）
           if (_wasPlayingBeforeInterruption) {
             _wasPlayingBeforeInterruption = false;
-            _player!.play();
-            _logger.logDebug('[AudioSession] 中断结束(${event.type})，已恢复播放');
+            play();
+            _logger.logDebug('[AudioSession] 中断结束，恢复播放');
           }
           break;
       }
     }
   }
 
-  /// 处理音频设备变化（耳机拔出等）
+  /// 处理音频设备变化（耳机拔出等，参考 pili_plus becomingNoisy）
   void _handleBecomingNoisy() {
     if (_player == null || _isDisposed) return;
     if (_player!.state.playing) {
-      _player!.pause();
-      _logger.logDebug('[AudioSession] 音频设备变化，已暂停播放');
+      pause();
+      _logger.logDebug('[AudioSession] 耳机拔出，已暂停');
     }
   }
 

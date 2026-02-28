@@ -930,8 +930,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   if (completed) {
                     return GestureDetector(
                       onTap: () {
-                        widget.logic.seek(Duration.zero);
-                        widget.controller.player.play();
+                        widget.logic.play(repeat: true);
                         _startHideTimer();
                       },
                       child: Container(

@@ -16,6 +16,7 @@ import 'video/video_play_page.dart';
 import 'search_page.dart';
 import 'article/article_view_page.dart';
 import '../widgets/cached_image_widget.dart';
+import '../utils/grid_delegate.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -531,41 +532,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
               // 内容区域
               if (_contentType == 0)
-                // 视频双列布局（自适应高度）
+                // 视频网格（参考 pili_plus: SliverGrid + ExtentAndRatio）
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, rowIndex) {
-                        final i = rowIndex * 2;
-                        return Padding(
-                          padding: EdgeInsets.only(bottom: 8),
-                          child: IntrinsicHeight(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: VideoCard(
-                                    video: _videos[i],
-                                    onTap: () => _showVideoDetail(context, _videos[i]),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: i + 1 < _videos.length
-                                      ? VideoCard(
-                                          video: _videos[i + 1],
-                                          onTap: () => _showVideoDetail(context, _videos[i + 1]),
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                      childCount: (_videos.length + 1) ~/ 2,
+                  sliver: SliverGrid.builder(
+                    gridDelegate: SliverGridDelegateWithExtentAndRatio(
+                      maxCrossAxisExtent: 240,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 16 / 10,
+                      mainAxisExtent: MediaQuery.textScalerOf(context).scale(90),
                     ),
+                    itemCount: _videos.length,
+                    itemBuilder: (context, index) {
+                      return VideoCard(
+                        video: _videos[index],
+                        onTap: () => _showVideoDetail(context, _videos[index]),
+                      );
+                    },
                   ),
                 )
               else if (_articles.isEmpty && !_isLoadingArticles)
