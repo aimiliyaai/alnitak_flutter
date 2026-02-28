@@ -325,7 +325,7 @@ class VideoPlayerController extends ChangeNotifier {
           configuration: PlayerConfiguration(
             title: '',
             bufferSize: 32 * 1024 * 1024,
-            logLevel: MPVLogLevel.error,
+            logLevel: MPVLogLevel.v,
           ),
         );
         audioHandler.attachPlayer(_player!);
@@ -573,9 +573,6 @@ class VideoPlayerController extends ChangeNotifier {
               _player?.play();
               _hasJustCompleted = false;
             });
-          } else {
-            // 非循环模式：触发播放结束回调（自动连播等）
-            onVideoEnd?.call();
           }
         }
         if (!completed) {
@@ -648,6 +645,23 @@ class VideoPlayerController extends ChangeNotifier {
         }
       }),
 
+      // mpv 日志抓取：捕获 AV sync、音频、时间戳相关日志
+      _player!.stream.log.listen((log) {
+        if (log.prefix == 'av_sync' ||
+            log.prefix == 'audio' ||
+            log.prefix == 'cplayer' ||
+            log.text.contains('patients') ||
+            log.text.contains('A-V:') ||
+            log.text.contains('sync') ||
+            log.text.contains('drop') ||
+            log.text.contains('delay') ||
+            log.text.contains('underrun') ||
+            log.text.contains('reset') ||
+            log.text.contains('timestamp') ||
+            log.text.contains('desync')) {
+          _logger.logDebug('[mpv:${log.prefix}] ${log.text}');
+        }
+      }),
     ]);
 
     // 网络连接监听（全局只注册一次）
@@ -734,9 +748,7 @@ class VideoPlayerController extends ChangeNotifier {
     // 否则两个流的关键帧位置不同导致 AV 错位
     await nativePlayer.setProperty('hr-seek', 'yes');
 
-    // fMP4 容错：frag_keyframe+frag_duration 生成的 SegmentBase m4s 文件
-    // 在 fragment 边界可能出现非单调递增的 PTS（如 1179s→1168s），
-    // 让 demuxer 重新排序而不是触发 AV desync 纠正
+    // fMP4 容错：旧文件可能有非单调 PTS（B 帧遗留），genpts 重新生成
     await nativePlayer.setProperty('demuxer-lavf-o', 'fflags=+genpts+discardcorrupt');
 
     // 网络超时配置
