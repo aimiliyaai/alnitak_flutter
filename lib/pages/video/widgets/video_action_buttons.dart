@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../../../config/api_config.dart';
 import '../../../models/video_detail.dart';
 import '../../../models/collection.dart';
 import '../../../services/video_service.dart';
 import '../../../services/collection_service.dart';
 import '../../../utils/login_guard.dart';
-import '../../../utils/http_client.dart';
 import '../../../theme/theme_extensions.dart';
 
 /// 视频操作按钮（点赞、收藏、分享）
@@ -240,12 +240,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
 
   /// 获取分享URL
   String _getShareUrl() {
-    // 使用实际的API域名构建分享链接
-    final baseUrl = HttpClient().dio.options.baseUrl;
-    // 将 API baseUrl (http://anime.ayypd.cn:3000) 转换为 Web 链接
-    // 移除 /api 路径部分，直接使用视频路径
-    final domain = baseUrl.replaceAll('/api', '').replaceAll(RegExp(r'/$'), '');
-    return '$domain/video/${widget.vid}';
+    return ApiConfig.getShareUrl('video/${widget.vid}');
   }
 
  /// 显示二维码对话框

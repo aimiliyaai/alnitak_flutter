@@ -14,6 +14,12 @@ class ApiConfig {
   /// 服务器端口
   static const int port = 9000;
 
+  /// 分享网站域名
+  static const String shareHost = 'anime.ayypd.cn';
+
+  /// 分享网站端口（默认80）
+  static const int sharePort = 3000;
+
   /// 是否启用 HTTPS（默认关闭）
   static bool _httpsEnabled = false;
 
@@ -54,5 +60,12 @@ class ApiConfig {
   /// Web 地址（用于分享等场景）
   static String get webUrl {
     return '$_protocol://$host';
+  }
+
+  /// 分享地址（与API地址一致，动态协议）
+  /// 80/443端口不带端口，其他端口带端口
+  static String getShareUrl(String path) {
+    final portStr = sharePort == 80 || sharePort == 443 ? '' : ':$sharePort';
+    return '$_protocol://$shareHost$portStr/$path';
   }
 }
