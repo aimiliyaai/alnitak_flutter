@@ -739,7 +739,11 @@ class VideoPlayerController extends ChangeNotifier {
     // 否则两个流的关键帧位置不同导致 AV 错位
     await nativePlayer.setProperty('hr-seek', 'yes');
 
-    // fMP4 容错：旧文件可能有非单调 PTS（B 帧遗留），genpts 重新生成
+    // 音视频同步：display-resample 模式下视频按显示器刷新率重采样，
+    // 避免双流分离模式下默认 audio 同步的跳帧/回溯问题（参考 pili_plus）
+    await nativePlayer.setProperty('video-sync', 'display-resample');
+
+    // fMP4 容错：genpts 重新生成 PTS，discardcorrupt 丢弃损坏帧
     await nativePlayer.setProperty('demuxer-lavf-o', 'fflags=+genpts+discardcorrupt');
 
     // 网络超时配置
