@@ -223,7 +223,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     // 断开在线人数连接
     _onlineWebSocketService.dispose();
 
-    // 清理 HLS 缓存
+    // 清理播放器缓存
     CacheService().cleanupAllTempCache();
 
     super.dispose();
@@ -450,8 +450,6 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   /// 切换分P
   Future<void> _changePart(int part) async {
     if (_videoDetail == null || part == _currentPart) return;
-      _progressReportVid = null;
-      _progressReportPart = null;
 
     if (part < 1 || part > _videoDetail!.resources.length) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -763,6 +761,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     } else {
       // 循环模式：重置节流状态，确保第二轮从头开始上报进度
       _lastSavedSeconds = null;
+      return; // 循环模式不触发自动连播
     }
 
     // 自动连播逻辑
@@ -877,126 +876,125 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         final playerHeight = constraints.maxWidth * 9 / 16;
 
         return Column(
-      children: [
-        // 固定播放器区域
-        SizedBox(
-          width: double.infinity,
-          height: playerHeight,
-          child: MediaPlayerWidget(
-            key: _playerKey,
-            resourceId: _currentResourceId,
-            initialPosition: _currentInitialPosition,
-            duration: currentResource.duration,
-            onVideoEnd: _onVideoEnded,
-            onProgressUpdate: _onProgressUpdate,
-            onControllerReady: (controller) {
-              _playerController = controller;
-              // 设置视频上下文
-              controller.setVideoContext(vid: _currentVid, part: _currentPart);
-            },
-            title: _videoDetail!.resources.length > 1
-                ? currentResource.title
-                : _videoDetail!.title,
-            author: _videoDetail!.author.name,
-            coverUrl: _videoDetail!.cover,
-            totalParts: _videoDetail!.resources.length,
-            currentPart: _currentPart,
-            onPartChange: _changePart,
-            danmakuController: _danmakuController,
-            onPlayingStateChanged: _onPlayingStateChanged,
-            onlineCount: _onlineWebSocketService.onlineCount,
-          ),
-        ),
-
-        // 可滚动内容区域
-        Expanded(
-          child: ListView(
-            controller: _scrollController,
-            padding: const EdgeInsets.only(bottom: 16),
-            children: [
-              _buildDanmakuInputBar(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: VideoInfoCard(
-                  videoDetail: _videoDetail!,
-                  videoStat: _videoStat!,
-                  currentPart: _currentPart,
-                  onlineCount: _onlineWebSocketService.onlineCount,
-                  danmakuCount: _danmakuCountNotifier,
-                ),
+          children: [
+            // 固定播放器区域
+            SizedBox(
+              width: double.infinity,
+              height: playerHeight,
+              child: MediaPlayerWidget(
+                key: _playerKey,
+                resourceId: _currentResourceId,
+                initialPosition: _currentInitialPosition,
+                duration: currentResource.duration,
+                onVideoEnd: _onVideoEnded,
+                onProgressUpdate: _onProgressUpdate,
+                onControllerReady: (controller) {
+                  _playerController = controller;
+                  controller.setVideoContext(vid: _currentVid, part: _currentPart);
+                },
+                title: _videoDetail!.resources.length > 1
+                    ? currentResource.title
+                    : _videoDetail!.title,
+                author: _videoDetail!.author.name,
+                coverUrl: _videoDetail!.cover,
+                totalParts: _videoDetail!.resources.length,
+                currentPart: _currentPart,
+                onPartChange: _changePart,
+                danmakuController: _danmakuController,
+                onPlayingStateChanged: _onPlayingStateChanged,
+                onlineCount: _onlineWebSocketService.onlineCount,
               ),
-              const SizedBox(height: 16),
+            ),
 
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: VideoActionButtons(
-                  vid: _currentVid,
-                  initialStat: _videoStat!,
-                  initialHasLiked: _actionStatus!.hasLiked,
-                  initialHasCollected: _actionStatus!.hasCollected,
-                ),
-              ),
-              const SizedBox(height: 16),
+            // 可滚动内容区域
+            Expanded(
+              child: ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.only(bottom: 16),
+                children: [
+                  _buildDanmakuInputBar(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: VideoInfoCard(
+                      videoDetail: _videoDetail!,
+                      videoStat: _videoStat!,
+                      currentPart: _currentPart,
+                      onlineCount: _onlineWebSocketService.onlineCount,
+                      danmakuCount: _danmakuCountNotifier,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: AuthorCard(
-                  author: _videoDetail!.author,
-                  initialRelationStatus: _actionStatus!.relationStatus,
-                  onAvatarTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: VideoActionButtons(
+                      vid: _currentVid,
+                      initialStat: _videoStat!,
+                      initialHasLiked: _actionStatus!.hasLiked,
+                      initialHasCollected: _actionStatus!.hasCollected,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AuthorCard(
+                      author: _videoDetail!.author,
+                      initialRelationStatus: _actionStatus!.relationStatus,
+                      onAvatarTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => UserSpacePage(userId: _videoDetail!.author.uid),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (MediaQuery.of(context).size.width <= 900)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: CollectionList(
+                        key: _collectionListKey,
+                        vid: _currentVid,
+                        currentPart: _currentPart,
+                        onVideoTap: _switchToVideo,
+                        onPartTap: _changePart,
                       ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
+                    ),
 
-              if (MediaQuery.of(context).size.width <= 900)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: CollectionList(
-                    key: _collectionListKey,
-                    vid: _currentVid,
-                    currentPart: _currentPart,
-                    onVideoTap: _switchToVideo,
-                    onPartTap: _changePart,
+                  const SizedBox(height: 16),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: CommentPreviewCard(
+                      vid: _currentVid,
+                      totalComments: _totalComments,
+                      latestComment: _latestComment,
+                      onSeek: (seconds) {
+                        _playerController?.seek(Duration(seconds: seconds));
+                      },
+                      onCommentPosted: _refreshCommentPreview,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
 
-              const SizedBox(height: 16),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: CommentPreviewCard(
-                  vid: _currentVid,
-                  totalComments: _totalComments,
-                  latestComment: _latestComment,
-                  onSeek: (seconds) {
-                    _playerController?.seek(Duration(seconds: seconds));
-                  },
-                  onCommentPosted: _refreshCommentPreview,
-                ),
+                  if (MediaQuery.of(context).size.width <= 900)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: RecommendList(
+                        key: _recommendListKey,
+                        vid: _currentVid,
+                        onVideoTap: _switchToVideo,
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 16),
-
-              if (MediaQuery.of(context).size.width <= 900)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: RecommendList(
-                    key: _recommendListKey,
-                    vid: _currentVid,
-                    onVideoTap: _switchToVideo,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
+            ),
+          ],
+        );
       },
     );
   }

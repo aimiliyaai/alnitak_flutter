@@ -67,7 +67,6 @@ class VideoPlayerController extends ChangeNotifier {
   // ============ 内部状态 ============
   int? _currentResourceId;
   bool _isDisposed = false;
-  // ignore: prefer_final_fields - 会在 dispose 过程中改变值
   bool _isDisposing = false; // 正在 dispose 中，防止回调在清理时触发
   bool _hasTriggeredCompletion = false;
   bool _hasJustCompleted = false; // 刚播放完毕，用于区分循环重播
@@ -88,7 +87,6 @@ class VideoPlayerController extends ChangeNotifier {
 
   Timer? _stalledTimer;
   Timer? _seekTimer;
-  Timer? _positionPollingTimer;
 
   int? _currentVid;
   int _currentPart = 1;
@@ -678,8 +676,6 @@ class VideoPlayerController extends ChangeNotifier {
       }
     });
 
-    // 参考 pili_plus: 不使用轮询，直接依赖 stream.position 监听
-    // 移除 _positionPollingTimer，让播放器自己处理位置更新
   }
 
   /// 移除事件监听（照搬 pilipala 的 removeListeners）
@@ -688,8 +684,6 @@ class VideoPlayerController extends ChangeNotifier {
       s.cancel();
     }
     _subscriptions = [];
-    _positionPollingTimer?.cancel();
-    _positionPollingTimer = null;
     _stalledTimer?.cancel();
     _stalledTimer = null;
     _seekTimer?.cancel();
@@ -1041,6 +1035,7 @@ class VideoPlayerController extends ChangeNotifier {
   @override
   Future<void> dispose() async {
     if (_isDisposed) return;
+    _isDisposing = true;
     _isDisposed = true;
     _dashManifest = null;
 
@@ -1049,7 +1044,6 @@ class VideoPlayerController extends ChangeNotifier {
 
     _seekTimer?.cancel();
     _stalledTimer?.cancel();
-    _positionPollingTimer?.cancel();
 
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();
