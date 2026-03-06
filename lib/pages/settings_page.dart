@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -84,13 +85,145 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  static const _batteryChannel = MethodChannel('com.example.alnitak_flutter/battery');
+
   /// 保存后台播放设置
   Future<void> _saveBackgroundPlaySetting(bool value) async {
+    if (value && Platform.isAndroid) {
+      // 开启时弹出电池优化提示
+      final confirmed = await _showBatteryOptimizationDialog();
+      if (!confirmed) return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('background_play_enabled', value);
     setState(() {
       _backgroundPlayEnabled = value;
     });
+  }
+
+  /// 显示电池优化设置引导弹窗
+  Future<bool> _showBatteryOptimizationDialog() async {
+    // 先检查是否已经关闭了电池优化
+    bool alreadyIgnoring = false;
+    try {
+      alreadyIgnoring = await _batteryChannel.invokeMethod('isIgnoringBatteryOptimizations') ?? false;
+    } catch (_) {}
+
+    if (alreadyIgnoring) return true;
+
+    if (!mounted) return false;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final colors = _colors;
+        return AlertDialog(
+          title: const Text('后台播放需要额外设置'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '为了确保后台播放不被系统中断，请将本应用加入电池优化白名单。',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colors.textPrimary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '部分设备还需要在系统设置中：',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 4),
+              _buildBulletItem('关闭「后台活动限制」', colors),
+              _buildBulletItem('开启「允许后台运行」', colors),
+              _buildBulletItem('将应用设为「无限制」电池策略', colors),
+              const SizedBox(height: 12),
+              Text(
+                '不同品牌设备的设置路径可能不同，请根据系统提示操作。',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textTertiary,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context, true);
+                _openBatteryOptimizationSettings();
+              },
+              child: const Text('前往设置'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
+  }
+
+  /// 构建列表圆点项
+  Widget _buildBulletItem(String text, dynamic colors) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: colors.textSecondary,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                color: colors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 打开电池优化设置
+  Future<void> _openBatteryOptimizationSettings() async {
+    try {
+      await _batteryChannel.invokeMethod('openBatteryOptimizationSettings');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('无法自动跳转，请手动在系统设置中搜索「电池优化」'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   /// 保存 HTTPS 设置
@@ -527,7 +660,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildSwitchTile(
               icon: Icons.play_circle_outline,
               title: '后台播放',
-              subtitle: '退到后台时继续播放视频',
+              subtitle: '退到后台时继续播放音视频，需关闭电池优化以保证稳定运行',
               value: _backgroundPlayEnabled,
               onChanged: _saveBackgroundPlaySetting,
               colors: colors,
