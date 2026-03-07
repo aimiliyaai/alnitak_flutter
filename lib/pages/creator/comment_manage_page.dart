@@ -607,7 +607,11 @@ class _CommentManagePageState extends State<CommentManagePage>
     return const Center(
       child: Padding(
         padding: EdgeInsets.all(16),
-        child: CircularProgressIndicator(),
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
       ),
     );
   }

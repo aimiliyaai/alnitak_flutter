@@ -9,6 +9,7 @@ import '../../../widgets/cached_image_widget.dart';
 import '../../../utils/login_guard.dart';
 import '../../../utils/timestamp_parser.dart';
 import '../../../utils/auth_state_manager.dart';
+import '../../../utils/time_utils.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../../utils/image_utils.dart';
 import '../../user/user_space_page.dart';
@@ -67,6 +68,7 @@ class _CommentListContentState extends State<CommentListContent> {
   bool _showEmojiPicker = false;
   final List<Comment> _comments = [];
   bool _isLoading = false;
+  bool _isInitialLoad = true;
   bool _hasMore = true;
   int _currentPage = 1;
   int _totalComments = 0;
@@ -189,17 +191,20 @@ class _CommentListContentState extends State<CommentListContent> {
           _totalComments = response.total;
           _hasMore = response.hasMore;
           _isLoading = false;
+          _isInitialLoad = false;
         });
         // 通知外部评论总数变化
         widget.onTotalCommentsChanged?.call(response.total);
       } else {
         setState(() {
           _isLoading = false;
+          _isInitialLoad = false;
         });
       }
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _isInitialLoad = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -212,11 +217,14 @@ class _CommentListContentState extends State<CommentListContent> {
   Future<void> _loadMoreComments() async {
     if (!_hasMore || _isLoading) return;
 
-    setState(() {
-      _currentPage++;
-    });
+    _currentPage++;
 
-    await _loadComments();
+    try {
+      await _loadComments();
+    } catch (_) {
+      // 加载失败时回退页码，避免跳页
+      _currentPage--;
+    }
   }
 
   Future<void> _loadReplies(int commentId) async {
@@ -314,7 +322,7 @@ class _CommentListContentState extends State<CommentListContent> {
 
       // 如果是回复评论，刷新该评论的回复列表
       if (parentCommentId != null) {
-        _loadReplies(parentCommentId);
+        await _loadReplies(parentCommentId);
       }
 
       // 通知外部评论已发送成功
@@ -411,24 +419,7 @@ class _CommentListContentState extends State<CommentListContent> {
     _commentFocusNode.unfocus();
   }
 
-  String _formatTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inDays > 365) {
-      return '${(difference.inDays / 365).floor()}年前';
-    } else if (difference.inDays > 30) {
-      return '${(difference.inDays / 30).floor()}个月前';
-    } else if (difference.inDays > 0) {
-      return '${difference.inDays}天前';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}小时前';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}分钟前';
-    } else {
-      return '刚刚';
-    }
-  }
+  String _formatTime(DateTime dateTime) => TimeUtils.formatRelativeTime(dateTime);
 
   @override
   Widget build(BuildContext context) {
@@ -462,52 +453,58 @@ class _CommentListContentState extends State<CommentListContent> {
 
         // 评论列表（可滚动区域）
         Expanded(
-          child: _comments.isEmpty && !_isLoading
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.comment_outlined,
-                          size: 64, color: context.colors.iconSecondary),
-                      const SizedBox(height: 16),
-                      Text(
-                        '暂无评论',
-                        style: TextStyle(color: context.colors.textSecondary),
+          child: _isInitialLoad
+              ? const Center(child: CircularProgressIndicator())
+              : _comments.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.comment_outlined,
+                              size: 64, color: context.colors.iconSecondary),
+                          const SizedBox(height: 16),
+                          Text(
+                            '暂无评论',
+                            style: TextStyle(color: context.colors.textSecondary),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.only(bottom: 16),
-                  itemCount: _comments.length + (_hasMore ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == _comments.length) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.only(bottom: 16),
+                      itemCount: _comments.length + (_hasMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == _comments.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(
+                              child: SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                          );
+                        }
 
-                    final comment = _comments[index];
-                    return _CommentItem(
-                      comment: comment,
-                      onToggleReplies: () => _toggleReplies(comment.id),
-                      onReply: () => _replyToUser(comment),
-                      onReplyToReply: (reply) => _replyToUser(reply, parentComment: comment),
-                      onDelete: () => _deleteComment(comment.id),
-                      onDeleteReply: _deleteComment,
-                      showReplies: _expandedReplies.contains(comment.id),
-                      replies: _loadedReplies[comment.id],
-                      isLoadingReplies: _loadingReplies[comment.id] ?? false,
-                      formatTime: _formatTime,
-                      currentUserId: _currentUserId,
-                      onSeek: widget.onSeek,
-                    );
-                  },
-                ),
+                        final comment = _comments[index];
+                        return _CommentItem(
+                          comment: comment,
+                          onToggleReplies: () => _toggleReplies(comment.id),
+                          onReply: () => _replyToUser(comment),
+                          onReplyToReply: (reply) => _replyToUser(reply, parentComment: comment),
+                          onDelete: () => _deleteComment(comment.id),
+                          onDeleteReply: _deleteComment,
+                          showReplies: _expandedReplies.contains(comment.id),
+                          replies: _loadedReplies[comment.id],
+                          isLoadingReplies: _loadingReplies[comment.id] ?? false,
+                          formatTime: _formatTime,
+                          currentUserId: _currentUserId,
+                          onSeek: widget.onSeek,
+                        );
+                      },
+                    ),
         ),
       ],
     );
@@ -523,15 +520,6 @@ class _CommentListContentState extends State<CommentListContent> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-          // 评论背景色
-          // gradient: LinearGradient(
-          //   begin: Alignment.topCenter,
-          //   end: Alignment.bottomCenter,
-          //   colors: [
-          //     Colors.white.withOpacity(0.3),
-          //     Colors.grey.withOpacity(0.3),
-          //   ],
-          // ),
         color: colors.card,
         border: Border(
           bottom: BorderSide(color: colors.border, width: 0.5),
@@ -621,29 +609,12 @@ class _CommentListContentState extends State<CommentListContent> {
                     setState(() {
                       _showEmojiPicker = !_showEmojiPicker;
                     });
-                    //  if (_showEmojiPicker) {
-                    //   FocusScope.of(context).unfocus();
-                    // } else {
-                    //   _commentFocusNode.requestFocus();
-                    // }
                   },
                   icon: Icon(
                     Icons.emoji_emotions,
                     color: _showEmojiPicker ? colors.accentColor : colors.iconSecondary,
                   ),
                 ),
-                // const SizedBox(width: 8),
-
-                // // 发送按钮
-                // Container(
-                //   decoration: BoxDecoration(
-                //     color: colors.accentColor,
-                //     shape: BoxShape.circle,
-                //   ),
-                //   child: IconButton(
-                //     icon: const Icon(Icons.send, size: 20),
-                //     onPressed: _submitComment,
-                //     color: Colors.white,
                 const SizedBox(width: 8),
 
                 // 发送按钮

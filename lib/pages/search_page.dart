@@ -26,6 +26,7 @@ class _SearchPageState extends State<SearchPage> {
   String? _errorMessage;
   String _currentKeywords = '';
   static const int _pageSize = 30;
+  int? _loadingPage;
 
   @override
   void initState() {
@@ -134,11 +135,15 @@ class _SearchPageState extends State<SearchPage> {
   Future<void> _loadMoreVideos() async {
     if (_isLoading || !_hasMore || _currentKeywords.isEmpty) return;
 
+    final nextPage = _currentPage + 1;
+
+    if (_loadingPage == nextPage) return;
+
     setState(() {
       _isLoading = true;
     });
 
-    final nextPage = _currentPage + 1;
+    _loadingPage = nextPage;
 
     try {
       final apiVideos = await VideoApiService.searchVideo(
@@ -146,6 +151,8 @@ class _SearchPageState extends State<SearchPage> {
         page: nextPage,
         pageSize: _pageSize,
       );
+
+      if (_loadingPage != nextPage) return;
 
       final newVideos = apiVideos
           .map((apiVideo) => VideoItem.fromApiModel(apiVideo))
@@ -180,6 +187,10 @@ class _SearchPageState extends State<SearchPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('加载更多失败: $e')),
         );
+      }
+    } finally {
+      if (_loadingPage == nextPage) {
+        _loadingPage = null;
       }
     }
   }
@@ -353,7 +364,11 @@ class _SearchPageState extends State<SearchPage> {
             child: Padding(
               padding: EdgeInsets.all(16.0),
               child: Center(
-                child: CircularProgressIndicator(),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
             ),
           ),

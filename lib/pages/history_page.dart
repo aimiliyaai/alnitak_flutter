@@ -5,6 +5,7 @@ import '../models/history_models.dart';
 import '../widgets/cached_image_widget.dart';
 import '../utils/image_utils.dart';
 import '../theme/theme_extensions.dart';
+import '../utils/time_utils.dart';
 import 'video/video_play_page.dart';
 import 'login_page.dart';
 
@@ -157,29 +158,7 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   /// 格式化时间
-  String _formatTime(String updatedAt) {
-    try {
-      final dateTime = DateTime.parse(updatedAt);
-      final now = DateTime.now();
-      final diff = now.difference(dateTime);
-
-      if (diff.inDays == 0) {
-        return '今天';
-      } else if (diff.inDays == 1) {
-        return '昨天';
-      } else if (diff.inDays < 7) {
-        return '${diff.inDays}天前';
-      } else if (diff.inDays < 30) {
-        return '${(diff.inDays / 7).floor()}周前';
-      } else if (diff.inDays < 365) {
-        return '${(diff.inDays / 30).floor()}个月前';
-      } else {
-        return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}';
-      }
-    } catch (e) {
-      return '';
-    }
-  }
+  String _formatTime(String updatedAt) => TimeUtils.formatTime(updatedAt);
 
   /// 跳转到视频播放页
   void _navigateToVideo(HistoryItem item) {

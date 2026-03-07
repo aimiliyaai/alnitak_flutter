@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../models/comment_manage.dart';
 import '../utils/http_client.dart';
 
@@ -23,7 +24,7 @@ class CommentManageService {
       }
       return [];
     } catch (e) {
-      print('获取视频列表失败: $e');
+      if (kDebugMode) debugPrint('获取视频列表失败: $e');
       return [];
     }
   }
@@ -41,7 +42,7 @@ class CommentManageService {
       }
       return [];
     } catch (e) {
-      print('获取文章列表失败: $e');
+      if (kDebugMode) debugPrint('获取文章列表失败: $e');
       return [];
     }
   }
@@ -68,10 +69,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return ManageCommentListResponse.fromVideoJson(response.data['data']);
       }
-      print('获取视频评论失败: ${response.data['msg']}');
+      if (kDebugMode) debugPrint('获取视频评论失败: ${response.data['msg']}');
       return null;
     } catch (e) {
-      print('获取视频评论异常: $e');
+      if (kDebugMode) debugPrint('获取视频评论异常: $e');
       return null;
     }
   }
@@ -98,10 +99,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return ManageCommentListResponse.fromArticleJson(response.data['data']);
       }
-      print('获取文章评论失败: ${response.data['msg']}');
+      if (kDebugMode) debugPrint('获取文章评论失败: ${response.data['msg']}');
       return null;
     } catch (e) {
-      print('获取文章评论异常: $e');
+      if (kDebugMode) debugPrint('获取文章评论异常: $e');
       return null;
     }
   }
@@ -116,10 +117,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return true;
       }
-      print('删除视频评论失败: ${response.data['msg']}');
+      if (kDebugMode) debugPrint('删除视频评论失败: ${response.data['msg']}');
       return false;
     } catch (e) {
-      print('删除视频评论异常: $e');
+      if (kDebugMode) debugPrint('删除视频评论异常: $e');
       return false;
     }
   }
@@ -134,10 +135,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return true;
       }
-      print('删除文章评论失败: ${response.data['msg']}');
+      if (kDebugMode) debugPrint('删除文章评论失败: ${response.data['msg']}');
       return false;
     } catch (e) {
-      print('删除文章评论异常: $e');
+      if (kDebugMode) debugPrint('删除文章评论异常: $e');
       return false;
     }
   }

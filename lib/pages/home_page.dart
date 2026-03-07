@@ -43,8 +43,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _errorMessage;
   static const int _pageSize = 10;
 
-  // 【新增】用于防止并发加载的页码锁
+  // 防止并发加载的页码锁
   int? _loadingPage;
+  int? _loadingArticlePage;
 
   // ============ 顶部导航状态 ============
   int _contentType = 0; // 0: 视频, 1: 专栏
@@ -183,9 +184,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           .map((apiVideo) => VideoItem.fromApiModel(apiVideo))
           .toList();
 
-      if (videos.isNotEmpty) {
-        ///print('🖼️ 转换后的封面URL: ${videos[0].coverUrl}');
-      }
       _preloadImages(videos);
 
       setState(() {
@@ -357,9 +355,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     final nextPage = _articlePage + 1;
 
+    // 检查是否已经在加载这一页
+    if (_loadingArticlePage == nextPage) {
+      return;
+    }
+
     setState(() {
       _isLoadingArticles = true;
     });
+
+    _loadingArticlePage = nextPage;
 
     try {
       final newArticles = await ArticleApiService.getArticleByPartition(
@@ -367,6 +372,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         page: nextPage,
         pageSize: _pageSize,
       );
+
+      // 检查是否仍然是当前请求的页（防止竞态）
+      if (_loadingArticlePage != nextPage) {
+        return;
+      }
 
       setState(() {
         _articles.addAll(newArticles);
@@ -399,6 +409,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
         );
       }
+    } finally {
+      if (_loadingArticlePage == nextPage) {
+        _loadingArticlePage = null;
+      }
     }
   }
 
@@ -413,6 +427,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       _articles.clear();
       _articlePage = 1;
       _hasMoreArticles = true;
+      _loadInitialArticles();
+    }
+  }
+
+  /// 切换内容类型（视频/专栏）
+  void _handleContentTypeChange(int index) {
+    if (_contentType == index) return;
+    setState(() {
+      _contentType = index;
+      _selectedPartitionId = 0;
+    });
+    if (index == 0 && _videos.isEmpty) {
+      _loadInitialVideos();
+    } else if (index == 1 && _articles.isEmpty) {
       _loadInitialArticles();
     }
   }
@@ -604,7 +632,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   child: Padding(
                     padding: EdgeInsets.all(16.w),
                     child: const Center(
-                      child: CircularProgressIndicator(),
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
                   ),
                 ),
@@ -906,20 +938,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final isSelected = _contentType == index;
 
     return GestureDetector(
-      onTap: () {
-        if (_contentType != index) {
-          setState(() {
-            _contentType = index;
-            _selectedPartitionId = 0; // 切换时重置分区选择
-          });
-          // 切换内容类型时加载对应数据
-          if (index == 0 && _videos.isEmpty) {
-            _loadInitialVideos();
-          } else if (index == 1 && _articles.isEmpty) {
-            _loadInitialArticles();
-          }
-        }
-      },
+      onTap: () => _handleContentTypeChange(index),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1045,20 +1064,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final isSelected = _contentType == index;
 
     return GestureDetector(
-      onTap: () {
-        if (_contentType != index) {
-          setState(() {
-            _contentType = index;
-            _selectedPartitionId = 0;
-          });
-          // 切换内容类型时加载对应数据
-          if (index == 0 && _videos.isEmpty) {
-            _loadInitialVideos();
-          } else if (index == 1 && _articles.isEmpty) {
-            _loadInitialArticles();
-          }
-        }
-      },
+      onTap: () => _handleContentTypeChange(index),
       child: Text(
         title,
         style: TextStyle(

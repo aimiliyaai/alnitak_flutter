@@ -186,6 +186,33 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
             );
           },
         ),
+        // Buffering indicator (only when initialized and buffering)
+        ValueListenableBuilder<bool>(
+          valueListenable: _controller!.isPlayerInitialized,
+          builder: (context, isInitialized, _) {
+            if (!isInitialized) return const SizedBox.shrink();
+            return ValueListenableBuilder<bool>(
+              valueListenable: _controller!.isBuffering,
+              builder: (context, buffering, _) {
+                if (!buffering) return const SizedBox.shrink();
+                return const Positioned.fill(
+                  child: IgnorePointer(
+                    child: Center(
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          color: Colors.white70,
+                          strokeWidth: 3,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
         ValueListenableBuilder<String?>(
           valueListenable: _controller!.errorMessage,
           builder: (context, error, _) {

@@ -301,34 +301,38 @@ class _SettingsPageState extends State<SettingsPage> {
     await _checkAndAutoCleanCache();
   }
 
+  /// 获取所有缓存目录的总大小（字节）
+  Future<int> _getTotalCacheSize() async {
+    int totalSize = 0;
+
+    final tempDir = await getTemporaryDirectory();
+    totalSize += await _getDirectorySize(tempDir);
+
+    try {
+      final cacheDir = await getApplicationCacheDirectory();
+      totalSize += await _getDirectorySize(cacheDir);
+    } catch (e) {
+      // 某些平台可能不支持
+    }
+
+    return totalSize;
+  }
+
+  /// 格式化字节大小为可读字符串
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
   /// 计算缓存大小
   Future<void> _calculateCacheSize() async {
     try {
-      int totalSize = 0;
-
-      // 1. 计算临时目录大小
-      final tempDir = await getTemporaryDirectory();
-      totalSize += await _getDirectorySize(tempDir);
-
-      // 2. 计算应用缓存目录大小
-      try {
-        final cacheDir = await getApplicationCacheDirectory();
-        totalSize += await _getDirectorySize(cacheDir);
-      } catch (e) {
-        // 某些平台可能不支持
-      }
-
+      final totalSize = await _getTotalCacheSize();
       if (mounted) {
         setState(() {
-          if (totalSize < 1024) {
-            _cacheSize = '$totalSize B';
-          } else if (totalSize < 1024 * 1024) {
-            _cacheSize = '${(totalSize / 1024).toStringAsFixed(1)} KB';
-          } else if (totalSize < 1024 * 1024 * 1024) {
-            _cacheSize = '${(totalSize / (1024 * 1024)).toStringAsFixed(1)} MB';
-          } else {
-            _cacheSize = '${(totalSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-          }
+          _cacheSize = _formatBytes(totalSize);
         });
       }
     } catch (e) {
@@ -466,22 +470,11 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 检查并自动清理缓存（达到设定值时）
   Future<void> _checkAndAutoCleanCache() async {
     try {
-      int totalSize = 0;
-
-      final tempDir = await getTemporaryDirectory();
-      totalSize += await _getDirectorySize(tempDir);
-
-      try {
-        final cacheDir = await getApplicationCacheDirectory();
-        totalSize += await _getDirectorySize(cacheDir);
-      } catch (e) {
-        // 某些平台可能不支持
-      }
-
+      final totalSize = await _getTotalCacheSize();
       final maxSizeBytes = _maxCacheSizeMB * 1024 * 1024;
 
       if (totalSize > maxSizeBytes) {
-        _logger.logDebug('[Settings] 缓存超过限制 (${(totalSize / (1024 * 1024)).toStringAsFixed(1)}MB > ${_maxCacheSizeMB}MB)，自动清理...', tag: 'Settings');
+        _logger.logDebug('[Settings] 缓存超过限制 (${_formatBytes(totalSize)} > ${_maxCacheSizeMB}MB)，自动清理...', tag: 'Settings');
         await _clearAllCache();
       }
     } catch (e) {

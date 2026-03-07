@@ -556,12 +556,18 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         );
       }
 
-      // 2. 重置播放状态
-      _currentPart = 1;
-      _lastReportedPosition = null;
-      _hasReportedCompleted = false;
-      _lastSavedSeconds = null;
-      _currentDuration = 0;
+      // 2. 重置播放状态 + 立即清空显示数据（避免展示旧视频信息）
+      setState(() {
+        _currentPart = 1;
+        _lastReportedPosition = null;
+        _hasReportedCompleted = false;
+        _lastSavedSeconds = null;
+        _currentDuration = 0;
+        _videoStat = VideoStat(like: 0, collect: 0, share: 0);
+        _actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
+        _totalComments = 0;
+        _latestComment = null;
+      });
 
       _historyService.resetProgressState();
 
@@ -800,45 +806,108 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   /// 构建页面主体
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
+      return Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Container(
+              color: Colors.black,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(color: Colors.white),
+                    ),
+                    SizedBox(height: 12),
+                    Text('加载中...', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Expanded(child: SizedBox.shrink()),
+        ],
       );
     }
 
     if (_errorMessage != null) {
-      final colors = context.colors;
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: colors.iconSecondary),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _errorMessage!,
-                style: TextStyle(color: colors.textSecondary),
-                textAlign: TextAlign.center,
+      return Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Container(
+              color: Colors.black,
+              child: Stack(
+                children: [
+                  // Back button
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ),
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, size: 48, color: Colors.white70),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _loadVideoData,
+                          child: const Text('重试'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadVideoData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.accentColor,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+          ),
+          const Expanded(child: SizedBox.shrink()),
+        ],
       );
     }
 
     if (_videoDetail == null) {
-      final colors = context.colors;
-      return Center(
-        child: Text('视频加载失败', style: TextStyle(color: colors.textSecondary)),
+      return Column(
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 9,
+            child: Container(
+              color: Colors.black,
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ),
+                  const Center(
+                    child: Text('视频加载失败', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Expanded(child: SizedBox.shrink()),
+        ],
       );
     }
 
