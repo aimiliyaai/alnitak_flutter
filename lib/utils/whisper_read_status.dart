@@ -13,7 +13,6 @@ class WhisperReadStatus {
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now().toIso8601String();
     await prefs.setString('$_keyPrefix$userId', now);
-    print('📬 标记私信已读: userId=$userId, time=$now');
   }
 
   /// 获取最后阅读时间

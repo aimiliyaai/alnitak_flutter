@@ -20,7 +20,6 @@ class VideoService {
       }
       return null;
     } catch (e) {
-      print('获取视频详情失败: $e');
       return null;
     }
   }
@@ -34,7 +33,6 @@ class VideoService {
       }
       return null;
     } catch (e) {
-      print('获取视频统计失败: $e');
       return null;
     }
   }
@@ -45,7 +43,6 @@ class VideoService {
       final response = await _dio.post('/api/v1/archive/video/share', data: {'vid': vid});
       return response.data['code'] == 200;
     } catch (e) {
-      print('视频分享计数失败: $e');
       return false;
     }
   }
@@ -59,35 +56,25 @@ class VideoService {
     // 【修复】分别请求，确保某个接口失败不影响其他接口
     try {
       final likeResp = await _dio.get('/api/v1/archive/video/hasLike', queryParameters: {'vid': vid});
-      print('🔍 hasLike响应: ${likeResp.data}');
       if (likeResp.data['code'] == 200 && likeResp.data['data'] != null) {
         hasLiked = likeResp.data['data']['like'] == true;
       }
-    } catch (e) {
-      print('❌ 获取点赞状态失败: $e');
-    }
+    } catch (_) {}
 
     try {
       final collectResp = await _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid});
-      print('🔍 hasCollect响应: ${collectResp.data}');
       if (collectResp.data['code'] == 200 && collectResp.data['data'] != null) {
         hasCollected = collectResp.data['data']['collect'] == true;
       }
-    } catch (e) {
-      print('❌ 获取收藏状态失败: $e');
-    }
+    } catch (_) {}
 
     try {
       final relationResp = await _dio.get('/api/v1/relation/getUserRelation', queryParameters: {'userId': authorUid});
-      print('🔍 getUserRelation响应: ${relationResp.data}');
       if (relationResp.data['code'] == 200 && relationResp.data['data'] != null) {
         relationStatus = relationResp.data['data']['relation'] ?? 0;
       }
-    } catch (e) {
-      print('❌ 获取关注状态失败: $e');
-    }
+    } catch (_) {}
 
-    print('🔍 解析后状态: hasLiked=$hasLiked, hasCollected=$hasCollected, relationStatus=$relationStatus');
 
     return UserActionStatus(
       hasLiked: hasLiked,
@@ -103,10 +90,8 @@ class VideoService {
         '/api/v1/archive/video/like',
         data: {'vid': vid},
       );
-      print('🔍 点赞响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('点赞失败: $e');
       return false;
     }
   }
@@ -118,10 +103,8 @@ class VideoService {
         '/api/v1/archive/video/cancelLike',
         data: {'vid': vid},  // 参考PC端实现，使用 vid 参数
       );
-      print('🔍 取消点赞响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('取消点赞失败: $e');
       return false;
     }
   }
@@ -135,7 +118,6 @@ class VideoService {
       }
       return false;
     } catch (e) {
-      print('获取收藏状态失败: $e');
       return false;
     }
   }
@@ -149,7 +131,6 @@ class VideoService {
       }
       return [];
     } catch (e) {
-      print('获取收藏信息失败: $e');
       return [];
     }
   }
@@ -162,10 +143,8 @@ class VideoService {
         'addList': addList,
         'cancelList': cancelList,
       });
-      print('🔍 收藏响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('收藏失败: $e');
       return false;
     }
   }
@@ -174,10 +153,8 @@ class VideoService {
   Future<bool> followUser(int uid) async {
     try {
       final response = await _dio.post('/api/v1/relation/follow', data: {'id': uid});
-      print('🔍 关注响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('关注失败: $e');
       return false;
     }
   }
@@ -186,10 +163,8 @@ class VideoService {
   Future<bool> unfollowUser(int uid) async {
     try {
       final response = await _dio.post('/api/v1/relation/unfollow', data: {'id': uid});
-      print('🔍 取消关注响应: code=${response.data['code']}, msg=${response.data['msg']}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('取消关注失败: $e');
       return false;
     }
   }
@@ -203,7 +178,6 @@ class VideoService {
       }
       return [];
     } catch (e) {
-      print('获取推荐视频失败: $e');
       return [];
     }
   }
@@ -231,7 +205,6 @@ class VideoService {
       }
       return [];
     } catch (e) {
-      print('获取清晰度失败: $e');
       return [];
     }
   }
@@ -270,7 +243,6 @@ class VideoService {
       }
       return null;
     } catch (e) {
-      print('获取评论列表失败: $e');
       return null;
     }
   }
@@ -307,7 +279,6 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('发表评论失败: $e');
       return false;
     }
   }
@@ -321,7 +292,6 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('删除评论失败: $e');
       return false;
     }
   }
@@ -334,7 +304,6 @@ class VideoService {
           : await _dio.delete('/api/v1/comment/like/$commentId');
       return response.data['code'] == 200;
     } catch (e) {
-      print('${like ? '点赞' : '取消点赞'}评论失败: $e');
       return false;
     }
   }
@@ -363,7 +332,6 @@ class VideoService {
       }
       return null;
     } catch (e) {
-      print('获取回复列表失败: $e');
       return null;
     }
   }
@@ -385,7 +353,6 @@ class VideoService {
       }
       return null;
     } catch (e) {
-      print('获取上传视频列表失败: $e');
       return null;
     }
   }
@@ -397,7 +364,6 @@ class VideoService {
       final response = await _dio.delete('/api/v1/video/deleteVideo/$vid');
       return response.data['code'] == 200;
     } catch (e) {
-      print('删除视频失败: $e');
       return false;
     }
   }

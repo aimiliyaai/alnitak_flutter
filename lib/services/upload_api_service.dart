@@ -16,13 +16,6 @@ class UploadApiService {
   /// 上传图片
   /// 返回图片URL
   static Future<String> uploadImage(File file) async {
-    print('📤 ========== 开始上传封面图片 ==========');
-    print('📁 文件路径: ${file.path}');
-    print('📝 文件名: ${path.basename(file.path)}');
-
-    final fileSize = await file.length();
-    print('📦 文件大小: ${(fileSize / 1024).toStringAsFixed(2)} KB');
-
     final formData = FormData.fromMap({
       'image': await MultipartFile.fromFile(
         file.path,
@@ -38,13 +31,8 @@ class UploadApiService {
     final data = response.data as Map<String, dynamic>;
     if (data['code'] == 200) {
       final imageUrl = data['data']['url'] as String;
-      print('✅ 图片上传成功！');
-      print('🖼️ 图片URL: $imageUrl');
-      print('📤 ========== 封面上传完成 ==========\n');
       return imageUrl;
     } else {
-      print('❌ 服务器返回错误: code=${data['code']}, msg=${data['msg']}');
-      print('📤 ========== 封面上传失败 ==========\n');
       throw Exception(data['msg'] ?? '上传图片失败');
     }
   }
@@ -68,13 +56,11 @@ class UploadApiService {
     final fileSize = await file.length();
 
     if (onCancel?.call() == true) {
-      print('❌ 上传已取消（MD5计算后）');
       throw Exception('上传已取消');
     }
 
     final fileName = filename ?? path.basename(file.path);
 
-    print('📹 准备上传视频: $fileName (MD5: $fileMd5)${vid != null ? ' (添加到VID: $vid)' : ''}');
 
     // 2. 检查已上传分片和秒传
     final checkResult = await _checkUploadedChunks(fileMd5, fileSize);
@@ -83,20 +69,16 @@ class UploadApiService {
     final fileID = checkResult['fileID'] as int;
 
     if (onCancel?.call() == true) {
-      print('❌ 上传已取消（检查分片后）');
       throw Exception('上传已取消');
     }
 
     // 【秒传】文件已存在且转码完成，直接获取视频信息
     if (instantUpload) {
-      print('⚡ 【秒传】文件已存在，跳过上传直接完成, fileID: $fileID');
       onProgress(1.0);
       final videoInfo = await _getVideoInfo(fileID: fileID, size: fileSize, title: title, vid: vid);
-      print('✅ 秒传成功，资源ID: ${videoInfo['id']}');
       return videoInfo;
     }
 
-    print('✅ 已上传分片: ${uploadedChunks.length}');
 
     // 3. 分片上传
     await _uploadInChunks(
@@ -108,34 +90,26 @@ class UploadApiService {
       onCancel: onCancel,
     );
 
-    print('✅ 分片上传完成');
 
     if (onCancel?.call() == true) {
-      print('❌ 上传已取消（分片上传后）');
       throw Exception('上传已取消');
     }
 
     // 4. 合并分片
     await _mergeChunks(hash: fileMd5, fileID: fileID, size: fileSize);
-    print('✅ 分片合并完成');
 
     if (onCancel?.call() == true) {
-      print('❌ 上传已取消（合并分片后）');
       throw Exception('上传已取消');
     }
 
     // 5. 获取视频信息（参考PC端：有vid时使用不同endpoint）
     final videoInfo = await _getVideoInfo(fileID: fileID, size: fileSize, title: title, vid: vid);
-    print('✅ 视频上传成功，资源ID: ${videoInfo['id']}');
 
     return videoInfo;
   }
 
   /// 流式计算文件MD5（避免大文件内存溢出）
   static Future<String> _calculateFileMd5(File file, {bool Function()? onCancel}) async {
-    final fileSize = await file.length();
-    print('📊 开始计算MD5: 文件大小 ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
-
     final stream = file.openRead();
 
     Stream<List<int>> cancelableStream = stream.transform(
@@ -153,7 +127,6 @@ class UploadApiService {
     final digest = await md5.bind(cancelableStream).first;
     final md5Hash = digest.toString();
 
-    print('✅ MD5计算完成: $md5Hash');
     return md5Hash;
   }
 
@@ -196,7 +169,6 @@ class UploadApiService {
     final fileSize = await file.length();
     final totalChunks = (fileSize / chunkSize).ceil();
 
-    print('📦 总分片数: $totalChunks, 已上传: ${uploadedChunks.length}');
 
     final chunksToUpload = <int>[];
     for (int i = 0; i < totalChunks; i++) {
@@ -214,7 +186,6 @@ class UploadApiService {
 
     for (int i = 0; i < chunksToUpload.length; i += maxConcurrent) {
       if (onCancel?.call() == true) {
-        print('❌ 分片上传已取消（批次 ${i ~/ maxConcurrent + 1}）');
         throw Exception('上传已取消');
       }
 
@@ -242,7 +213,6 @@ class UploadApiService {
       final progress = uploadedCount / totalChunks;
       onProgress(progress);
 
-      print('📊 上传进度: ${(progress * 100).toStringAsFixed(1)}% ($uploadedCount/$totalChunks)');
     }
   }
 
@@ -304,8 +274,6 @@ class UploadApiService {
   static Future<Map<String, dynamic>> _getVideoInfo({required int fileID, required int size, required String title, int? vid}) async {
     final endpoint = vid != null ? '/api/v1/upload/video/$vid' : '/api/v1/upload/video';
 
-    print('📡 获取视频信息: $endpoint');
-    print('📝 视频标题: $title');
 
     final response = await _dio.post(
       endpoint,

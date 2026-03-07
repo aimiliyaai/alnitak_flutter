@@ -31,9 +31,7 @@ class LoggerService {
           await _archiveOldLogs();
         }
       }
-    } catch (e) {
-      print('❌ 初始化日志服务失败: $e');
-    }
+    } catch (_) {}
   }
 
   /// 归档旧日志
@@ -54,11 +52,7 @@ class LoggerService {
       // 移动旧日志
       await _logFile!.copy(archiveFile.path);
       await _logFile!.delete();
-      
-      print('📦 旧日志已归档: ${archiveFile.path}');
-    } catch (e) {
-      print('❌ 归档日志失败: $e');
-    }
+    } catch (_) {}
   }
 
   /// 写入日志到文件
@@ -75,9 +69,7 @@ class LoggerService {
       
       // 追加写入文件
       await _logFile!.writeAsString(logEntry, mode: FileMode.append);
-    } catch (e) {
-      print('❌ 写入日志文件失败: $e');
-    }
+    } catch (_) {}
   }
 
   /// 记录错误日志
@@ -108,10 +100,9 @@ class LoggerService {
     
     buffer.writeln('─' * 80);
 
-    // 控制台输出
-    print(buffer.toString());
-    
-    // 写入文件
+    if (kDebugMode) {
+      debugPrint(buffer.toString());
+    }
     await _writeToFile(buffer.toString());
   }
 
@@ -170,7 +161,7 @@ class LoggerService {
     if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
     final tagStr = tag != null ? '[$tag] ' : '';
-    print('[$timestamp] 🔍 DEBUG: $tagStr$message');
+    debugPrint('[$timestamp] 🔍 DEBUG: $tagStr$message');
   }
 
   /// 记录信息（仅开发环境）
@@ -178,7 +169,7 @@ class LoggerService {
     if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
     final tagStr = tag != null ? '[$tag] ' : '';
-    print('[$timestamp] ℹ️ INFO: $tagStr$message');
+    debugPrint('[$timestamp] ℹ️ INFO: $tagStr$message');
   }
 
   /// 记录警告（仅开发环境）
@@ -186,7 +177,7 @@ class LoggerService {
     if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
     final tagStr = tag != null ? '[$tag] ' : '';
-    print('[$timestamp] ⚠️ WARN: $tagStr$message');
+    debugPrint('[$timestamp] ⚠️ WARN: $tagStr$message');
   }
 
   /// 记录成功信息（仅开发环境）
@@ -194,7 +185,7 @@ class LoggerService {
     if (!kDebugMode) return;
     final timestamp = DateFormat('HH:mm:ss.SSS').format(DateTime.now());
     final tagStr = tag != null ? '[$tag] ' : '';
-    print('[$timestamp] ✅ SUCCESS: $tagStr$message');
+    debugPrint('[$timestamp] ✅ SUCCESS: $tagStr$message');
   }
 
   /// 获取日志文件路径
@@ -221,7 +212,6 @@ class LoggerService {
       }
       return content;
     } catch (e) {
-      print('❌ 读取日志失败: $e');
       return null;
     }
   }

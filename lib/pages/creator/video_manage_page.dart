@@ -67,10 +67,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
       if (response != null) {
         if (response['videos'] != null) {
           final videos = List<Map<String, dynamic>>.from(response['videos']);
-          // 【调试】打印视频状态信息
-          for (final video in videos) {
-            print('📹 视频: ${video['title']}, status=${video['status']} (type: ${video['status'].runtimeType})');
-          }
           setState(() {
             _videos.addAll(videos);
           });
@@ -85,7 +81,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
         });
       }
     } catch (e) {
-      // print('加载视频列表失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('加载失败，请重试')),
@@ -138,7 +133,6 @@ class _VideoManagePageState extends State<VideoManagePage> {
           }
         }
       } catch (e) {
-        // print('删除视频失败: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('删除失败，请重试')),

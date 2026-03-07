@@ -77,11 +77,6 @@ class VideoSubmitApiService {
         if (videoList == null) {
           return [];
         }
-        // 【调试】打印原始视频数据中的状态
-        for (final item in videoList) {
-          final video = item as Map<String, dynamic>;
-          print('📹 [API] 视频: ${video['title']}, status=${video['status']} (type: ${video['status'].runtimeType})');
-        }
         return videoList
             .map((item) => ManuscriptVideo.fromJson(item as Map<String, dynamic>))
             .toList();

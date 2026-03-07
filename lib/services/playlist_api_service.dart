@@ -39,7 +39,6 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
-      print('获取视频合集失败: $e');
       return [];
     }
   }
@@ -65,7 +64,6 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
-      print('获取合集视频列表失败: $e');
       return [];
     }
   }
@@ -83,7 +81,6 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
-      print('获取我的合集列表失败: $e');
       return [];
     }
   }
@@ -119,7 +116,6 @@ class PlaylistApiService {
         );
       }
     } catch (e) {
-      print('创建合集失败: $e');
       return PlaylistResult(
         success: false,
         errorMessage: '网络错误，请稍后重试',
@@ -161,7 +157,6 @@ class PlaylistApiService {
         );
       }
     } catch (e) {
-      print('编辑合集失败: $e');
       return PlaylistResult(
         success: false,
         errorMessage: '网络错误，请稍后重试',
@@ -176,7 +171,6 @@ class PlaylistApiService {
       final response = await _dio.delete('/api/v1/playlist/del/$id');
       return response.data['code'] == 200;
     } catch (e) {
-      print('删除合集失败: $e');
       return false;
     }
   }
@@ -194,7 +188,6 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('添加视频到合集失败: $e');
       return false;
     }
   }
@@ -212,7 +205,6 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('从合集移除视频失败: $e');
       return false;
     }
   }
@@ -230,7 +222,6 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('调整合集视频排序失败: $e');
       return false;
     }
   }
@@ -248,7 +239,6 @@ class PlaylistApiService {
       }
       return '暂无原因说明';
     } catch (e) {
-      print('获取合集审核记录失败: $e');
       return '获取失败';
     }
   }
@@ -265,7 +255,6 @@ class PlaylistApiService {
       }
       return {};
     } catch (e) {
-      print('获取合集视频映射失败: $e');
       return {};
     }
   }
@@ -281,7 +270,6 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
-      print('获取所有视频列表失败: $e');
       return [];
     }
   }
@@ -298,7 +286,6 @@ class PlaylistApiService {
       }
       return null;
     } catch (e) {
-      print('获取合集视频列表（含分P）失败: $e');
       return null;
     }
   }

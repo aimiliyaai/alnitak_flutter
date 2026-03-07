@@ -53,7 +53,6 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
   void dispose() {
     // 【新增】清理临时文件
     _cleanupTempFiles().catchError((e) {
-      print('⚠️ dispose 清理临时文件失败: $e');
     });
 
     _titleController.dispose();
@@ -68,11 +67,8 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
       try {
         if (await _coverFile!.exists()) {
           await _coverFile!.delete();
-          print('🗑️ 已清理文章封面临时文件');
         }
-      } catch (e) {
-        print('⚠️ 清理封面文件失败: $e');
-      }
+      } catch (_) {}
       _coverFile = null;
     }
   }

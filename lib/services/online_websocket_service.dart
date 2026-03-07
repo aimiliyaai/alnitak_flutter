@@ -75,7 +75,6 @@ class OnlineWebSocketService {
       final url = _buildUrl(_currentVid!, clientId);
 
       if (kDebugMode) {
-        print('[OnlineWS] 开始连接: $url');
       }
 
       // 使用 IOWebSocketChannel 以获得更好的移动平台支持
@@ -88,7 +87,6 @@ class OnlineWebSocketService {
       );
 
       if (kDebugMode) {
-        print('[OnlineWS] 原生 WebSocket 连接成功');
       }
 
       // 连接建立后检查是否已被取消
@@ -103,7 +101,6 @@ class OnlineWebSocketService {
       _reconnectAttempts = 0;
 
       if (kDebugMode) {
-        print('[OnlineWS] 开始监听消息流');
       }
 
       _subscription = _channel!.stream.listen(
@@ -115,11 +112,9 @@ class OnlineWebSocketService {
       _startHeartbeat();
 
       if (kDebugMode) {
-        print('[OnlineWS] WebSocket 已启动，等待服务器消息');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('[OnlineWS] 连接失败: $e');
       }
       _scheduleReconnect();
     }
@@ -128,7 +123,6 @@ class OnlineWebSocketService {
   void _onMessage(dynamic data) {
     _lastMessageTime = DateTime.now();
     if (kDebugMode) {
-      print('[OnlineWS] 收到消息: $data');
     }
     try {
       final json = jsonDecode(data as String);
@@ -137,25 +131,21 @@ class OnlineWebSocketService {
         final count = json['number'] as int;
         onlineCount.value = count;
         if (kDebugMode) {
-          print('[OnlineWS] 在线人数更新: $count');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('[OnlineWS] 解析消息失败: $e, 原始数据: $data');
       }
     }
   }
 
   void _onError(dynamic error) {
     if (kDebugMode) {
-      print('[OnlineWS] 错误: $error');
     }
   }
 
   void _onDone() {
     if (kDebugMode) {
-      print('[OnlineWS] 连接关闭');
     }
     _channel = null;
     _stopHeartbeat();
@@ -171,7 +161,6 @@ class OnlineWebSocketService {
       if (_lastMessageTime != null &&
           DateTime.now().difference(_lastMessageTime!).inSeconds > 45) {
         if (kDebugMode) {
-          print('[OnlineWS] 心跳超时，主动断开');
         }
         _channel?.sink.close();
       }
@@ -187,7 +176,6 @@ class OnlineWebSocketService {
     if (_isManualClose || _isPaused || _currentVid == null) return;
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       if (kDebugMode) {
-        print('[OnlineWS] 达到最大重连次数');
       }
       return;
     }
@@ -199,7 +187,6 @@ class OnlineWebSocketService {
     );
 
     if (kDebugMode) {
-      print('[OnlineWS] ${delay.inSeconds}s 后第 $_reconnectAttempts 次重连');
     }
 
     _reconnectTimer = Timer(delay, () {
@@ -227,7 +214,6 @@ class OnlineWebSocketService {
     _isPaused = true;
     _cleanup();
     if (kDebugMode) {
-      print('[OnlineWS] 后台暂停');
     }
   }
 
@@ -239,7 +225,6 @@ class OnlineWebSocketService {
       _reconnectAttempts = 0;
       _doConnect();
       if (kDebugMode) {
-        print('[OnlineWS] 前台恢复, vid=$_currentVid');
       }
     }
   }

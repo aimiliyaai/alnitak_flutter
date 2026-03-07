@@ -27,7 +27,6 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
-      print('获取公告列表失败: $e');
       return [];
     }
   }
@@ -56,7 +55,6 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
-      print('获取@消息列表失败: $e');
       return [];
     }
   }
@@ -85,7 +83,6 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
-      print('获取点赞消息列表失败: $e');
       return [];
     }
   }
@@ -114,7 +111,6 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
-      print('获取回复消息列表失败: $e');
       return [];
     }
   }
@@ -130,16 +126,13 @@ class MessageApiService {
         '/api/v1/message/getWhisperList',
       );
 
-      print('私信列表响应: ${response.data}');
 
       if (response.data['code'] == 200) {
         final list = response.data['data']['messages'] as List<dynamic>? ?? [];
-        print('私信列表长度: ${list.length}');
         return list.map((e) => WhisperListItem.fromJson(e)).toList();
       }
       return [];
     } catch (e) {
-      print('获取私信列表失败: $e');
       return [];
     }
   }
@@ -164,18 +157,14 @@ class MessageApiService {
         },
       );
 
-      print('私信详情响应: ${response.data}');
 
       if (response.data['code'] == 200) {
         final data = response.data['data'];
-        print('私信详情data: $data');
         final list = data['messages'] as List<dynamic>? ?? [];
-        print('私信详情列表长度: ${list.length}');
         return list.map((e) => WhisperDetail.fromJson(e)).toList();
       }
       return [];
     } catch (e) {
-      print('获取私信详情失败: $e');
       return [];
     }
   }
@@ -200,7 +189,6 @@ class MessageApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('发送私信失败: $e');
       return false;
     }
   }
@@ -218,10 +206,8 @@ class MessageApiService {
         data: {'fid': fid},
       );
 
-      print('标记私信已读: fid=$fid, 结果: ${response.data}');
       return response.data['code'] == 200;
     } catch (e) {
-      print('标记已读失败: $e');
       return false;
     }
   }

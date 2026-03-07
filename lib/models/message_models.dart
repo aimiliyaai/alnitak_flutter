@@ -205,9 +205,7 @@ class WhisperListItem {
   });
 
   factory WhisperListItem.fromJson(Map<String, dynamic> json) {
-    print('解析私信列表项JSON: $json');
     final userJson = json['user'] ?? {};
-    print('用户信息JSON: $userJson');
     return WhisperListItem(
       user: MessageUserInfo.fromJson(userJson),
       createdAt: json['createdAt'] ?? json['created_at'] ?? '',
@@ -231,7 +229,6 @@ class WhisperDetail {
   });
 
   factory WhisperDetail.fromJson(Map<String, dynamic> json) {
-    print('解析私信详情JSON: $json');
     return WhisperDetail(
       fid: json['fid'] ?? 0,
       fromId: json['fromId'] ?? json['from_id'] ?? 0,

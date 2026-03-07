@@ -146,7 +146,6 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
   @override
   void dispose() {
     _isDisposed = true;
-
     WidgetsBinding.instance.removeObserver(this);
 
     _controller?.dispose();
@@ -173,43 +172,28 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
     return Stack(
       children: [
         _buildPlayerWithGestures(),
-        ValueListenableBuilder<bool>(
-          valueListenable: _controller!.isPlayerInitialized,
-          builder: (context, isInitialized, _) {
-            if (isInitialized) {
+        // 方案七（行业惯例）：未初始化显示加载；已初始化且 hasEverPlayed 且 持续缓冲 才显示缓冲加载
+        AnimatedBuilder(
+          animation: Listenable.merge([
+            _controller!.isPlayerInitialized,
+            _controller!.hasEverPlayed,
+            _controller!.isBuffering,
+          ]),
+          builder: (context, _) {
+            if (!_controller!.isPlayerInitialized.value) {
+              return Positioned.fill(
+                child: IgnorePointer(
+                  child: _buildLoadingWidget(),
+                ),
+              );
+            }
+            if (!_controller!.hasEverPlayed.value || !_controller!.isBuffering.value) {
               return const SizedBox.shrink();
             }
             return Positioned.fill(
               child: IgnorePointer(
                 child: _buildLoadingWidget(),
               ),
-            );
-          },
-        ),
-        // Buffering indicator (only when initialized and buffering)
-        ValueListenableBuilder<bool>(
-          valueListenable: _controller!.isPlayerInitialized,
-          builder: (context, isInitialized, _) {
-            if (!isInitialized) return const SizedBox.shrink();
-            return ValueListenableBuilder<bool>(
-              valueListenable: _controller!.isBuffering,
-              builder: (context, buffering, _) {
-                if (!buffering) return const SizedBox.shrink();
-                return const Positioned.fill(
-                  child: IgnorePointer(
-                    child: Center(
-                      child: SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: CircularProgressIndicator(
-                          color: Colors.white70,
-                          strokeWidth: 3,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
             );
           },
         ),

@@ -34,7 +34,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取用户基础信息失败: $e');
       return null;
     }
   }
@@ -43,14 +42,12 @@ class UserService {
   Future<UserInfo?> getUserInfo() async {
     // 【新增】检查是否可以进行认证请求
     if (!_tokenManager.canMakeAuthenticatedRequest) {
-      print('⏭️ 跳过获取个人信息：未登录或token已失效');
       return null;
     }
 
     try {
       final token = _authService.getToken();
       if (token == null) {
-        print('❌ 未登录，无法获取个人信息');
         return null;
       }
 
@@ -69,7 +66,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取个人信息失败: $e');
       return null;
     }
   }
@@ -87,7 +83,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取关注统计失败: $e');
       return null;
     }
   }
@@ -105,7 +100,6 @@ class UserService {
       }
       return 0;
     } catch (e) {
-      print('❌ 获取用户关系失败: $e');
       return 0;
     }
   }
@@ -127,7 +121,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取用户视频列表失败: $e');
       return null;
     }
   }
@@ -149,7 +142,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取关注列表失败: $e');
       return null;
     }
   }
@@ -171,7 +163,6 @@ class UserService {
       }
       return null;
     } catch (e) {
-      print('❌ 获取粉丝列表失败: $e');
       return null;
     }
   }
@@ -189,7 +180,6 @@ class UserService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 关注用户失败: $e');
       return false;
     }
   }
@@ -207,7 +197,6 @@ class UserService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 取消关注失败: $e');
       return false;
     }
   }
@@ -223,14 +212,12 @@ class UserService {
   }) async {
     // 【新增】检查是否可以进行认证请求
     if (!_tokenManager.canMakeAuthenticatedRequest) {
-      print('⏭️ 跳过编辑个人信息：未登录或token已失效');
       return false;
     }
 
     try {
       final token = _authService.getToken();
       if (token == null) {
-        print('❌ 未登录，无法编辑个人信息');
         return false;
       }
 
@@ -254,7 +241,6 @@ class UserService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 编辑个人信息失败: $e');
       return false;
     }
   }

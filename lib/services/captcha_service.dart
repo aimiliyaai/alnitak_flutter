@@ -29,25 +29,18 @@ class CaptchaService {
   /// 获取滑块验证数据
   Future<CaptchaData?> getCaptcha(String captchaId) async {
     try {
-      print('🔍 请求验证码，captchaId: $captchaId');
       final response = await _httpClient.dio.get(
         '/api/v1/verify/captcha/get',
         queryParameters: {'captchaId': captchaId},
       );
 
-      print('📡 验证码API响应: ${response.data}');
 
       if (response.data['code'] == 200) {
-        print('✅ 验证码API返回200，开始解析data字段');
-        print('   data字段内容: ${response.data['data']}');
         return CaptchaData.fromJson(response.data['data']);
       } else {
-        print('⚠️ 验证码API返回非200: code=${response.data['code']}, msg=${response.data['msg']}');
       }
       return null;
-    } catch (e, stackTrace) {
-      print('❌ 获取验证码失败: $e');
-      print('   Stack: $stackTrace');
+    } catch (e) {
       return null;
     }
   }
@@ -58,38 +51,26 @@ class CaptchaService {
     required int x,
   }) async {
     try {
-      print('🔍 发送验证请求:');
-      print('   - captchaId: $captchaId');
-      print('   - x坐标: $x');
 
       final requestData = CaptchaValidateRequest(
         captchaId: captchaId,
         x: x,
       ).toJson();
 
-      print('   - 请求数据: $requestData');
 
       final response = await _httpClient.dio.post(
         '/api/v1/verify/captcha/validate',
         data: requestData,
       );
 
-      print('📡 验证响应:');
-      print('   - code: ${response.data['code']}');
-      print('   - msg: ${response.data['msg']}');
-      print('   - 完整响应: ${response.data}');
 
       final success = response.data['code'] == 200;
       if (success) {
-        print('✅ 服务端验证通过');
       } else {
-        print('❌ 服务端验证失败: ${response.data['msg']}');
       }
 
       return success;
-    } catch (e, stackTrace) {
-      print('❌ 验证滑块请求异常: $e');
-      print('   Stack: $stackTrace');
+    } catch (e) {
       return false;
     }
   }
@@ -121,13 +102,11 @@ class CaptchaService {
           throw SendCodeCaptchaRequiredException(serverCaptchaId);
         }
       }
-      print('❌ 发送邮箱验证码失败: ${response.data['msg']}');
       return false;
     } catch (e) {
       if (e is SendCodeCaptchaRequiredException) {
         rethrow;
       }
-      print('❌ 发送邮箱验证码失败: $e');
       return false;
     }
   }

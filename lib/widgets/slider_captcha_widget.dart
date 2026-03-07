@@ -48,15 +48,9 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
       _errorMessage = null;
     });
 
-    print('🔍 开始加载验证码，captchaId: ${widget.captchaId}');
     final captchaData = await _captchaService.getCaptcha(widget.captchaId);
 
     if (captchaData != null) {
-      print('✅ 验证码加载成功');
-      print('   - y坐标: ${captchaData.y}');
-      print('   - bgImg长度: ${captchaData.bgImg.length}');
-      print('   - sliderImg长度: ${captchaData.sliderImg.length}');
-      print('   - bgImg前缀: ${captchaData.bgImg.substring(0, captchaData.bgImg.length > 50 ? 50 : captchaData.bgImg.length)}');
 
       // 预先解码图片并缓存,避免每次setState都重新解码
       _cachedBgImage = _decodeBase64(captchaData.bgImg);
@@ -67,7 +61,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
         _isLoading = false;
       });
     } else {
-      print('❌ 验证码加载失败');
       setState(() {
         _errorMessage = '加载验证码失败，请重试';
         _isLoading = false;
@@ -81,12 +74,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
 
     setState(() => _isValidating = true);
 
-    print('🔍 开始验证滑块位置');
-    print('   - captchaId: ${widget.captchaId}');
-    print('   - 提交的x坐标(原始坐标系): $x');
-    print('   - 服务端y坐标(原始坐标系): ${_captchaData?.y}');
-    print('   - 当前缩放比例: $_currentScale');
-    print('   - 滑块UI位置(缩放后): $_sliderPosition');
 
     final success = await _captchaService.validateCaptcha(
       captchaId: widget.captchaId,
@@ -94,19 +81,11 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
     );
 
     if (success) {
-      print('✅ 滑块验证成功！');
-      print('   - 提交的x坐标: $x (原始坐标系)');
-      print('   - 对应的缩放后位置: ${x * _currentScale}');
       widget.onSuccess();
       if (mounted) {
         Navigator.pop(context);
       }
     } else {
-      print('❌ 滑块验证失败！');
-      print('   - 提交的x坐标: $x (原始坐标系)');
-      print('   - 滑块UI位置: $_sliderPosition (缩放后)');
-      print('   - 转换关系: $_sliderPosition / $_currentScale = ${_sliderPosition / _currentScale}');
-      print('   - 服务端期望的x范围: 可能在 ${(_captchaData?.y ?? 0) - 5} ~ ${(_captchaData?.y ?? 0) + 5} 附近');
       setState(() {
         _errorMessage = '验证失败，请重新滑动';
         _sliderPosition = 0;
@@ -240,15 +219,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
               final scaledSliderWidth = originalSliderWidth * scale;
               final scaledSliderHeight = originalSliderHeight * scale;
 
-              print('📐 验证码缩放信息:');
-              print('   - 原始尺寸: ${originalWidth}x$originalHeight');
-              print('   - 容器宽度: $containerWidth');
-              print('   - 缩放比例: $scale');
-              print('   - 缩放后高度: $scaledHeight');
-              print('   - 原始y坐标: ${_captchaData!.y}');
-              print('   - 缩放后y坐标: $scaledY');
-              print('   - 滑块原始尺寸: ${originalSliderWidth}x$originalSliderHeight');
-              print('   - 滑块缩放尺寸: ${scaledSliderWidth}x$scaledSliderHeight');
 
               return ClipRRect(
                 borderRadius: BorderRadius.circular(8.r),
@@ -267,7 +237,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
                                 fit: BoxFit.fill, // 填充指定尺寸
                                 gaplessPlayback: true, // 防止图片闪烁
                                 errorBuilder: (context, error, stackTrace) {
-                                  print('❌ 背景图加载失败: $error');
                                   return Container(
                                     height: scaledHeight,
                                     color: Colors.grey[300],
@@ -292,7 +261,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
                                 fit: BoxFit.fill, // 填充指定尺寸
                                 gaplessPlayback: true, // 防止图片闪烁
                                 errorBuilder: (context, error, stackTrace) {
-                                  print('❌ 滑块图加载失败: $error');
                                   return Container(
                                     width: scaledSliderWidth,
                                     height: scaledSliderHeight,
@@ -365,11 +333,6 @@ class _SliderCaptchaWidgetState extends State<SliderCaptchaWidget> {
                           final scaledX = _sliderPosition;
                           final originalX = (scaledX / _currentScale).round();
 
-                          print('🖱️ 用户拖动结束:');
-                          print('   - 滑块位置(缩放后像素): $scaledX');
-                          print('   - 当前缩放比例: $_currentScale');
-                          print('   - 转换回原始坐标: $originalX');
-                          print('   - 原始y坐标: ${_captchaData?.y}');
 
                           _validateSlider(originalX);
                         },

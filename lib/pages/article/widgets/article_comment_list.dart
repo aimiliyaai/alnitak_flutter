@@ -105,8 +105,8 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
           _currentUserAvatar = userInfo.userInfo.avatar;
         });
       }
-    } catch (e) {
-      print('加载用户信息失败: $e');
+    } catch (_) {
+      // 静默忽略获取当前用户失败
     }
   }
 
@@ -163,7 +163,6 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
         });
       }
     } catch (e) {
-      print('加载评论失败: $e');
       setState(() {
         _isLoading = false;
       });
@@ -205,7 +204,6 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
         });
       }
     } catch (e) {
-      print('加载回复失败: $e');
       setState(() {
         _loadingReplies[commentId] = false;
       });
@@ -332,7 +330,6 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
         }
       }
     } catch (e) {
-      print('删除评论失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('删除评论失败: $e')),

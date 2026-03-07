@@ -50,7 +50,6 @@ class AuthService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 注册失败: $e');
       return false;
     }
   }
@@ -82,7 +81,6 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      print('❌ 登录失败: $e');
       rethrow;
     }
   }
@@ -110,7 +108,6 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      print('❌ 邮箱登录失败: $e');
       rethrow;
     }
   }
@@ -139,7 +136,6 @@ class AuthService {
       }
       return null;
     } catch (e) {
-      print('❌ 更新 Token 失败: $e');
       return null;
     }
   }
@@ -166,7 +162,6 @@ class AuthService {
       await _tokenManager.clearTokens();
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 退出登录失败: $e');
       await _tokenManager.clearTokens(); // 即使请求失败，也清除本地 token
       return false;
     }
@@ -198,13 +193,11 @@ class AuthService {
           throw ResetPasswordCaptchaRequiredException(serverCaptchaId);
         }
       }
-      print('❌ 修改密码验证失败: ${response.data['msg']}');
       return false;
     } catch (e) {
       if (e is ResetPasswordCaptchaRequiredException) {
         rethrow;
       }
-      print('❌ 修改密码验证失败: $e');
       return false;
     }
   }
@@ -229,7 +222,6 @@ class AuthService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('❌ 修改密码失败: $e');
       return false;
     }
   }

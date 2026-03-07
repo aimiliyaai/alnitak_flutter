@@ -36,7 +36,6 @@ class ArticleApiService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取随机文章失败: $e');
       }
       rethrow;
     }
@@ -79,7 +78,6 @@ class ArticleApiService {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取文章详情失败: $e');
       }
       rethrow;
     }
@@ -98,7 +96,6 @@ class ArticleApiService {
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取文章统计失败: $e');
       }
       return null;
     }
@@ -113,7 +110,6 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      print('文章分享计数失败: $e');
       return false;
     }
   }
@@ -131,7 +127,6 @@ class ArticleApiService {
       return false;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取文章点赞状态失败: $e');
       }
       return false;
     }
@@ -147,7 +142,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 文章点赞失败: $e');
       }
       return false;
     }
@@ -163,7 +157,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 文章取消点赞失败: $e');
       }
       return false;
     }
@@ -182,7 +175,6 @@ class ArticleApiService {
       return false;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取文章收藏状态失败: $e');
       }
       return false;
     }
@@ -198,7 +190,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 文章收藏失败: $e');
       }
       return false;
     }
@@ -214,7 +205,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 文章取消收藏失败: $e');
       }
       return false;
     }
@@ -241,7 +231,6 @@ class ArticleApiService {
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取文章评论失败: $e');
       }
       return null;
     }
@@ -269,7 +258,6 @@ class ArticleApiService {
       return null;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 获取评论回复失败: $e');
       }
       return null;
     }
@@ -301,7 +289,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 发表文章评论失败: $e');
       }
       return false;
     }
@@ -316,7 +303,6 @@ class ArticleApiService {
       return response.data['code'] == 200;
     } catch (e) {
       if (kDebugMode) {
-        print('❌ 删除文章评论失败: $e');
       }
       return false;
     }

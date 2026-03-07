@@ -20,7 +20,6 @@ class CarouselService {
       }
       return [];
     } catch (e) {
-      print('获取轮播图失败: $e');
       return [];
     }
   }

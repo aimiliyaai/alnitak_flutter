@@ -288,7 +288,6 @@ class TokenManager extends ChangeNotifier {
   /// 安全日志（不打印敏感信息）
   void _logSafe(String message) {
     if (kDebugMode) {
-      print('🔐 [TokenManager] $message');
     }
   }
 

@@ -35,11 +35,9 @@ class DanmakuService {
             .map((item) => Danmaku.fromJson(item as Map<String, dynamic>))
             .toList();
       } else {
-        print('获取弹幕失败: ${response.data['msg']}');
         return [];
       }
     } catch (e) {
-      print('获取弹幕异常: $e');
       return [];
     }
   }
@@ -54,14 +52,11 @@ class DanmakuService {
       );
 
       if (response.data['code'] == 200) {
-        print('弹幕发送成功');
         return true;
       } else {
-        print('弹幕发送失败: ${response.data['msg']}');
         return false;
       }
     } catch (e) {
-      print('弹幕发送异常: $e');
       return false;
     }
   }

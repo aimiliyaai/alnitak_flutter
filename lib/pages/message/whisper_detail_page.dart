@@ -72,18 +72,15 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
   Future<void> _loadMessages({int retryCount = 0}) async {
     setState(() => _isLoading = true);
 
-    print('正在加载私信详情, userId(fid): ${widget.userId}');
 
     final data = await _apiService.getWhisperDetails(
       fid: widget.userId,
       pageSize: 20,
     );
 
-    print('私信详情加载完成, 消息数量: ${data.length}');
 
     // 如果返回空且是首次请求，可能是速率限制，稍后重试
     if (data.isEmpty && retryCount < 2) {
-      print('私信详情为空，${retryCount + 1}秒后重试...');
       await Future.delayed(Duration(seconds: retryCount + 1));
       if (mounted) {
         _loadMessages(retryCount: retryCount + 1);

@@ -39,6 +39,8 @@ class VideoPlayerController extends ChangeNotifier {
   final ValueNotifier<LoopMode> loopMode = ValueNotifier(LoopMode.off);
   final ValueNotifier<bool> backgroundPlayEnabled = ValueNotifier(false);
   final ValueNotifier<bool> isBuffering = ValueNotifier(false);
+  /// 是否已经有过播放进度（position > 0），用于区分首帧前加载 vs 播放中缓冲（行业惯例）
+  final ValueNotifier<bool> hasEverPlayed = ValueNotifier(false);
 
   // ============ pili_plus 风格进度条状态（秒级粒度，防跳变） ============
   /// 进度条显示位置（秒），拖拽时冻结不接收 mpv 更新
@@ -87,6 +89,19 @@ class VideoPlayerController extends ChangeNotifier {
 
   Timer? _stalledTimer;
   Timer? _seekTimer;
+  /// 缓冲持续超过此时间才对外置 isBuffering=true（避免短暂抖动闪加载，参考 YouTube/哔哩哔哩）
+  Timer? _bufferingShowTimer;
+  static const int _bufferingSustainMs = 1500;
+
+  /// 方案 B 加强：open(play: false) 后等缓冲量达标且 buffering 结束再 play
+  bool _pendingStablePlay = false;
+  Timer? _stablePlayFallbackTimer;
+  /// 本次 setDataSource 是否为清晰度切换（用更长延迟避免高码率切换时音频卡两次）
+  bool _isQualitySwitchStablePlay = false;
+  static const int _stablePlayDelayMs = 50;
+  static const int _stablePlayDelayQualitySwitchMs = 50;
+  static const int _minBufferSeconds = 1;
+  static const int _stablePlayFallbackSeconds = 3;
 
   int? _currentVid;
   int _currentPart = 1;
@@ -228,6 +243,7 @@ class VideoPlayerController extends ChangeNotifier {
       isLoading.value = true;
       errorMessage.value = null;
       isPlayerInitialized.value = false;
+      hasEverPlayed.value = false;
       _userIntendedPosition = Duration(seconds: initialPosition?.toInt() ?? 0);
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
@@ -289,15 +305,18 @@ class VideoPlayerController extends ChangeNotifier {
   /// 流程：
   /// 1. removeListeners()，清空缓冲状态
   /// 2. 创建 Player（??= 复用），配置 audio-files 挂载独立音频
-  /// 3. player.open(Media(videoUrl, start: seekTo), play: false) — mpv 原子 seek 所有流
-  /// 4. startListeners()
-  /// 5. play()
+  /// 3. startListeners() 先注册监听
+  /// 4. player.open(Media(..., start: seekTo), play: false) — 方案 B：等缓冲稳定再 play
+  /// 5. 若 autoPlay：设 _pendingStablePlay，buffering 变 false 后延迟 80ms 再 play() 并激活 AudioSession
   Future<void> setDataSource(
     DataSource dataSource, {
     Duration seekTo = Duration.zero,
     bool autoPlay = true,
+    bool fromQualitySwitch = false,
   }) async {
     if (_isDisposed) return;
+
+    _isQualitySwitchStablePlay = fromQualitySwitch;
 
     try {
       isLoading.value = true;
@@ -307,7 +326,13 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       removeListeners();
+      _pendingStablePlay = false;
+      _stablePlayFallbackTimer?.cancel();
+      _stablePlayFallbackTimer = null;
+      _bufferingShowTimer?.cancel();
+      _bufferingShowTimer = null;
       isBuffering.value = false;
+      hasEverPlayed.value = false;
       _hasPlaybackStarted = false;
       _hasTriggeredCompletion = false;
       _hasJustCompleted = false;
@@ -356,8 +381,11 @@ class VideoPlayerController extends ChangeNotifier {
         await nativePlayer.setProperty('audio-files', '');
       }
 
-      // 参考 pili_plus: Media(start:) 原子 seek + httpHeaders 传递请求头
-      _logger.logDebug('setDataSource: open (seekTo=${seekTo.inSeconds}s)');
+      // 方案 B：先注册监听器，再 open(play: false)，等缓冲稳定后再 play，避免首帧音频播两次
+      startListeners();
+
+      final shouldPlayAfterStable = autoPlay;
+      _logger.logDebug('setDataSource: open (seekTo=${seekTo.inSeconds}s, play: $shouldPlayAfterStable)');
       await _player!.open(
         Media(
           dataSource.videoSource,
@@ -367,15 +395,16 @@ class VideoPlayerController extends ChangeNotifier {
         play: false,
       );
 
-      // 参考 pili_plus: 先注册监听器，再手动触发播放
-      startListeners();
-
       isLoading.value = false;
       isPlayerInitialized.value = true;
 
-      // pili_plus 风格：监听器就位后再开始播放（走 play() 激活 AudioSession）
-      if (autoPlay && !_isDisposed) {
-        await play();
+      if (shouldPlayAfterStable && !_isDisposed) {
+        _pendingStablePlay = true;
+        _trySchedulePlayWhenStable();
+        _stablePlayFallbackTimer = Timer(const Duration(seconds: _stablePlayFallbackSeconds), () {
+          if (_pendingStablePlay) _schedulePlayWhenStable();
+          _stablePlayFallbackTimer = null;
+        });
       }
 
     } catch (e) {
@@ -443,7 +472,7 @@ class VideoPlayerController extends ChangeNotifier {
     isSwitchingQuality.value = true;
 
     try {
-      await _reloadWithDataSource(quality, position);
+      await _reloadWithDataSource(quality, position, fromQualitySwitch: true);
       currentQuality.value = quality;
       await _savePreferredQuality(quality);
       _userIntendedPosition = position;
@@ -456,8 +485,8 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 重新加载数据源（用于卡顿恢复等场景）
-  Future<void> _reloadWithDataSource(String? quality, Duration position, {bool setQuality = true}) async {
+  /// 重新加载数据源（用于清晰度切换、卡顿恢复等场景）
+  Future<void> _reloadWithDataSource(String? quality, Duration position, {bool setQuality = true, bool fromQualitySwitch = false}) async {
     final targetQuality = quality ?? currentQuality.value;
     if (targetQuality == null || _currentResourceId == null) return;
 
@@ -468,6 +497,7 @@ class VideoPlayerController extends ChangeNotifier {
       dataSource,
       seekTo: position.inSeconds > 0 ? position : Duration.zero,
       autoPlay: true,
+      fromQualitySwitch: fromQualitySwitch,
     );
   }
 
@@ -598,6 +628,9 @@ class VideoPlayerController extends ChangeNotifier {
         }
 
         _updatePositionState(position);
+        if (position > Duration.zero && !hasEverPlayed.value) {
+          hasEverPlayed.value = true;
+        }
       }),
 
       _player!.stream.duration.listen((duration) {
@@ -608,14 +641,20 @@ class VideoPlayerController extends ChangeNotifier {
 
       _player!.stream.buffer.listen((buffer) {
         _updateBufferedSecond();
+        if (_pendingStablePlay && !_player!.state.buffering && buffer.inSeconds >= _minBufferSeconds) {
+          _schedulePlayWhenStable();
+        }
       }),
 
       _player!.stream.buffering.listen((buffering) {
-        isBuffering.value = buffering;
-
         if (buffering) {
-          // 不在 buffering 时暂停播放（PiliPlus 方式）：
-          // mpv 内部会自行处理 DASH 音视频流的同步，暂停反而会导致 seek 后卡住。
+          _bufferingShowTimer?.cancel();
+          _bufferingShowTimer = Timer(const Duration(milliseconds: _bufferingSustainMs), () {
+            _bufferingShowTimer = null;
+            if (_player != null && _player!.state.buffering) {
+              isBuffering.value = true;
+            }
+          });
           _stalledTimer?.cancel();
           _stalledTimer = Timer(const Duration(seconds: 15), () {
             if (_player != null && _player!.state.buffering) {
@@ -623,7 +662,13 @@ class VideoPlayerController extends ChangeNotifier {
             }
           });
         } else {
+          _bufferingShowTimer?.cancel();
+          _bufferingShowTimer = null;
+          isBuffering.value = false;
           _stalledTimer?.cancel();
+          if (_pendingStablePlay) {
+            _trySchedulePlayWhenStable();
+          }
         }
       }),
 
@@ -678,6 +723,30 @@ class VideoPlayerController extends ChangeNotifier {
 
   }
 
+  /// 仅在 buffering 结束且缓冲量 >= _minBufferSeconds 时才调度 play
+  void _trySchedulePlayWhenStable() {
+    if (!_pendingStablePlay || _isDisposed || _player == null) return;
+    if (_player!.state.buffering) return;
+    if (_player!.state.buffer.inSeconds < _minBufferSeconds) return;
+    _schedulePlayWhenStable();
+  }
+
+  /// 方案 B：真正执行「延迟后 play」，只执行一次，并取消兜底定时器
+  /// 清晰度切换时用更长延迟，避免高码率流起播时音频卡两次
+  void _schedulePlayWhenStable() {
+    if (!_pendingStablePlay || _isDisposed || _player == null) return;
+    _pendingStablePlay = false;
+    _stablePlayFallbackTimer?.cancel();
+    _stablePlayFallbackTimer = null;
+    final delayMs = _isQualitySwitchStablePlay ? _stablePlayDelayQualitySwitchMs : _stablePlayDelayMs;
+    _isQualitySwitchStablePlay = false;
+    Future.delayed(Duration(milliseconds: delayMs), () {
+      if (_isDisposed || _player == null) return;
+      play();
+      _audioSession?.setActive(true);
+    });
+  }
+
   /// 移除事件监听（照搬 pilipala 的 removeListeners）
   void removeListeners() {
     for (final s in _subscriptions) {
@@ -688,6 +757,10 @@ class VideoPlayerController extends ChangeNotifier {
     _stalledTimer = null;
     _seekTimer?.cancel();
     _seekTimer = null;
+    _bufferingShowTimer?.cancel();
+    _bufferingShowTimer = null;
+    _stablePlayFallbackTimer?.cancel();
+    _stablePlayFallbackTimer = null;
   }
 
   /// 处理卡顿恢复（参考 pili_plus 的 refreshPlayer，复用 setDataSource）
@@ -1044,6 +1117,9 @@ class VideoPlayerController extends ChangeNotifier {
 
     _seekTimer?.cancel();
     _stalledTimer?.cancel();
+    _bufferingShowTimer?.cancel();
+    _stablePlayFallbackTimer?.cancel();
+    _stablePlayFallbackTimer = null;
 
     // pilipala: removeListeners + 清空 audio-files
     removeListeners();

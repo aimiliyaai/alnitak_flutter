@@ -64,7 +64,6 @@ class _VideoResourceListState extends State<VideoResourceList> {
   void dispose() {
     // 【新增】清理队列临时文件
     _cleanupQueueFiles().catchError((e) {
-      print('⚠️ dispose 清理队列文件失败: $e');
     });
 
     _titleEditController.dispose();
@@ -73,25 +72,18 @@ class _VideoResourceListState extends State<VideoResourceList> {
 
   /// 清理上传队列中的临时文件
   Future<void> _cleanupQueueFiles() async {
-    print('🗑️ 开始清理上传队列临时文件...');
 
     for (final task in _uploadQueue) {
       try {
         if (await task.file.exists()) {
           await task.file.delete();
-          print('🗑️ 已清理队列临时文件: ${task.fileName}');
         }
-      } catch (e) {
-        print('⚠️ 清理队列文件失败: ${task.fileName}, $e');
-      }
+      } catch (_) {}
     }
 
-    // 清理 FilePicker 临时文件
     try {
       await FilePicker.platform.clearTemporaryFiles();
-    } catch (e) {
-      print('⚠️ 清理 FilePicker 临时文件失败: $e');
-    }
+    } catch (_) {}
   }
 
   /// 获取状态文本
@@ -134,7 +126,6 @@ class _VideoResourceListState extends State<VideoResourceList> {
       }
     }
 
-    print('📁 添加 ${result.files.length} 个文件到上传队列');
 
     // 开始处理队列
     _processUploadQueue();
@@ -161,7 +152,6 @@ class _VideoResourceListState extends State<VideoResourceList> {
       });
 
       try {
-        print('🚀 开始上传: ${task.fileName}');
 
         final videoInfo = await UploadApiService.uploadVideo(
           file: task.file,
@@ -190,11 +180,8 @@ class _VideoResourceListState extends State<VideoResourceList> {
         try {
           if (await task.file.exists()) {
             await task.file.delete();
-            print('🗑️ 已清理已上传的临时文件: ${task.fileName}');
           }
-        } catch (e) {
-          print('⚠️ 清理已上传文件失败: $e');
-        }
+        } catch (_) {}
 
         if (mounted) {
           setState(() {
@@ -204,10 +191,8 @@ class _VideoResourceListState extends State<VideoResourceList> {
           });
 
           widget.onResourcesChanged?.call(_resources);
-          print('✅ 上传成功: ${task.fileName}');
         }
       } catch (e) {
-        print('❌ 上传失败: ${task.fileName}, 错误: $e');
         if (mounted) {
           setState(() {
             task.isUploading = false;

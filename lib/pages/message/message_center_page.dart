@@ -64,18 +64,16 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
       final replyLatestId = replyList.isNotEmpty ? replyList.first.id as int : 0;
       final atLatestId = atList.isNotEmpty ? atList.first.id as int : 0;
 
-      print('📬 最新消息ID: announce=$announceLatestId, like=$likeLatestId, reply=$replyLatestId, at=$atLatestId');
 
       _latestIds[MessageReadStatus.announce] = announceLatestId;
       _latestIds[MessageReadStatus.like] = likeLatestId;
       _latestIds[MessageReadStatus.reply] = replyLatestId;
       _latestIds[MessageReadStatus.at] = atLatestId;
 
-      final savedAnnounce = await MessageReadStatus.getLastReadId(MessageReadStatus.announce);
-      final savedLike = await MessageReadStatus.getLastReadId(MessageReadStatus.like);
-      final savedReply = await MessageReadStatus.getLastReadId(MessageReadStatus.reply);
-      final savedAt = await MessageReadStatus.getLastReadId(MessageReadStatus.at);
-      print('📬 已读ID: announce=$savedAnnounce, like=$savedLike, reply=$savedReply, at=$savedAt');
+      await MessageReadStatus.getLastReadId(MessageReadStatus.announce);
+      await MessageReadStatus.getLastReadId(MessageReadStatus.like);
+      await MessageReadStatus.getLastReadId(MessageReadStatus.reply);
+      await MessageReadStatus.getLastReadId(MessageReadStatus.at);
 
       final unreadResults = await Future.wait([
         MessageReadStatus.hasUnread(MessageReadStatus.announce, announceLatestId),
@@ -84,7 +82,6 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
         MessageReadStatus.hasUnread(MessageReadStatus.at, atLatestId),
       ]);
 
-      print('📬 未读状态: announce=${unreadResults[0]}, like=${unreadResults[1]}, reply=${unreadResults[2]}, at=${unreadResults[3]}');
 
       if (mounted) {
         setState(() {
@@ -94,19 +91,17 @@ class _MessageCenterPageState extends State<MessageCenterPage> {
           _unreadStatus[MessageReadStatus.at] = unreadResults[3];
         });
       }
-    } catch (e) {
-      print('检查未读状态失败: $e');
+    } catch (_) {
+      // 静默忽略读取状态失败
     }
   }
 
   Future<void> _navigateToAndMarkRead(String category, Widget page) async {
     final navigator = Navigator.of(context);
     final latestId = _latestIds[category] ?? 0;
-    print('📬 标记已读: category=$category, latestId=$latestId');
     if (latestId > 0) {
       await MessageReadStatus.markAsRead(category, latestId);
-      final verify = await MessageReadStatus.getLastReadId(category);
-      print('📬 验证写入: category=$category, savedId=$verify');
+      await MessageReadStatus.getLastReadId(category);
     }
     if (!mounted) return;
     setState(() => _unreadStatus[category] = false);

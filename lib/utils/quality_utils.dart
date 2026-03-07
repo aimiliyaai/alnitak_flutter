@@ -17,21 +17,23 @@ String getDefaultQuality(List<String> qualities) {
   return sorted.length > 1 ? sorted[1] : sorted[0];
 }
 
-/// 清晰度标签（用于 UI 显示）
+/// 清晰度标签（用于 UI 显示，YouTube风格：取短边作为分辨率标签）
 ///
-/// 新资源格式: "1920x1080_3000k_30" → "1080P"
-/// 新资源高帧率: "1920x1080_8000k_60" → "1080P60"
-/// 旧资源格式: "720p" → "720P"
+/// 横屏: "1920x1080_3000k_30" → "1080P"
+/// 竖屏: "1080x1920_2000k_30" → "1080P"
+/// 高帧率: "1920x1080_6000k_60" → "1080P60"
+/// 旧资源: "720p" → "720P"
 String getQualityLabel(String quality) {
   final fps = _parseFrameRate(quality);
   final fpsSuffix = fps > 30 ? '$fps' : '';
 
-  if (quality.contains('3840x2160')) return '4K$fpsSuffix';
-  if (quality.contains('2560x1440')) return '2K$fpsSuffix';
-  if (quality.contains('1920x1080')) return '1080P$fpsSuffix';
-  if (quality.contains('1280x720')) return '720P$fpsSuffix';
-  if (quality.contains('854x480')) return '480P$fpsSuffix';
-  if (quality.contains('640x360')) return '360P$fpsSuffix';
+  // 动态解析短边
+  final shortSide = _extractShortSide(quality);
+  if (shortSide > 0) {
+    if (shortSide >= 2160) return '4K$fpsSuffix';
+    if (shortSide >= 1440) return '2K$fpsSuffix';
+    return '${shortSide}P$fpsSuffix';
+  }
 
   // 旧资源格式：直接是 "720p"、"480p" 等，统一转大写
   final lowerQ = quality.toLowerCase();
@@ -44,33 +46,28 @@ String getQualityLabel(String quality) {
 
 /// 格式化清晰度显示名（更详细的映射，用于设置偏好匹配）
 ///
-/// "1920x1080_6000k_30" → "1080p"
-/// "1920x1080_8000k_60" → "1080p60"
+/// YouTube风格：取短边作为分辨率标签
+/// 横屏: "1920x1080_6000k_30" → "1080p"
+/// 竖屏: "1080x1920_2000k_30" → "1080p"
+/// 高帧率: "1920x1080_8000k_60" → "1080p60"
 String formatQualityDisplayName(String quality) {
-  const map = {
-    '640x360_1000k_30': '360p',
-    '854x480_1500k_30': '480p',
-    '1280x720_3000k_30': '720p',
-    '1920x1080_6000k_30': '1080p',
-    '1920x1080_8000k_60': '1080p60',
-  };
-
-  if (map.containsKey(quality)) return map[quality]!;
-
   try {
     final parts = quality.split('_');
     final resolution = parts[0];
     final fps = parts.length >= 3 ? (int.tryParse(parts[2]) ?? 30) : 30;
 
     if (resolution.contains('x')) {
-      final height = int.tryParse(resolution.split('x')[1]);
-      if (height != null) {
+      final dims = resolution.split('x');
+      final w = int.tryParse(dims[0]);
+      final h = int.tryParse(dims[1]);
+      if (w != null && h != null) {
+        final shortSide = w < h ? w : h;
         final suffix = fps > 30 ? '$fps' : '';
-        if (height <= 360) return '360p$suffix';
-        if (height <= 480) return '480p$suffix';
-        if (height <= 720) return '720p$suffix';
-        if (height <= 1080) return '1080p$suffix';
-        if (height <= 1440) return '2K$suffix';
+        if (shortSide <= 360) return '360p$suffix';
+        if (shortSide <= 480) return '480p$suffix';
+        if (shortSide <= 720) return '720p$suffix';
+        if (shortSide <= 1080) return '1080p$suffix';
+        if (shortSide <= 1440) return '2K$suffix';
         return '4K$suffix';
       }
     }
@@ -166,16 +163,18 @@ int _parseFrameRate(String quality) {
   }
 }
 
-/// 从 quality 字符串提取高度
+/// 从 quality 字符串提取短边（YouTube风格）
 /// 新格式: "1920x1080_3000k_30" → 1080
+/// 竖屏: "1080x1920_2000k_30" → 1080
 /// 旧格式: "720p" → 720
-int _extractHeight(String quality) {
+int _extractShortSide(String quality) {
   final parts = quality.split('_');
   if (parts.isNotEmpty) {
     final dims = parts[0].split('x');
     if (dims.length == 2) {
+      final w = int.tryParse(dims[0]);
       final h = int.tryParse(dims[1]);
-      if (h != null) return h;
+      if (w != null && h != null) return w < h ? w : h;
     }
   }
   final match = RegExp(r'^(\d+)p', caseSensitive: false).firstMatch(quality);
@@ -184,3 +183,6 @@ int _extractHeight(String quality) {
   }
   return 0;
 }
+
+/// 从 quality 字符串提取短边（兼容别名）
+int _extractHeight(String quality) => _extractShortSide(quality);

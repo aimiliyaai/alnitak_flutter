@@ -588,47 +588,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     },
                   ),
 
-                  // 5.5 缓冲/加载中提示
-                  ValueListenableBuilder<bool>(
-                    valueListenable: widget.logic.isBuffering,
-                    builder: (context, isBuffering, _) {
-                      // 只有在缓冲且不在切换清晰度时才显示
-                      final isSwitching = widget.logic.isSwitchingQuality.value;
-                      if (!isBuffering || isSwitching) return const SizedBox.shrink();
-
-                      return Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 32,
-                                height: 32,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              ),
-                              SizedBox(height: 12),
-                              Text(
-                                '加载中...',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                  // 缓冲/加载中已合并到 MediaPlayerWidget 统一显示（方案 D），此处不再重复
 
                   // 6. 清晰度面板
                   if (_showQualityPanel && _showControls && _panelRight != null)

@@ -41,7 +41,6 @@ class LoginGuard {
         return _cachedUserId;
       } else {
         // 缓存过期，清除
-        print('⏰ 用户ID缓存已过期，重新获取');
         _cachedUserId = null;
         _cacheTimestamp = null;
       }
@@ -68,7 +67,6 @@ class LoginGuard {
   static void clearCache() {
     _cachedUserId = null;
     _cacheTimestamp = null;
-    print('🔄 LoginGuard 缓存已清除');
   }
 
   /// 执行需要登录的操作

@@ -65,7 +65,6 @@ class _UserSpacePageState extends State<UserSpacePage>
         });
       }
     } catch (e) {
-      print('加载用户数据失败: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -577,7 +576,6 @@ class _UserVideosTabState extends State<_UserVideosTab>
         }
       }
     } catch (e) {
-      print('加载视频失败: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -826,7 +824,6 @@ class _FollowListTabState extends State<_FollowListTab>
         }
       }
     } catch (e) {
-      print('加载用户列表失败: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }

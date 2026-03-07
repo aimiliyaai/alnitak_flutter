@@ -101,13 +101,10 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     // 用户离开页面时，如果正在上传，设置取消标志
     if (_isUploading) {
       _cancelUpload = true;
-      print('🚫 用户离开上传页面，设置取消标志');
     }
 
     // 【新增】清理临时文件
-    _cleanupTempFiles().catchError((e) {
-      print('⚠️ dispose 清理临时文件失败: $e');
-    });
+    _cleanupTempFiles().catchError((_) {});
 
     _titleController.dispose();
     _descController.dispose();
@@ -117,26 +114,18 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
 
   /// 清理投稿过程中产生的临时文件
   Future<void> _cleanupTempFiles() async {
-    print('🗑️ 开始清理投稿临时文件...');
-
     // 1. 清理 FilePicker 临时文件（视频）
     try {
       await FilePicker.platform.clearTemporaryFiles();
-      print('🗑️ FilePicker 临时文件已清理');
-    } catch (e) {
-      print('⚠️ 清理 FilePicker 临时文件失败: $e');
-    }
+    } catch (_) {}
 
     // 2. 清理封面临时文件（ImagePicker 产生）
     if (_coverFile != null) {
       try {
         if (await _coverFile!.exists()) {
           await _coverFile!.delete();
-          print('🗑️ 已清理封面临时文件: ${_coverFile!.path}');
         }
-      } catch (e) {
-        print('⚠️ 清理封面文件失败: $e');
-      }
+      } catch (_) {}
       _coverFile = null;
     }
 
@@ -145,11 +134,8 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
       try {
         if (await _videoFile!.exists()) {
           await _videoFile!.delete();
-          print('🗑️ 已清理视频临时文件: ${_videoFile!.path}');
         }
-      } catch (e) {
-        print('⚠️ 清理视频文件失败: $e');
-      }
+      } catch (_) {}
       _videoFile = null;
     }
   }
@@ -174,20 +160,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     try {
       final videoStatus = await VideoSubmitApiService.getVideoStatus(widget.vid!);
 
-      print('📝 编辑模式 - 加载视频数据:');
-      print('  - VID: ${videoStatus.vid}');
-      print('  - 标题: ${videoStatus.title}');
-      print('  - 封面: ${videoStatus.cover}');
-      print('  - 标签: ${videoStatus.tags}');
-      print('  - 分区ID: ${videoStatus.partitionId}');
-      print('  - 资源数量: ${videoStatus.resources.length}');
-
-      // 打印每个资源的详细信息
-      for (var i = 0; i < videoStatus.resources.length; i++) {
-        final resource = videoStatus.resources[i];
-        print('  - 资源[$i]: id=${resource.id}, title="${resource.title}", status=${resource.status}');
-      }
-
       setState(() {
         // 如果标题为空且有资源，使用第一个资源的标题（去除.mp4后缀）
         if (videoStatus.title.isEmpty && videoStatus.resources.isNotEmpty) {
@@ -195,7 +167,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
           _titleController.text = firstResourceTitle.endsWith('.mp4')
               ? firstResourceTitle.substring(0, firstResourceTitle.length - 4)
               : firstResourceTitle;
-          print('✅ 使用第一个资源标题作为默认标题: ${_titleController.text}');
         } else {
           _titleController.text = videoStatus.title;
         }
@@ -205,10 +176,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
         _copyright = videoStatus.copyright;
         _coverUrl = videoStatus.cover;
         _resources = videoStatus.resources; // 加载资源列表
-
-        print('✅ 封面URL已设置: $_coverUrl');
-        print('✅ 标签列表: $_tags');
-        print('✅ 资源列表已加载: ${_resources.length} 个资源');
 
         // 设置分区
         final partition = PartitionApiService.findPartitionById(
@@ -245,7 +212,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
         _isLoading = false;
       });
       _showError('加载视频数据失败: $e');
-      print('❌ 加载视频数据失败: $e');
     }
   }
 
@@ -280,25 +246,16 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
   }
 
   Future<void> _pickCover() async {
-    print('\n🖼️ ========== 开始选择封面 ==========');
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile != null) {
       final file = File(pickedFile.path);
-      final fileSize = await file.length();
-      print('✅ 封面文件选择成功');
-      print('📁 文件路径: ${pickedFile.path}');
-      print('📝 文件名: ${pickedFile.name}');
-      print('📦 文件大小: ${(fileSize / 1024).toStringAsFixed(2)} KB');
-      print('🖼️ ========== 封面选择完成 ==========\n');
 
       setState(() {
         _coverFile = file;
       });
     } else {
-      print('❌ 未选择封面文件');
-      print('🖼️ ========== 封面选择取消 ==========\n');
     }
   }
 
@@ -322,8 +279,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
           _videoFileName = originalName; // 赋值给状态变量
         });
 
-        print('🎥 [FilePicker] 选中视频路径: ${file.path}');
-        print('📝 [FilePicker] 原始文件名: $originalName');
 
         // 初次投稿模式：选择视频后自动上传
         if (!isEditMode) {
@@ -337,7 +292,6 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
           await _uploadVideo(title: titleWithoutExtension);
         }
       } else {
-        print('❌ 未选择视频');
       }
     }
 Future<void> _uploadVideo({String? title}) async {
@@ -361,7 +315,6 @@ Future<void> _uploadVideo({String? title}) async {
 
       final actualFilename = _videoFileName ?? _videoFile!.path.split('/').last;
 
-      print('🚀 准备上传: $actualFilename (标题: $videoTitle)');
 
       final videoInfo = await UploadApiService.uploadVideo(
         file: _videoFile!,
@@ -386,30 +339,20 @@ Future<void> _uploadVideo({String? title}) async {
       });
 
       final vid = videoInfo['vid'] as int?;
-      print('📦 视频上传完成:');
-      print('  - Resource ID: ${videoInfo['id']}');
-      print('  - VID: $vid');
-      print('  - 标题: $videoTitle');
 
       // 【新增】上传成功后清理当前视频临时文件
       if (_videoFile != null) {
         try {
           if (await _videoFile!.exists()) {
             await _videoFile!.delete();
-            print('🗑️ 已清理已上传的视频临时文件');
           }
-        } catch (e) {
-          print('⚠️ 清理视频文件失败: $e');
-        }
+        } catch (_) {}
         _videoFile = null;
       }
 
-      // 清理 FilePicker 临时文件
       try {
         await FilePicker.platform.clearTemporaryFiles();
-      } catch (e) {
-        print('⚠️ 清理 FilePicker 临时文件失败: $e');
-      }
+      } catch (_) {}
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -425,11 +368,9 @@ Future<void> _uploadVideo({String? title}) async {
         );
       }
     } catch (e) {
-      print('❌ 上传异常: $e');
 
       // 如果是用户主动取消，不显示错误提示
       if (e.toString().contains('上传已取消') || e.toString().contains('MD5计算已取消')) {
-        print('ℹ️ 用户主动取消上传，不显示错误提示');
       } else if (mounted) {
         // 其他错误才显示错误提示
         _showError('视频上传失败: $e');
@@ -486,33 +427,21 @@ Future<void> _uploadVideo({String? title}) async {
     try {
       String? coverUrl;
 
-      print('\n🎬 ========== 开始提交视频信息 ==========');
-      print('📋 视频ID: ${widget.vid}');
-      print('📝 标题: ${_titleController.text.trim()}');
-      print('🏷️ 标签数量: ${_tags.length}');
-      print('📂 分区ID: $partitionId');
 
       // 上传封面（如果有新选择的封面）
       if (_coverFile != null) {
-        print('🖼️ 检测到新封面文件，开始上传...');
-        print('📁 封面文件路径: ${_coverFile!.path}');
         try {
           coverUrl = await UploadApiService.uploadImage(_coverFile!);
-          print('✅ 封面上传成功，URL: $coverUrl');
         } catch (e) {
-          print('❌ 封面上传失败: $e');
           rethrow;
         }
       } else if (_coverUrl != null) {
         // 使用后端返回的封面
         coverUrl = _coverUrl;
-        print('📷 使用已有封面URL: $coverUrl');
       } else {
-        print('⚠️ 没有封面图片');
       }
 
       final tagsString = _tags.join(',');
-      print('🏷️ 标签字符串: $tagsString');
 
       // 参考PC端逻辑（UploadVideoInfo.vue:143）：
       // - 如果 partitionId 为 0（未设置分区） → 使用 uploadVideoInfo 接口（包含 partitionId）
@@ -521,7 +450,6 @@ Future<void> _uploadVideo({String? title}) async {
           ? await _getCurrentPartitionId()
           : 0;
 
-      print('📂 当前分区ID: $currentPartitionId (0=未设置，需要使用uploadVideoInfo)');
 
       if (currentPartitionId == 0) {
         // 首次提交：使用 uploadVideoInfo（包含 partitionId）
@@ -535,11 +463,8 @@ Future<void> _uploadVideo({String? title}) async {
           partitionId: partitionId,
         );
 
-        print('\n📤 【首次提交】使用 uploadVideoInfo 接口提交视频信息（包含分区）...');
-        print('📦 提交数据: ${uploadVideo.toJson()}');
 
         await VideoSubmitApiService.uploadVideo(uploadVideo);
-        print('✅ 视频信息提交成功！');
       } else {
         // 后续编辑：使用 editVideoInfo（不包含 partitionId）
         final editVideo = EditVideo(
@@ -550,14 +475,10 @@ Future<void> _uploadVideo({String? title}) async {
           tags: tagsString,
         );
 
-        print('\n📤 【编辑模式】使用 editVideoInfo 接口提交视频信息（不含分区）...');
-        print('📦 提交数据: ${editVideo.toJson()}');
 
         await VideoSubmitApiService.editVideo(editVideo);
-        print('✅ 视频编辑提交成功！');
       }
 
-      print('🎬 ========== 视频投稿完成 ==========\n');
 
       if (!mounted) return;
       // 【新增】投稿成功后清理临时文件
@@ -569,8 +490,6 @@ Future<void> _uploadVideo({String? title}) async {
       );
       Navigator.pop(context, true);
     } catch (e) {
-      print('❌ 提交失败: $e');
-      print('🎬 ========== 视频投稿失败 ==========\n');
 
       // 【新增】投稿失败后也清理临时文件
       await _cleanupTempFiles();
@@ -591,7 +510,6 @@ Future<void> _uploadVideo({String? title}) async {
       final videoStatus = await VideoSubmitApiService.getVideoStatus(widget.vid!);
       return videoStatus.partitionId;
     } catch (e) {
-      print('⚠️ 获取当前分区ID失败，默认为0: $e');
       return 0;
     }
   }

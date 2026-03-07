@@ -20,7 +20,6 @@ class CollectionApiService {
       }
       return null;
     } catch (e) {
-      print('创建收藏夹失败: $e');
       return null;
     }
   }
@@ -38,7 +37,6 @@ class CollectionApiService {
       }
       return [];
     } catch (e) {
-      print('获取收藏夹列表失败: $e');
       return [];
     }
   }
@@ -56,7 +54,6 @@ class CollectionApiService {
       }
       return null;
     } catch (e) {
-      print('获取收藏夹信息失败: $e');
       return null;
     }
   }
@@ -88,7 +85,6 @@ class CollectionApiService {
       }
       return (videos: <CollectionVideo>[], total: 0);
     } catch (e) {
-      print('获取收藏夹视频列表失败: $e');
       return (videos: <CollectionVideo>[], total: 0);
     }
   }
@@ -115,7 +111,6 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('编辑收藏夹失败: $e');
       return false;
     }
   }
@@ -129,7 +124,6 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('删除收藏夹失败: $e');
       return false;
     }
   }
@@ -149,7 +143,6 @@ class CollectionApiService {
       }
       return false;
     } catch (e) {
-      print('检查收藏状态失败: $e');
       return false;
     }
   }
@@ -168,7 +161,6 @@ class CollectionApiService {
       }
       return [];
     } catch (e) {
-      print('获取视频收藏信息失败: $e');
       return [];
     }
   }
@@ -183,7 +175,6 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('收藏视频失败: $e');
       return false;
     }
   }
@@ -203,7 +194,6 @@ class CollectionApiService {
       }
       return false;
     } catch (e) {
-      print('检查文章收藏状态失败: $e');
       return false;
     }
   }
@@ -218,7 +208,6 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('收藏文章失败: $e');
       return false;
     }
   }
@@ -233,7 +222,6 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
-      print('取消收藏文章失败: $e');
       return false;
     }
   }

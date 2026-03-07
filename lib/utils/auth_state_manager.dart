@@ -44,7 +44,6 @@ class AuthStateManager extends ChangeNotifier {
   /// Token 过期回调（自动退出登录）
   void _onTokenExpired() {
     if (kDebugMode) {
-      print('🔐 [AuthStateManager] Token 已过期，执行自动退出');
     }
     // 清除 LoginGuard 的用户ID缓存
     LoginGuard.clearCache();
