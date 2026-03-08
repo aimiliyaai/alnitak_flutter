@@ -98,8 +98,8 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _stablePlayFallbackTimer;
   /// 本次 setDataSource 是否为清晰度切换（用更长延迟避免高码率切换时音频卡两次）
   bool _isQualitySwitchStablePlay = false;
-  static const int _stablePlayDelayMs = 50;
-  static const int _stablePlayDelayQualitySwitchMs = 50;
+  static const int _stablePlayDelayMs = 60;
+  static const int _stablePlayDelayQualitySwitchMs = 60;
   static const int _minBufferSeconds = 1;
   static const int _stablePlayFallbackSeconds = 3;
 

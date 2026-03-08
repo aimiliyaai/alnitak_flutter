@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import '../services/history_service.dart';
-import '../services/auth_service.dart';
 import '../models/history_models.dart';
 import '../widgets/cached_image_widget.dart';
 import '../utils/image_utils.dart';
+import '../utils/login_guard.dart';
 import '../theme/theme_extensions.dart';
 import '../utils/time_utils.dart';
+import '../widgets/loading_more_indicator.dart';
 import 'video/video_play_page.dart';
-import 'login_page.dart';
 
 /// 历史记录页面
 class HistoryPage extends StatefulWidget {
@@ -19,7 +19,6 @@ class HistoryPage extends StatefulWidget {
 
 class _HistoryPageState extends State<HistoryPage> {
   final HistoryService _historyService = HistoryService();
-  final AuthService _authService = AuthService();
   final ScrollController _scrollController = ScrollController();
 
   List<HistoryItem> _historyList = [];
@@ -51,9 +50,9 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
-  /// 检查登录状态并加载数据
+  /// 检查登录状态并加载数据（与创作中心等统一使用 LoginGuard）
   Future<void> _checkLoginAndLoad() async {
-    final isLoggedIn = await _authService.isLoggedInAsync();
+    final isLoggedIn = await LoginGuard.isLoggedInAsync();
     if (mounted) {
       setState(() => _isLoggedIn = isLoggedIn);
       if (isLoggedIn) {
@@ -64,26 +63,27 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
-  /// 跳转到登录页
+  /// 跳转到登录页（与创作中心等统一使用 LoginGuard）
   Future<void> _navigateToLogin() async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-    );
-    if (result == true) {
+    final result = await LoginGuard.navigateToLogin(context);
+    if (result == true && mounted) {
       _checkLoginAndLoad();
     }
   }
 
-  /// 加载历史记录
+  /// 加载历史记录（含下拉刷新：先清空列表与分页状态再请求）
   Future<void> _loadHistory() async {
-    setState(() {
-      _isLoading = true;
-      _currentPage = 1;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _currentPage = 1;
+        _historyList = [];
+        _hasMore = true;
+      });
+    }
 
     final response = await _historyService.getHistoryList(
-      page: _currentPage,
+      page: 1,
       pageSize: _pageSize,
     );
 
@@ -93,6 +93,8 @@ class _HistoryPageState extends State<HistoryPage> {
         if (response != null) {
           _historyList = response.videos;
           _hasMore = response.videos.length >= _pageSize;
+        } else {
+          _hasMore = false;
         }
       });
     }
@@ -104,8 +106,9 @@ class _HistoryPageState extends State<HistoryPage> {
 
     setState(() => _isLoadingMore = true);
 
+    final nextPage = _currentPage + 1;
     final response = await _historyService.getHistoryList(
-      page: _currentPage + 1,
+      page: nextPage,
       pageSize: _pageSize,
     );
 
@@ -114,8 +117,10 @@ class _HistoryPageState extends State<HistoryPage> {
         _isLoadingMore = false;
         if (response != null) {
           _historyList.addAll(response.videos);
-          _currentPage++;
+          _currentPage = nextPage;
           _hasMore = response.videos.length >= _pageSize;
+        } else {
+          _hasMore = false;
         }
       });
     }
@@ -302,7 +307,6 @@ class _HistoryPageState extends State<HistoryPage> {
                         child: CachedImage(
                           imageUrl: ImageUtils.getFullImageUrl(item.cover),
                           fit: BoxFit.cover,
-                          cacheKey: 'video_cover_${item.vid}', // 使用视频ID作为缓存key
                         ),
                       ),
                     ),
@@ -403,25 +407,20 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  /// 构建加载更多
+  /// 构建加载更多（与稿件列表等统一使用 LoadingMoreIndicator）
   Widget _buildLoadingMore() {
+    if (_isLoadingMore) {
+      return const LoadingMoreIndicator();
+    }
     final colors = context.colors;
-    return Container(
+    return Padding(
       padding: const EdgeInsets.all(16),
-      alignment: Alignment.center,
-      child: _isLoadingMore
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Text(
-              '上拉加载更多',
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.textTertiary,
-              ),
-            ),
+      child: Center(
+        child: Text(
+          '上拉加载更多',
+          style: TextStyle(fontSize: 13, color: colors.textTertiary),
+        ),
+      ),
     );
   }
 }

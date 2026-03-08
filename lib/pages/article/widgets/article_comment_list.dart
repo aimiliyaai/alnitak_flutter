@@ -504,7 +504,6 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
                     ? CachedCircleAvatar(
                         imageUrl: ImageUtils.getFullImageUrl(_currentUserAvatar!),
                         radius: 20,
-                        cacheKey: 'user_avatar_$_currentUserId',
                       )
                     : CircleAvatar(
                         radius: 20,
@@ -673,7 +672,6 @@ class _ArticleCommentItem extends StatelessWidget {
                     ? CachedCircleAvatar(
                         imageUrl: ImageUtils.getFullImageUrl(comment.avatar),
                         radius: 20,
-                        cacheKey: 'user_avatar_${comment.uid}',
                       )
                     : CircleAvatar(
                         radius: 20,
@@ -930,7 +928,6 @@ class _ArticleReplyItem extends StatelessWidget {
                 ? CachedCircleAvatar(
                     imageUrl: ImageUtils.getFullImageUrl(reply.avatar),
                     radius: 16,
-                    cacheKey: 'user_avatar_${reply.uid}',
                   )
                 : CircleAvatar(
                     radius: 16,

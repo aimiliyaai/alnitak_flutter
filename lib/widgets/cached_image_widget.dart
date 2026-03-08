@@ -25,10 +25,9 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
 
   /// 预加载图片到缓存
   /// 用于提前加载即将显示的图片
-  static Future<void> preloadImage(String url, {String? cacheKey}) async {
+  static Future<void> preloadImage(String url) async {
     try {
-      final effectiveKey = cacheKey ?? getStableCacheKey(url);
-      await _instance.getSingleFile(url, key: effectiveKey);
+      await _instance.getSingleFile(url, key: getStableCacheKey(url));
     } catch (_) {}
   }
 

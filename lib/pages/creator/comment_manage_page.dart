@@ -6,6 +6,7 @@ import '../../theme/theme_extensions.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/login_guard.dart';
+import '../../widgets/loading_more_indicator.dart';
 import '../video/video_play_page.dart';
 
 /// 评论管理页面
@@ -530,7 +531,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           if (index == _videoComments.length) {
-            return _buildLoadingIndicator();
+            return const LoadingMoreIndicator();
           }
           return _buildCommentItem(_videoComments[index], isVideo: true);
         },
@@ -560,7 +561,7 @@ class _CommentManagePageState extends State<CommentManagePage>
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           if (index == _articleComments.length) {
-            return _buildLoadingIndicator();
+            return const LoadingMoreIndicator();
           }
           return _buildCommentItem(_articleComments[index], isVideo: false);
         },
@@ -598,20 +599,6 @@ class _CommentManagePageState extends State<CommentManagePage>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// 构建加载指示器
-  Widget _buildLoadingIndicator() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
       ),
     );
   }

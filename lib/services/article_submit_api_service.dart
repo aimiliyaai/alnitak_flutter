@@ -58,10 +58,12 @@ class ArticleSubmitApiService {
     }
   }
 
-  /// 获取用户投稿文章列表
+  /// 获取用户投稿文章列表（服务端按 category 筛选）
+  /// [category] all | published | pending | rejected
   static Future<List<ManuscriptArticle>> getManuscriptArticles({
     int page = 1,
     int pageSize = 20,
+    String category = 'all',
   }) async {
     try {
       final response = await _dio.get(
@@ -69,6 +71,7 @@ class ArticleSubmitApiService {
         queryParameters: {
           'page': page,
           'pageSize': pageSize,
+          'category': category,
         },
       );
 

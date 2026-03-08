@@ -252,7 +252,6 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                     width: 100,
                     height: 70,
                     fit: BoxFit.cover,
-                    cacheKey: 'collection_cover_${info.id}',
                   )
                 : Container(
                     width: 100,
@@ -347,7 +346,6 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                       width: 140,
                       height: 80,
                       fit: BoxFit.cover,
-                      cacheKey: 'video_cover_${video.vid}',
                     ),
                   ),
                   // 时长标签
@@ -394,7 +392,6 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
                             ? CachedCircleAvatar(
                                 imageUrl: ImageUtils.getFullImageUrl(video.author.avatar),
                                 radius: 10,
-                                cacheKey: 'user_avatar_${video.author.uid}',
                               )
                             : CircleAvatar(
                                 radius: 10,

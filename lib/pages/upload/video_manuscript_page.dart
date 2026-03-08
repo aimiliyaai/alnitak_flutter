@@ -3,6 +3,9 @@ import '../../models/upload_video.dart';
 import '../../services/video_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
+import '../../utils/image_utils.dart';
+import '../../utils/video_status_utils.dart';
+import '../../widgets/loading_more_indicator.dart';
 import 'video_upload_page.dart';
 
 class VideoManuscriptPage extends StatefulWidget {
@@ -11,6 +14,9 @@ class VideoManuscriptPage extends StatefulWidget {
   @override
   State<VideoManuscriptPage> createState() => _VideoManuscriptPageState();
 }
+
+/// 视频筛选分类
+enum VideoFilter { all, published, transcoding, transcodeFailed, pendingReview, rejected }
 
 class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
   final ScrollController _scrollController = ScrollController();
@@ -21,6 +27,25 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
   bool _hasMore = true;
   String? _errorMessage;
   static const int _pageSize = 20;
+  VideoFilter _currentFilter = VideoFilter.all;
+
+  /// 当前 Tab 对应的服务端 category 参数
+  static String _categoryFromFilter(VideoFilter f) {
+    switch (f) {
+      case VideoFilter.all:
+        return 'all';
+      case VideoFilter.published:
+        return 'published';
+      case VideoFilter.transcoding:
+        return 'transcoding';
+      case VideoFilter.transcodeFailed:
+        return 'transcode_failed';
+      case VideoFilter.pendingReview:
+        return 'pending';
+      case VideoFilter.rejected:
+        return 'rejected';
+    }
+  }
 
   @override
   void initState() {
@@ -57,22 +82,29 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
       }
     });
 
+    final category = _categoryFromFilter(_currentFilter);
+
     try {
       final videos = await VideoSubmitApiService.getManuscriptVideos(
         page: 1,
         pageSize: _pageSize,
+        category: category,
       );
 
-      setState(() {
-        _videos = videos;
-        _hasMore = videos.length >= _pageSize;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _videos = videos;
+          _hasMore = videos.length >= _pageSize;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -84,25 +116,29 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     });
 
     final nextPage = _currentPage + 1;
+    final category = _categoryFromFilter(_currentFilter);
 
     try {
       final newVideos = await VideoSubmitApiService.getManuscriptVideos(
         page: nextPage,
         pageSize: _pageSize,
+        category: category,
       );
 
-      setState(() {
-        _videos.addAll(newVideos);
-        _currentPage = nextPage;
-        _hasMore = newVideos.length >= _pageSize;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _hasMore = false;
-      });
       if (mounted) {
+        setState(() {
+          _videos.addAll(newVideos);
+          _currentPage = nextPage;
+          _hasMore = newVideos.length >= _pageSize;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _hasMore = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('加载更多失败: $e')),
         );
@@ -139,9 +175,11 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     try {
       await VideoSubmitApiService.deleteVideo(video.vid);
 
-      setState(() {
-        _videos.removeWhere((v) => v.vid == video.vid);
-      });
+      if (mounted) {
+        setState(() {
+          _videos.removeWhere((v) => v.vid == video.vid);
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -170,6 +208,14 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     }
   }
 
+  void _onFilterChanged(VideoFilter filter) {
+    if (_currentFilter == filter) return;
+    setState(() {
+      _currentFilter = filter;
+    });
+    _loadVideos(forceReload: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -192,7 +238,59 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          _buildFilterBar(),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar() {
+    final colors = context.colors;
+    const filters = [
+      (VideoFilter.all, '全部'),
+      (VideoFilter.published, '已发布'),
+      (VideoFilter.transcoding, '转码中'),
+      (VideoFilter.transcodeFailed, '转码失败'),
+      (VideoFilter.pendingReview, '待审核'),
+      (VideoFilter.rejected, '不通过'),
+    ];
+
+    return Container(
+      height: 44,
+      color: colors.card,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        itemCount: filters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, index) {
+          final (filter, label) = filters[index];
+          final isSelected = _currentFilter == filter;
+          return Center(
+            child: GestureDetector(
+              onTap: () => _onFilterChanged(filter),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected ? colors.accentColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isSelected ? Colors.white : colors.textSecondary,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -235,7 +333,7 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
       );
     }
 
-    // 空状态
+    // 空状态（无任何稿件）
     if (_videos.isEmpty) {
       return Center(
         child: Column(
@@ -268,6 +366,23 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
       );
     }
 
+    // 筛选后无结果
+    if (_videos.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.filter_list_off, size: 64, color: colors.iconSecondary),
+            const SizedBox(height: 16),
+            Text(
+              '该分类下暂无视频',
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
     // 视频列表
     return RefreshIndicator(
       onRefresh: _loadVideos,
@@ -276,13 +391,7 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
         itemCount: _videos.length + (_hasMore || _isLoading ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == _videos.length) {
-            // 加载更多指示器
-            return const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
+            return const LoadingMoreIndicator();
           }
 
           final video = _videos[index];
@@ -302,14 +411,24 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 封面
-              CachedImage(
-                imageUrl: video.cover,
-                width: 120,
-                height: 68,
-                fit: BoxFit.cover,
+              // 封面：统一用完整 URL + 全局缓存（同图只缓存一份）
+              ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                cacheKey: 'video_cover_${video.vid}', // 使用视频ID作为缓存key
+                child: SizedBox(
+                  width: 120,
+                  height: 68,
+                  child: video.cover.isNotEmpty
+                      ? CachedImage(
+                          imageUrl: ImageUtils.getFullImageUrl(video.cover),
+                          width: 120,
+                          height: 68,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.video_library_outlined, color: Colors.grey),
+                        ),
+                ),
               ),
               const SizedBox(width: 12),
 
@@ -332,7 +451,7 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
                       video.getStatusText(),
                       style: TextStyle(
                         fontSize: 13,
-                        color: _getStatusColor(video.status),
+                        color: VideoStatusUtils.getStatusColor(video.status),
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -397,29 +516,4 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
     );
   }
 
-  /// 获取状态颜色
-  /// 视频状态码（参考后端 constant.go）：
-  /// - 0: AUDIT_APPROVED 审核通过（已发布）
-  /// - 100: CREATED_VIDEO 创建视频
-  /// - 200: VIDEO_PROCESSING 视频转码中
-  /// - 300: SUBMIT_REVIEW 提交审核中
-  /// - 500: WAITING_REVIEW 等待审核
-  /// - 2000: REVIEW_FAILED 审核不通过
-  /// - 3000: PROCESSING_FAIL 处理失败
-  Color _getStatusColor(int status) {
-    switch (status) {
-      case 100: // 创建视频
-      case 200: // 转码中
-      case 300: // 提交审核中
-        return Colors.orange;
-      case 500: // 待审核
-        return Colors.blue;
-      case 2000: // 审核不通过
-      case 3000: // 处理失败
-        return Colors.red;
-      case 0: // 已发布
-      default:
-        return Colors.green;
-    }
-  }
 }

@@ -74,16 +74,10 @@ class _UserSpacePageState extends State<UserSpacePage>
   void _preloadImages(UserBaseInfo? user) {
     if (user == null) return;
     if (user.avatar.isNotEmpty) {
-      SmartCacheManager.preloadImage(
-        ImageUtils.getFullImageUrl(user.avatar),
-        cacheKey: 'user_avatar_${user.uid}',
-      );
+      SmartCacheManager.preloadImage(ImageUtils.getFullImageUrl(user.avatar));
     }
     if (user.spaceCover.isNotEmpty) {
-      SmartCacheManager.preloadImage(
-        ImageUtils.getFullImageUrl(user.spaceCover),
-        cacheKey: 'user_space_cover_${user.uid}',
-      );
+      SmartCacheManager.preloadImage(ImageUtils.getFullImageUrl(user.spaceCover));
     }
   }
 
@@ -265,7 +259,6 @@ class _UserSpacePageState extends State<UserSpacePage>
               ? CachedImage(
                   imageUrl: ImageUtils.getFullImageUrl(user.spaceCover),
                   fit: BoxFit.cover,
-                  cacheKey: 'user_space_cover_${user.uid}',
                 )
               : Container(
                   decoration: BoxDecoration(
@@ -449,7 +442,6 @@ class _UserSpacePageState extends State<UserSpacePage>
     return CachedCircleAvatar(
       imageUrl: ImageUtils.getFullImageUrl(avatar),
       radius: radius,
-      cacheKey: 'user_avatar_$uid',
       errorWidget: Icon(Icons.person, size: radius, color: colors.iconSecondary),
     );
   }
@@ -585,10 +577,7 @@ class _UserVideosTabState extends State<_UserVideosTab>
   void _preloadImages(List<UserVideo> videos) {
     for (final video in videos) {
       if (video.cover.isNotEmpty) {
-        SmartCacheManager.preloadImage(
-          ImageUtils.getFullImageUrl(video.cover),
-          cacheKey: 'video_cover_${video.vid}',
-        );
+        SmartCacheManager.preloadImage(ImageUtils.getFullImageUrl(video.cover));
       }
     }
   }
@@ -676,7 +665,6 @@ class _UserVideosTabState extends State<_UserVideosTab>
                       ? CachedImage(
                           imageUrl: ImageUtils.getFullImageUrl(video.cover),
                           fit: BoxFit.cover,
-                          cacheKey: 'video_cover_${video.vid}',
                         )
                       : Container(
                           color: colors.surfaceVariant,
@@ -833,10 +821,7 @@ class _FollowListTabState extends State<_FollowListTab>
   void _preloadImages(List<FollowUser> users) {
     for (final followUser in users) {
       if (followUser.user.avatar.isNotEmpty) {
-        SmartCacheManager.preloadImage(
-          ImageUtils.getFullImageUrl(followUser.user.avatar),
-          cacheKey: 'user_avatar_${followUser.user.uid}',
-        );
+        SmartCacheManager.preloadImage(ImageUtils.getFullImageUrl(followUser.user.avatar));
       }
     }
   }
@@ -1034,7 +1019,6 @@ class _FollowListTabState extends State<_FollowListTab>
     return CachedCircleAvatar(
       imageUrl: ImageUtils.getFullImageUrl(avatar),
       radius: radius,
-      cacheKey: 'user_avatar_$uid',
       errorWidget: Icon(Icons.person, size: radius, color: colors.iconSecondary),
     );
   }

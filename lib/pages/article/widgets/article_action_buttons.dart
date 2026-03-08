@@ -330,10 +330,10 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
               onTap: () {
                 Navigator.pop(context);
                 _recordShare();
-                Share.share(
-                  shareUrl,
+                SharePlus.instance.share(ShareParams(
+                  text: shareUrl,
                   subject: '分享一篇好文章',
-                );
+                ));
               },
             ),
             ListTile(

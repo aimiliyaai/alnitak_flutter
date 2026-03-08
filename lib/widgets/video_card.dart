@@ -54,7 +54,6 @@ class VideoCard extends StatelessWidget {
                       child: CachedImage(
                         imageUrl: video.coverUrl,
                         fit: BoxFit.cover,
-                        cacheKey: 'video_cover_${video.id}',
                       ),
                     ),
                     Positioned(
@@ -152,9 +151,6 @@ class VideoCard extends StatelessWidget {
                               child: CachedCircleAvatar(
                                 imageUrl: video.authorAvatar!,
                                 radius: 8.r,
-                                cacheKey: video.authorUid != null
-                                    ? 'user_avatar_${video.authorUid}'
-                                    : null,
                               ),
                             ),
                           if (video.authorAvatar != null)

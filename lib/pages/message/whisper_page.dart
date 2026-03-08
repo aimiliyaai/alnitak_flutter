@@ -139,7 +139,6 @@ class _WhisperPageState extends State<WhisperPage> {
                       ? CachedCircleAvatar(
                           imageUrl: ImageUtils.getFullImageUrl(whisper.user.avatar),
                           radius: 24,
-                          cacheKey: 'user_avatar_${whisper.user.uid}',
                         )
                       : CircleAvatar(
                           radius: 24,

@@ -3,6 +3,8 @@ import '../../models/upload_article.dart';
 import '../../services/article_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
+import '../../utils/image_utils.dart';
+import '../../widgets/loading_more_indicator.dart';
 import 'article_upload_page.dart';
 
 class ArticleManuscriptPage extends StatefulWidget {
@@ -11,6 +13,9 @@ class ArticleManuscriptPage extends StatefulWidget {
   @override
   State<ArticleManuscriptPage> createState() => _ArticleManuscriptPageState();
 }
+
+/// 文章筛选分类
+enum ArticleFilter { all, published, pendingReview, rejected }
 
 class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
   final ScrollController _scrollController = ScrollController();
@@ -21,6 +26,20 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
   bool _hasMore = true;
   String? _errorMessage;
   static const int _pageSize = 20;
+  ArticleFilter _currentFilter = ArticleFilter.all;
+
+  static String _categoryFromFilter(ArticleFilter f) {
+    switch (f) {
+      case ArticleFilter.all:
+        return 'all';
+      case ArticleFilter.published:
+        return 'published';
+      case ArticleFilter.pendingReview:
+        return 'pending';
+      case ArticleFilter.rejected:
+        return 'rejected';
+    }
+  }
 
   @override
   void initState() {
@@ -44,31 +63,42 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
     }
   }
 
-  Future<void> _loadArticles() async {
-    if (_isLoading) return;
+  Future<void> _loadArticles({bool forceReload = false}) async {
+    if (!forceReload && _isLoading) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
       _currentPage = 1;
+      if (forceReload) {
+        _articles = [];
+        _hasMore = true;
+      }
     });
+
+    final category = _categoryFromFilter(_currentFilter);
 
     try {
       final articles = await ArticleSubmitApiService.getManuscriptArticles(
         page: 1,
         pageSize: _pageSize,
+        category: category,
       );
 
-      setState(() {
-        _articles = articles;
-        _hasMore = articles.length >= _pageSize;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _articles = articles;
+          _hasMore = articles.length >= _pageSize;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -80,25 +110,29 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
     });
 
     final nextPage = _currentPage + 1;
+    final category = _categoryFromFilter(_currentFilter);
 
     try {
       final newArticles = await ArticleSubmitApiService.getManuscriptArticles(
         page: nextPage,
         pageSize: _pageSize,
+        category: category,
       );
 
-      setState(() {
-        _articles.addAll(newArticles);
-        _currentPage = nextPage;
-        _hasMore = newArticles.length >= _pageSize;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _hasMore = false;
-      });
       if (mounted) {
+        setState(() {
+          _articles.addAll(newArticles);
+          _currentPage = nextPage;
+          _hasMore = newArticles.length >= _pageSize;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _hasMore = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('加载更多失败: $e')),
         );
@@ -135,9 +169,11 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
     try {
       await ArticleSubmitApiService.deleteArticle(article.aid);
 
-      setState(() {
-        _articles.removeWhere((a) => a.aid == article.aid);
-      });
+      if (mounted) {
+        setState(() {
+          _articles.removeWhere((a) => a.aid == article.aid);
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -162,8 +198,16 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
     );
 
     if (result == true) {
-      _loadArticles(); // 刷新列表
+      _loadArticles(forceReload: true);
     }
+  }
+
+  void _onFilterChanged(ArticleFilter filter) {
+    if (_currentFilter == filter) return;
+    setState(() {
+      _currentFilter = filter;
+    });
+    _loadArticles(forceReload: true);
   }
 
   @override
@@ -188,7 +232,57 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: Column(
+        children: [
+          _buildFilterBar(),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar() {
+    final colors = context.colors;
+    const filters = [
+      (ArticleFilter.all, '全部'),
+      (ArticleFilter.published, '已发布'),
+      (ArticleFilter.pendingReview, '待审核'),
+      (ArticleFilter.rejected, '不通过'),
+    ];
+
+    return Container(
+      height: 44,
+      color: colors.card,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        itemCount: filters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, index) {
+          final (filter, label) = filters[index];
+          final isSelected = _currentFilter == filter;
+          return Center(
+            child: GestureDetector(
+              onTap: () => _onFilterChanged(filter),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected ? colors.accentColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isSelected ? Colors.white : colors.textSecondary,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -231,7 +325,7 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
       );
     }
 
-    // 空状态
+    // 空状态（无任何稿件）
     if (_articles.isEmpty) {
       return Center(
         child: Column(
@@ -264,6 +358,23 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
       );
     }
 
+    // 筛选后无结果
+    if (_articles.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.filter_list_off, size: 64, color: colors.iconSecondary),
+            const SizedBox(height: 16),
+            Text(
+              '该分类下暂无文章',
+              style: TextStyle(fontSize: 16, color: colors.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
     // 文章列表
     return RefreshIndicator(
       onRefresh: _loadArticles,
@@ -272,13 +383,7 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
         itemCount: _articles.length + (_hasMore || _isLoading ? 1 : 0),
         itemBuilder: (context, index) {
           if (index == _articles.length) {
-            // 加载更多指示器
-            return const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
+            return const LoadingMoreIndicator();
           }
 
           final article = _articles[index];
@@ -298,14 +403,24 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 封面
-              CachedImage(
-                imageUrl: article.cover,
-                width: 120,
-                height: 68,
-                fit: BoxFit.cover,
+              // 封面：统一用完整 URL + 全局缓存（同图只缓存一份）
+              ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                cacheKey: 'article_cover_${article.aid}', // 使用文章ID作为缓存key
+                child: SizedBox(
+                  width: 120,
+                  height: 68,
+                  child: article.cover.isNotEmpty
+                      ? CachedImage(
+                          imageUrl: ImageUtils.getFullImageUrl(article.cover),
+                          width: 120,
+                          height: 68,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.article_outlined, color: Colors.grey),
+                        ),
+                ),
               ),
               const SizedBox(width: 12),
 

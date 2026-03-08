@@ -447,15 +447,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _preloadImages(List<VideoItem> videos) {
     for (final video in videos) {
-      SmartCacheManager.preloadImage(
-        video.coverUrl,
-        cacheKey: 'video_cover_${video.id}',
-      );
+      SmartCacheManager.preloadImage(video.coverUrl);
       if (video.authorAvatar != null && video.authorUid != null) {
-        SmartCacheManager.preloadImage(
-          video.authorAvatar!,
-          cacheKey: 'user_avatar_${video.authorUid}',
-        );
+        SmartCacheManager.preloadImage(video.authorAvatar!);
       }
     }
   }
@@ -699,7 +693,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 width: 120.w,
                 height: 80.h,
                 fit: BoxFit.cover,
-                cacheKey: 'article_cover_${article.aid}',
               ),
             ),
             // 文章信息
@@ -731,7 +724,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             width: 20.w,
                             height: 20.h,
                             fit: BoxFit.cover,
-                            cacheKey: 'user_avatar_${article.author.uid}',
                           ),
                         ),
                         SizedBox(width: 6.w),

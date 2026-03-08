@@ -356,10 +356,10 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
               onTap: () {
                 Navigator.pop(context);
                 _recordShare();
-                Share.share(
-                  shareUrl,
+                SharePlus.instance.share(ShareParams(
+                  text: shareUrl,
                   subject: '分享一个有趣的视频',
-                );
+                ));
               },
             ),
             ListTile(

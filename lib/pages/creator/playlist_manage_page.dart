@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../utils/video_status_utils.dart';
 import '../../services/playlist_api_service.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
@@ -136,30 +137,6 @@ class _PlaylistManagePageState extends State<PlaylistManagePage> {
     }
   }
 
-  String _getStatusText(int? status) {
-    switch (status) {
-      case 500:
-        return '待审核';
-      case 2000:
-        return '审核不通过';
-      case 0:
-        return '';
-      default:
-        return '';
-    }
-  }
-
-  Color _getStatusColor(int? status) {
-    switch (status) {
-      case 500:
-        return Colors.blue;
-      case 2000:
-        return Colors.red;
-      default:
-        return Colors.green;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -283,11 +260,11 @@ class _PlaylistManagePageState extends State<PlaylistManagePage> {
                         '${playlist['videoCount'] ?? 0}个视频',
                         style: TextStyle(fontSize: 12, color: colors.textSecondary),
                       ),
-                      if (_getStatusText(status).isNotEmpty) ...[
+                      if (VideoStatusUtils.getStatusText(status).isNotEmpty) ...[
                         const SizedBox(width: 8),
                         Text(
-                          _getStatusText(status),
-                          style: TextStyle(fontSize: 12, color: _getStatusColor(status), fontWeight: FontWeight.w500),
+                          VideoStatusUtils.getStatusText(status),
+                          style: TextStyle(fontSize: 12, color: VideoStatusUtils.getStatusColor(status), fontWeight: FontWeight.w500),
                         ),
                       ],
                       if (status == 2000) ...[

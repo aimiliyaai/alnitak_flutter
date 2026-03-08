@@ -289,7 +289,6 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
                     width: double.infinity,
                     height: 200,
                     fit: BoxFit.cover,
-                    cacheKey: 'article_cover_${_article!.aid}',
                   ),
                 // 内容区域
                 Container(
@@ -521,7 +520,6 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
                 width: 44,
                 height: 44,
                 fit: BoxFit.cover,
-                cacheKey: 'user_avatar_${author.uid}',
               ),
             ),
           ),

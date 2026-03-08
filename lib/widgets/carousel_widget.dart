@@ -68,10 +68,7 @@ class _CarouselWidgetState extends State<CarouselWidget> {
 
   void _preloadImages(List<CarouselItem> items) {
     for (final item in items) {
-      SmartCacheManager.preloadImage(
-        ImageUtils.getFullImageUrl(item.img),
-        cacheKey: 'carousel_${item.id}',
-      );
+      SmartCacheManager.preloadImage(ImageUtils.getFullImageUrl(item.img));
     }
   }
 
@@ -189,7 +186,6 @@ borderRadius: BorderRadius.circular(12.r),
           CachedImage(
             imageUrl: ImageUtils.getFullImageUrl(item.img),
             fit: BoxFit.cover,
-            cacheKey: 'carousel_${item.id}',
           ),
           // 颜色遮罩（底部渐变）
           if (item.color.isNotEmpty)

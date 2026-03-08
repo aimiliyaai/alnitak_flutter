@@ -58,10 +58,12 @@ class VideoSubmitApiService {
     }
   }
 
-  /// 获取用户投稿视频列表
+  /// 获取用户投稿视频列表（服务端按 category 筛选）
+  /// [category] all | published | transcoding | transcode_failed | pending | rejected
   static Future<List<ManuscriptVideo>> getManuscriptVideos({
     int page = 1,
     int pageSize = 20,
+    String category = 'all',
   }) async {
     try {
       final response = await _dio.get(
@@ -69,6 +71,7 @@ class VideoSubmitApiService {
         queryParameters: {
           'page': page,
           'pageSize': pageSize,
+          'category': category,
         },
       );
 

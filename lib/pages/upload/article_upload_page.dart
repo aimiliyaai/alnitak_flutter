@@ -6,7 +6,7 @@ import '../../models/upload_article.dart';
 import '../../services/partition_api_service.dart';
 import '../../services/upload_api_service.dart';
 import '../../services/article_submit_api_service.dart';
-import '../../theme/theme_extensions.dart';
+import '../../widgets/partition_section.dart';
 
 class ArticleUploadPage extends StatefulWidget {
   final int? aid; // 如果是编辑模式，传入aid
@@ -336,7 +336,27 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
                     const SizedBox(height: 16),
 
                     // 分区选择
-                    _buildPartitionSection(),
+                    PartitionSection(
+                      parentPartitions: _parentPartitions,
+                      subPartitions: _subPartitions,
+                      selectedParent: _selectedParentPartition,
+                      selectedSub: _selectedSubPartition,
+                      isLocked: _isPartitionLocked,
+                      onParentChanged: (value) {
+                        setState(() {
+                          _selectedParentPartition = value;
+                          _selectedSubPartition = null;
+                          _subPartitions = value != null
+                              ? PartitionApiService.getSubPartitions(_allPartitions, value.id)
+                              : [];
+                        });
+                      },
+                      onSubChanged: (value) {
+                        setState(() => _selectedSubPartition = value);
+                      },
+                      parentValidator: (p, s) =>
+                          (p == null && s == null) ? '请选择分区' : null,
+                    ),
                     const SizedBox(height: 16),
 
                     // 版权声明
@@ -421,88 +441,4 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
     );
   }
 
-  Widget _buildPartitionSection() {
-    final colors = context.colors;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Text(
-              '分区',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            if (_isPartitionLocked) ...[
-              const SizedBox(width: 8),
-              Icon(Icons.lock, size: 16, color: colors.textTertiary),
-              const SizedBox(width: 4),
-              Text(
-                '(分区已锁定，不可修改)',
-                style: TextStyle(fontSize: 12, color: colors.textTertiary),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 8),
-
-        // 父分区选择
-        DropdownButtonFormField<Partition>(
-          initialValue: _selectedParentPartition,
-          decoration: InputDecoration(
-            labelText: '主分区',
-            border: const OutlineInputBorder(),
-            filled: _isPartitionLocked,
-            fillColor: _isPartitionLocked ? colors.inputBackground : null,
-          ),
-          items: _parentPartitions.map((partition) {
-            return DropdownMenuItem(
-              value: partition,
-              child: Text(partition.name),
-            );
-          }).toList(),
-          onChanged: _isPartitionLocked ? null : (value) {
-            setState(() {
-              _selectedParentPartition = value;
-              _selectedSubPartition = null;
-              _subPartitions = value != null
-                  ? PartitionApiService.getSubPartitions(_allPartitions, value.id)
-                  : [];
-            });
-          },
-          validator: (value) {
-            if (value == null && _selectedSubPartition == null) {
-              return '请选择分区';
-            }
-            return null;
-          },
-        ),
-
-        // 子分区选择（如果有）
-        if (_subPartitions.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          DropdownButtonFormField<Partition>(
-            initialValue: _selectedSubPartition,
-            decoration: InputDecoration(
-              labelText: '子分区',
-              border: const OutlineInputBorder(),
-              filled: _isPartitionLocked,
-              fillColor: _isPartitionLocked ? colors.inputBackground : null,
-            ),
-            items: _subPartitions.map((partition) {
-              return DropdownMenuItem(
-                value: partition,
-                child: Text(partition.subpartition ?? partition.name),
-              );
-            }).toList(),
-            onChanged: _isPartitionLocked ? null : (value) {
-              setState(() {
-                _selectedSubPartition = value;
-              });
-            },
-          ),
-        ],
-      ],
-    );
-  }
 }

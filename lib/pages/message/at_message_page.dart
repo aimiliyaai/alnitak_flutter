@@ -156,9 +156,6 @@ class _AtMessagePageState extends State<AtMessagePage> {
     final title = message.type == 0
         ? message.video?.title ?? ''
         : message.article?.title ?? '';
-    final contentId = message.type == 0
-        ? message.video?.vid
-        : message.article?.aid;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -179,7 +176,6 @@ class _AtMessagePageState extends State<AtMessagePage> {
                   ? CachedCircleAvatar(
                       imageUrl: ImageUtils.getFullImageUrl(message.user.avatar),
                       radius: 20,
-                      cacheKey: 'user_avatar_${message.user.uid}',
                     )
                   : CircleAvatar(
                       radius: 20,
@@ -235,9 +231,6 @@ class _AtMessagePageState extends State<AtMessagePage> {
                               width: 80,
                               height: 50,
                               fit: BoxFit.cover,
-                              cacheKey: message.type == 0
-                                  ? 'video_cover_$contentId'
-                                  : 'article_cover_$contentId',
                             ),
                           ),
                           const SizedBox(width: 10),

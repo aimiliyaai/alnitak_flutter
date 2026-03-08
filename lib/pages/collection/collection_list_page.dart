@@ -379,7 +379,6 @@ class _CollectionListPageState extends State<CollectionListPage> {
                         width: 80,
                         height: 60,
                         fit: BoxFit.cover,
-                        cacheKey: 'collection_cover_${collection.id}',
                       )
                     : Container(
                         width: 80,
