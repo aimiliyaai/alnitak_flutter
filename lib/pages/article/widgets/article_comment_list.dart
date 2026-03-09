@@ -11,6 +11,7 @@ import '../../../utils/auth_state_manager.dart';
 import '../../../utils/timestamp_parser.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../../utils/image_utils.dart';
+import '../../../utils/time_utils.dart';
 import '../../user/user_space_page.dart';
 
 /// 文章评论列表组件
@@ -360,25 +361,6 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
     _commentFocusNode.unfocus();
   }
 
-  String _formatTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inDays > 365) {
-      return '${(difference.inDays / 365).floor()}年前';
-    } else if (difference.inDays > 30) {
-      return '${(difference.inDays / 30).floor()}个月前';
-    } else if (difference.inDays > 0) {
-      return '${difference.inDays}天前';
-    } else if (difference.inHours > 0) {
-      return '${difference.inHours}小时前';
-    } else if (difference.inMinutes > 0) {
-      return '${difference.inMinutes}分钟前';
-    } else {
-      return '刚刚';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isInPanel = widget.scrollController != null;
@@ -445,7 +427,7 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
                       showReplies: _expandedReplies.contains(comment.id),
                       replies: _loadedReplies[comment.id],
                       isLoadingReplies: _loadingReplies[comment.id] ?? false,
-                      formatTime: _formatTime,
+                      formatTime: TimeUtils.formatRelativeTime,
                       currentUserId: _currentUserId,
                     );
                   },

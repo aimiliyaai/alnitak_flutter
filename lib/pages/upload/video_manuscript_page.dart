@@ -4,6 +4,7 @@ import '../../services/video_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import '../../utils/image_utils.dart';
+import '../../utils/time_utils.dart';
 import '../../utils/video_status_utils.dart';
 import '../../widgets/loading_more_indicator.dart';
 import 'video_upload_page.dart';
@@ -466,7 +467,7 @@ class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: Text(
-                            video.createdAt,
+                            TimeUtils.formatTime(video.createdAt),
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                             overflow: TextOverflow.ellipsis,
                           ),

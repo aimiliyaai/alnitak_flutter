@@ -447,7 +447,7 @@ class _CollectionListPageState extends State<CollectionListPage> {
                     ],
                     const SizedBox(height: 6),
                     Text(
-                      '创建于 ${TimeUtils.formatDate(collection.createdAt)}',
+                      '创建于 ${TimeUtils.formatTime(collection.createdAt)}',
                       style: TextStyle(
                         fontSize: 12,
                         color: colors.textTertiary,

@@ -1,10 +1,13 @@
 import 'dart:io';
-import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 
-/// 日志服务类，用于记录错误和调试信息到文件
+import 'package:dio/dio.dart';
+
+import '../utils/http_client.dart';
+
+/// 日志服务：写本地文件并上报服务端
 class LoggerService {
   static LoggerService? _instance;
   static LoggerService get instance {
@@ -53,6 +56,52 @@ class LoggerService {
       await _logFile!.copy(archiveFile.path);
       await _logFile!.delete();
     } catch (_) {}
+  }
+
+  static const int _maxReportLength = 2000;
+
+  void _reportToServer(Map<String, dynamic> payload) {
+    Future.microtask(() async {
+      try {
+        final body = <String, dynamic>{
+          'level': payload['level'] ?? 'error',
+          'message': _truncate(payload['message'] as String?, _maxReportLength),
+          'timestamp': payload['timestamp'],
+          if (payload['error'] != null) 'error': _truncate(payload['error']?.toString(), _maxReportLength),
+          if (payload['stackTrace'] != null) 'stackTrace': _truncate(payload['stackTrace']?.toString(), 3000),
+          if (payload['context'] != null && (payload['context'] as Map).isNotEmpty) 'context': payload['context'],
+        };
+        await HttpClient().dio.post(
+          '/api/v1/client/log',
+          data: body,
+          options: Options(sendTimeout: const Duration(seconds: 5), receiveTimeout: const Duration(seconds: 5)),
+        );
+      } catch (e, st) {
+        if (kDebugMode) {
+          debugPrint('[LoggerService] POST /api/v1/client/log failed: $e');
+          debugPrint(st.toString());
+        }
+      }
+    });
+  }
+
+  static String? _truncate(String? s, int maxLen) {
+    if (s == null) return null;
+    return s.length <= maxLen ? s : '${s.substring(0, maxLen)}...';
+  }
+
+  /// 仅上报服务端（不写文件），用于消息已读等调试，level 为 info
+  void reportEvent(String message, [Map<String, dynamic>? context]) {
+    final ts = DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(DateTime.now());
+    if (kDebugMode) {
+      debugPrint('[reportEvent] $message ${context ?? {}}');
+    }
+    _reportToServer({
+      'level': 'info',
+      'message': message,
+      'timestamp': ts,
+      'context': context ?? {},
+    });
   }
 
   /// 写入日志到文件
@@ -104,6 +153,14 @@ class LoggerService {
       debugPrint(buffer.toString());
     }
     await _writeToFile(buffer.toString());
+    _reportToServer({
+      'level': 'error',
+      'message': message,
+      'error': error?.toString(),
+      'stackTrace': stackTrace?.toString(),
+      'context': context,
+      'timestamp': DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(DateTime.now()),
+    });
   }
 
   /// 记录API错误日志

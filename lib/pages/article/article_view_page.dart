@@ -7,6 +7,7 @@ import '../../services/video_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import '../../utils/login_guard.dart';
+import '../../utils/time_utils.dart';
 import '../user/user_space_page.dart';
 import 'widgets/article_action_buttons.dart';
 import 'widgets/article_comment_preview_card.dart';
@@ -312,7 +313,7 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
                       Row(
                         children: [
                           Text(
-                            _article!.formattedDate,
+                            TimeUtils.formatTime(_article!.createdAt),
                             style: TextStyle(
                               fontSize: 13,
                               color: colors.textTertiary,

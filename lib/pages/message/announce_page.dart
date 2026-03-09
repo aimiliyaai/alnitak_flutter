@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/message_models.dart';
 import '../../services/message_api_service.dart';
+import '../../utils/message_read_status.dart';
 import '../../utils/time_utils.dart';
 import '../../theme/theme_extensions.dart';
 
@@ -61,6 +62,9 @@ class _AnnouncePageState extends State<AnnouncePage> {
         _isLoading = false;
         _hasMore = data.length >= _pageSize;
       });
+      if (data.isNotEmpty) {
+        await _apiService.markAndSaveReadStatus(MessageReadStatus.announce, data.map((e) => e.id));
+      }
     }
   }
 

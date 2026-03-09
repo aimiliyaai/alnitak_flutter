@@ -104,13 +104,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 显示电池优化设置引导弹窗
   Future<bool> _showBatteryOptimizationDialog() async {
-    // 先检查是否已经关闭了电池优化
-    bool alreadyIgnoring = false;
     try {
-      alreadyIgnoring = await _batteryChannel.invokeMethod('isIgnoringBatteryOptimizations') ?? false;
+      final alreadyIgnoring = await _batteryChannel.invokeMethod('isIgnoringBatteryOptimizations') as bool?;
+      if (alreadyIgnoring == true) return true;
     } catch (_) {}
-
-    if (alreadyIgnoring) return true;
 
     if (!mounted) return false;
 
@@ -120,41 +117,13 @@ class _SettingsPageState extends State<SettingsPage> {
         final colors = _colors;
         return AlertDialog(
           title: const Text('后台播放需要额外设置'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '为了确保后台播放不被系统中断，请将本应用加入电池优化白名单。',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: colors.textPrimary,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '部分设备还需要在系统设置中：',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colors.textSecondary,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              _buildBulletItem('关闭「后台活动限制」', colors),
-              _buildBulletItem('开启「允许后台运行」', colors),
-              _buildBulletItem('将应用设为「无限制」电池策略', colors),
-              const SizedBox(height: 12),
-              Text(
-                '不同品牌设备的设置路径可能不同，请根据系统提示操作。',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colors.textTertiary,
-                  height: 1.4,
-                ),
-              ),
-            ],
+          content: Text(
+            '请将本应用设为「不优化」或「无限制」电池策略，以免后台播放被系统中断。\n\n点击「前往设置」后，若未弹出电池优化开关，请在本应用设置页中进入「电池」或「耗电」，将本应用设为无限制。',
+            style: TextStyle(
+              fontSize: 14,
+              color: colors.textPrimary,
+              height: 1.5,
+            ),
           ),
           actions: [
             TextButton(
@@ -176,41 +145,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return result ?? false;
   }
 
-  /// 构建列表圆点项
-  Widget _buildBulletItem(String text, dynamic colors) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Container(
-              width: 4,
-              height: 4,
-              decoration: BoxDecoration(
-                color: colors.textSecondary,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.textSecondary,
-                height: 1.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 打开电池优化设置
+  /// 打开电池优化/应用设置页（优先系统弹窗，失败则打开本应用设置页供用户进入电池项）
   Future<void> _openBatteryOptimizationSettings() async {
     try {
       await _batteryChannel.invokeMethod('openBatteryOptimizationSettings');
@@ -218,7 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('无法自动跳转，请手动在系统设置中搜索「电池优化」'),
+            content: Text('已打开本应用设置页，请进入「电池」将本应用设为无限制'),
             duration: Duration(seconds: 3),
           ),
         );

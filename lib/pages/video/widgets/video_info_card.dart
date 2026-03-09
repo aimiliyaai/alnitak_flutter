@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../models/video_detail.dart';
+import '../../../utils/time_utils.dart';
 import '../../../theme/theme_extensions.dart';
 
 /// 视频信息卡片
@@ -35,26 +35,6 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
       return '${(number / 10000).toStringAsFixed(1)}万';
     }
     return number.toString();
-  }
-
-  /// 格式化相对时间
-  String _formatRelativeTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inMinutes < 1) {
-      return '刚刚';
-    } else if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}分钟前';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}小时前';
-    } else if (difference.inDays < 30) {
-      return '${difference.inDays}天前';
-    } else if (difference.inDays < 365) {
-      return '${(difference.inDays / 30).floor()}个月前';
-    } else {
-      return DateFormat('yyyy-MM-dd').format(dateTime);
-    }
   }
 
   @override
@@ -114,7 +94,7 @@ class _VideoInfoCardState extends State<VideoInfoCard> {
               Icon(Icons.access_time, size: 16, color: colors.textSecondary),
               const SizedBox(width: 4),
               Text(
-                _formatRelativeTime(widget.videoDetail.createdAt),
+                TimeUtils.formatRelativeTime(widget.videoDetail.createdAt),
                 style: TextStyle(fontSize: 13, color: colors.textSecondary),
               ),
 

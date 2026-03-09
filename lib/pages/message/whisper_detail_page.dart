@@ -42,11 +42,12 @@ class _WhisperDetailPageState extends State<WhisperDetailPage> {
     super.initState();
     _loadMyInfo();
     _loadMessages();
-    _markAsRead(); // 进入详情页时标记已读（本地）
+    _markAsRead(); // 后端标记已读 + 本地标记已读
   }
 
-  /// 标记私信为已读（本地存储）
+  /// 标记私信为已读：调用后端接口并更新本地状态
   Future<void> _markAsRead() async {
+    await _apiService.readWhisper(widget.userId);
     await WhisperReadStatus.markAsRead(widget.userId);
   }
 

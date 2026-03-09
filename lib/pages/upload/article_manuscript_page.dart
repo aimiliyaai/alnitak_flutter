@@ -4,6 +4,7 @@ import '../../services/article_submit_api_service.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import '../../utils/image_utils.dart';
+import '../../utils/time_utils.dart';
 import '../../widgets/loading_more_indicator.dart';
 import 'article_upload_page.dart';
 
@@ -458,7 +459,7 @@ class _ArticleManuscriptPageState extends State<ArticleManuscriptPage> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: Text(
-                            article.createdAt,
+                            TimeUtils.formatTime(article.createdAt),
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                             overflow: TextOverflow.ellipsis,
                           ),

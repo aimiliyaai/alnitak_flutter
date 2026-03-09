@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/message_models.dart';
 import '../../services/message_api_service.dart';
+import '../../utils/message_read_status.dart';
 import '../../utils/time_utils.dart';
 import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
@@ -63,6 +64,9 @@ class _ReplyMessagePageState extends State<ReplyMessagePage> {
         _isLoading = false;
         _hasMore = data.length >= _pageSize;
       });
+      if (data.isNotEmpty) {
+        await _apiService.markAndSaveReadStatus(MessageReadStatus.reply, data.map((e) => e.id));
+      }
     }
   }
 

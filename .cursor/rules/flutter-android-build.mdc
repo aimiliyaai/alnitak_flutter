@@ -1,0 +1,21 @@
+---
+description: Flutter Android 构建实战经验（NDK/splits 冲突与瘦身）
+globs: "**/android/**/*.gradle*,**/android/**/*.kts"
+alwaysApply: false
+---
+
+# Flutter Android 构建
+
+## 不要设置 ndk.abiFilters
+
+Flutter Gradle 插件会自行配置 **splits.abi**（如 armeabi-v7a, x86_64, arm64-v8a）。若在 `android/app/build.gradle.kts` 的 `defaultConfig` 里再设置 `ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }`，会报错：
+
+```
+Conflicting configuration : '...' in ndk abiFilters cannot be present when splits abi filters are set
+```
+
+**正确做法**：不在 Gradle 里写 `ndk.abiFilters`。需要只打 arm、减小单 APK 体积时，用 Flutter 命令行：
+
+```bash
+flutter build apk --release --target-platform android-arm,android-arm64
+```

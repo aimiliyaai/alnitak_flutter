@@ -29,13 +29,15 @@ class MainActivity : AudioServiceFragmentActivity() {
                         startActivity(intent)
                         result.success(true)
                     } catch (e: Exception) {
-                        // 部分厂商 ROM 不支持该 Intent，回退到通用电池设置
+                        // 部分机型（如 Android 14/16 等）无弹窗，改为打开本应用设置页，用户可进入「电池」设为无限制
                         try {
-                            val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
                             startActivity(fallback)
                             result.success(true)
                         } catch (e2: Exception) {
-                            result.error("UNAVAILABLE", "无法打开电池优化设置", null)
+                            result.error("UNAVAILABLE", "无法打开设置", null)
                         }
                     }
                 }

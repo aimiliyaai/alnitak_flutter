@@ -1,86 +1,69 @@
 import 'package:intl/intl.dart';
 
-/// 时间格式化工具类
+/// 时间格式化工具类（统一为 YouTube 风格相对时间：刚刚、1分钟前、昨天 等，随时间推移变化）
 class TimeUtils {
-  /// 格式化时间为友好显示
-  /// - 1分钟内：刚刚
-  /// - 1小时内：xx分钟前
-  /// - 24小时内：xx小时前
-  /// - 今年内：MM-dd
-  /// - 跨年：yyyy-MM-dd
-  static String formatTime(String? timeStr) {
-    if (timeStr == null || timeStr.isEmpty) {
-      return '';
-    }
-
-    try {
-      final dateTime = DateTime.parse(timeStr);
-      final now = DateTime.now();
-      final diff = now.difference(dateTime);
-
-      if (diff.inMinutes < 1) {
-        return '刚刚';
-      } else if (diff.inMinutes < 60) {
-        return '${diff.inMinutes}分钟前';
-      } else if (diff.inHours < 24) {
-        return '${diff.inHours}小时前';
-      } else if (diff.inDays < 7) {
-        return '${diff.inDays}天前';
-      } else if (dateTime.year == now.year) {
-        return DateFormat('MM-dd').format(dateTime);
-      } else {
-        return DateFormat('yyyy-MM-dd').format(dateTime);
-      }
-    } catch (e) {
-      return timeStr;
-    }
-  }
-
-  /// 格式化时间为完整日期时间
-  static String formatDateTime(String? timeStr) {
-    if (timeStr == null || timeStr.isEmpty) {
-      return '';
-    }
-
-    try {
-      final dateTime = DateTime.parse(timeStr);
-      return DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
-    } catch (e) {
-      return timeStr;
-    }
-  }
-
-  /// 格式化时间为日期
-  static String formatDate(String? timeStr) {
-    if (timeStr == null || timeStr.isEmpty) {
-      return '';
-    }
-
-    try {
-      final dateTime = DateTime.parse(timeStr);
-      return DateFormat('yyyy-MM-dd').format(dateTime);
-    } catch (e) {
-      return timeStr;
-    }
-  }
-
-  /// 格式化DateTime为友好显示（相对时间）
-  static String formatRelativeTime(DateTime dateTime) {
-    final now = DateTime.now();
+  /// 相对时间展示（全项目统一，YouTube 风格）
+  /// 刚刚 → 分钟前 → 小时前 → 昨天 → 天前 → 周前 → 个月前 → 年前
+  static String _relative(DateTime dateTime, DateTime now) {
     final diff = now.difference(dateTime);
+    if (diff.isNegative) return DateFormat('M/d').format(dateTime);
 
-    if (diff.inMinutes < 1) {
-      return '刚刚';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}分钟前';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}小时前';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays}天前';
-    } else if (dateTime.year == now.year) {
-      return DateFormat('MM-dd').format(dateTime);
-    } else {
-      return DateFormat('yyyy-MM-dd').format(dateTime);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return m == 1 ? '1分钟前' : '$m分钟前';
+    }
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return h == 1 ? '1小时前' : '$h小时前';
+    }
+    if (diff.inDays == 1) return '昨天';
+    final d = diff.inDays;
+    if (d < 7) return '$d天前';
+    if (d < 30) {
+      final w = (d / 7).floor();
+      return w == 1 ? '1周前' : '$w周前';
+    }
+    if (d < 365) {
+      final mo = (d / 30).floor();
+      return mo == 1 ? '1个月前' : '$mo个月前';
+    }
+    final y = now.year - dateTime.year;
+    return y == 1 ? '1年前' : '$y年前';
+  }
+
+  /// 字符串时间 → 相对时间（统一入口，用于稿件/消息/评论等展示）
+  static String formatTime(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return '';
+    try {
+      return _relative(DateTime.parse(timeStr), DateTime.now());
+    } catch (_) {
+      return timeStr;
+    }
+  }
+
+  /// DateTime → 相对时间（与 formatTime 同一规则）
+  static String formatRelativeTime(DateTime dateTime) {
+    return _relative(dateTime, DateTime.now());
+  }
+
+  /// 完整日期时间（仅用于需要精确时间的场景，如后台/导出）
+  static String formatDateTime(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return '';
+    try {
+      return DateFormat('yyyy-MM-dd HH:mm').format(DateTime.parse(timeStr));
+    } catch (_) {
+      return timeStr;
+    }
+  }
+
+  /// 仅日期（如需要绝对日期时用）
+  static String formatDate(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return '';
+    try {
+      return DateFormat('yyyy-MM-dd').format(DateTime.parse(timeStr));
+    } catch (_) {
+      return timeStr;
     }
   }
 
