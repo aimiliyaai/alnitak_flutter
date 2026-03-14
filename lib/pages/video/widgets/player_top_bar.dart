@@ -130,16 +130,20 @@ class PlayerTopBar extends StatelessWidget {
 
           final isOverflow = textPainter.width > maxWidth;
 
+          // 无溢出或动画已结束：固定宽度 + 省略号，避免超长标题撑出边界
           if (!isOverflow || titleScrollController.isCompleted) {
-            return Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
+            return SizedBox(
+              width: maxWidth,
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
             );
           }
 
