@@ -249,7 +249,10 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
                           controller: _controller!.videoController,
                           logic: _controller!,
                           title: widget.title ?? '',
-                          onBack: () => Navigator.of(context).maybePop(),
+                          onBack: () {
+                            _controller?.player.pause();
+                            Navigator.of(context).maybePop();
+                          },
                           danmakuController: widget.danmakuController,
                           onlineCount: widget.onlineCount,
                           forceFullscreen: widget.onFullscreenToggle != null ? widget.isFullscreen : null,

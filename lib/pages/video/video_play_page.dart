@@ -840,13 +840,22 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        top: true,
-        bottom: false,
-        left: false,
-        right: false,
-        child: _buildBody(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _playerController?.player.pause();
+          Navigator.of(context).maybePop();
+        }
+      },
+      child: Scaffold(
+        body: SafeArea(
+          top: true,
+          bottom: false,
+          left: false,
+          right: false,
+          child: _buildBody(),
+        ),
       ),
     );
   }
