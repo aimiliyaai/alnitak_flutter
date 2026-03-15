@@ -13,7 +13,7 @@ import '../utils/quality_utils.dart';
 ///   1. 请求 dash-unified MPD XML，解析为 DashManifest（所有清晰度一次获取）
 ///   2. 旧资源回退到 m3u8 URL
 ///
-/// 质量切换不再请求网络，从缓存的 DashManifest 中取 DataSource 即可。
+/// 质量切换从缓存 manifest 取对应清晰度的直链数据源。
 class VideoStreamService {
   static final VideoStreamService _instance = VideoStreamService._internal();
   factory VideoStreamService() => _instance;
@@ -147,14 +147,13 @@ class VideoStreamService {
     );
   }
 
-  /// ISO 8601 duration → seconds  ("PT0H3M59S" → 239.0)
+  /// ISO 8601 duration → seconds  ("PT0H1M59.700S" → 119.7)
   double _parseDuration(String s) {
-    final m = RegExp(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?').firstMatch(s);
+    final m = RegExp(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?').firstMatch(s);
     if (m == null) return 0;
-    return ((int.tryParse(m.group(1) ?? '') ?? 0) * 3600 +
-            (int.tryParse(m.group(2) ?? '') ?? 0) * 60 +
-            (int.tryParse(m.group(3) ?? '') ?? 0))
-        .toDouble();
+    return (int.tryParse(m.group(1) ?? '') ?? 0) * 3600.0 +
+        (int.tryParse(m.group(2) ?? '') ?? 0) * 60.0 +
+        (double.tryParse(m.group(3) ?? '') ?? 0);
   }
 
   /// 旧资源回退：获取清晰度列表，返回 m3u8 模式 manifest

@@ -21,8 +21,8 @@ import 'widgets/error_boundary.dart';
 late VideoAudioHandler audioHandler;
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
   runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
     await _init();
     runApp(const MyApp());
   }, (Object error, StackTrace stack) {

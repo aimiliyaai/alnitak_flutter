@@ -75,15 +75,14 @@ class VideoPlayerController extends ChangeNotifier {
   bool _hasJustCompleted = false; // 刚播放完毕，用于区分循环重播
   bool _isInitializing = false;
   bool _hasPlaybackStarted = false;
-  bool _supportsDash = true; // 新资源=true(JSON直链), 旧资源=false(m3u8 URL)
-  DashManifest? _dashManifest; // 缓存完整 DASH 数据（仿 pili_plus）
+  bool _supportsDash = true; // 新资源=true(直链), 旧资源=false(m3u8 URL)
+  DashManifest? _manifest; // 缓存 DASH manifest（含所有清晰度的视频/音频直链）
   bool _isSeeking = false;
   bool _isHandlingStall = false;
 
   Duration _userIntendedPosition = Duration.zero;
   Duration _lastReportedPosition = Duration.zero;
   int? _lastProgressFetchTime;
-
   // pilipala 风格：用 List 管理所有 stream subscription，方便批量取消/重建
   List<StreamSubscription> _subscriptions = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
@@ -94,15 +93,6 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _bufferingShowTimer;
   static const int _bufferingSustainMs = 1500;
 
-  /// 方案 B 加强：open(play: false) 后等缓冲量达标且 buffering 结束再 play
-  bool _pendingStablePlay = false;
-  Timer? _stablePlayFallbackTimer;
-  /// 本次 setDataSource 是否为清晰度切换（用更长延迟避免高码率切换时音频卡两次）
-  bool _isQualitySwitchStablePlay = false;
-  static const int _stablePlayDelayMs = 60;
-  static const int _stablePlayDelayQualitySwitchMs = 60;
-  static const int _minBufferSeconds = 1;
-  static const int _stablePlayFallbackSeconds = 3;
 
   int? _currentVid;
   int _currentPart = 1;
@@ -253,23 +243,22 @@ class VideoPlayerController extends ChangeNotifier {
 
       if (!_settingsLoaded) await _loadSettings();
 
-      // 仿 pili_plus：一次性获取所有清晰度的 DASH 数据
-      final manifest = await _streamService.getDashManifest(resourceId);
-      _dashManifest = manifest;
-      _supportsDash = manifest.supportsDash;
-      availableQualities.value = manifest.qualities;
-      if (manifest.qualities.isEmpty) throw Exception('没有可用的清晰度');
+      // 一次性获取所有清晰度的 DASH 数据（含视频/音频直链）
+      _manifest = await _streamService.getDashManifest(resourceId);
+      _supportsDash = _manifest!.supportsDash;
+      availableQualities.value = _manifest!.qualities;
+      if (_manifest!.qualities.isEmpty) throw Exception('没有可用的清晰度');
 
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
       if (_isDisposed || _currentResourceId != resourceId) return;
 
-      // 获取 DataSource：DASH 从缓存取，旧资源回退 m3u8
+      // 获取 DataSource：DASH 直连视频+音频URL，旧资源回退 m3u8
       final DataSource dataSource;
       if (_supportsDash) {
-        final cached = manifest.getDataSource(currentQuality.value!);
-        if (cached == null) throw Exception('DASH 数据获取失败');
-        dataSource = cached;
+        final ds = _manifest!.getDataSource(currentQuality.value!);
+        if (ds == null) throw Exception('清晰度数据不可用');
+        dataSource = ds;
       } else {
         dataSource = await _streamService.getM3u8DataSource(
           resourceId,
@@ -302,19 +291,16 @@ class VideoPlayerController extends ChangeNotifier {
   ///
   /// 流程：
   /// 1. removeListeners()，清空缓冲状态
-  /// 2. 创建 Player（??= 复用），配置 audio-files 挂载独立音频
+  /// 2. 创建 Player（??= 复用），由 mpv 原生解析媒体内音轨
   /// 3. startListeners() 先注册监听
-  /// 4. player.open(Media(..., start: seekTo), play: false) — 方案 B：等缓冲稳定再 play
-  /// 5. 若 autoPlay：设 _pendingStablePlay，buffering 变 false 后延迟 80ms 再 play() 并激活 AudioSession
+  /// 4. player.open(Media(..., start: seekTo), play: false)
+  /// 5. 若 autoPlay：立即 play()（与 pili_plus 一致）
   Future<void> setDataSource(
     DataSource dataSource, {
     Duration seekTo = Duration.zero,
     bool autoPlay = true,
-    bool fromQualitySwitch = false,
   }) async {
     if (_isDisposed) return;
-
-    _isQualitySwitchStablePlay = fromQualitySwitch;
 
     try {
       isLoading.value = true;
@@ -324,9 +310,6 @@ class VideoPlayerController extends ChangeNotifier {
       }
 
       removeListeners();
-      _pendingStablePlay = false;
-      _stablePlayFallbackTimer?.cancel();
-      _stablePlayFallbackTimer = null;
       _bufferingShowTimer?.cancel();
       _bufferingShowTimer = null;
       isBuffering.value = false;
@@ -351,8 +334,9 @@ class VideoPlayerController extends ChangeNotifier {
         };
         if (Platform.isAndroid) {
           opt['volume-max'] = '100';
-          // 优先 AAudio：蓝牙下延迟更低，OpenSL ES 在蓝牙时易卡顿/延迟明显（见 docs/BLUETOOTH_LATENCY_COMPARISON.md）
-          opt['ao'] = 'aaudio,opensles,audiotrack';
+          // 使用 Android 自带音频输出后端
+          opt['ao'] = 'audiotrack';
+          // 对齐 pili_plus 默认值：让视频时钟更平滑追随音频时钟
           opt['autosync'] = '30';
         }
         _player = await Player.create(
@@ -384,26 +368,27 @@ class VideoPlayerController extends ChangeNotifier {
         );
       }
 
-      // 对齐 pili_plus：audio-files 通过 Media(extras:) 传入，不用 setProperty
-      final Map<String, String> extras = {};
-      if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
-        final escapedAudio = Platform.isWindows
-            ? dataSource.audioSource!.replaceAll(';', '\\;')
-            : dataSource.audioSource!.replaceAll(':', '\\:');
-        extras['audio-files'] = '"$escapedAudio"';
-        _logger.logDebug('设置 audio-files: ${dataSource.audioSource}');
-      }
-
-      // 先注册监听器，再 open(play: false)，等缓冲稳定后再 play，避免首帧音频播两次
+      // 先注册监听器，再 open(play: false)
       startListeners();
 
       final shouldPlayAfterStable = autoPlay;
       _logger.logDebug('setDataSource: open (seekTo=${seekTo.inSeconds}s, play: $shouldPlayAfterStable)');
+
+      // 方案 A：视频直链 + audio-files 外挂音频（绕过 DASH MPD，mpv 原生 fMP4 demuxer）
+      Map<String, String>? extras;
+      if (dataSource.audioSource != null && dataSource.audioSource!.isNotEmpty) {
+        // 对齐 pili_plus：按平台转义 audio-files 参数中的分隔符
+        final escapedAudio = Platform.isWindows
+            ? dataSource.audioSource!.replaceAll(';', r'\;')
+            : dataSource.audioSource!.replaceAll(':', r'\:');
+        extras = {'audio-files': '"$escapedAudio"'};
+      }
+
       await _player!.open(
         Media(
           dataSource.videoSource,
           start: seekTo,
-          extras: extras.isEmpty ? null : extras,
+          extras: extras,
         ),
         play: false,
       );
@@ -412,12 +397,8 @@ class VideoPlayerController extends ChangeNotifier {
       isPlayerInitialized.value = true;
 
       if (shouldPlayAfterStable && !_isDisposed) {
-        _pendingStablePlay = true;
-        _trySchedulePlayWhenStable();
-        _stablePlayFallbackTimer = Timer(const Duration(seconds: _stablePlayFallbackSeconds), () {
-          if (_pendingStablePlay) _schedulePlayWhenStable();
-          _stablePlayFallbackTimer = null;
-        });
+        // 对齐 pili_plus：open(play: false) 后立即 play
+        await play();
       }
 
     } catch (e) {
@@ -485,7 +466,7 @@ class VideoPlayerController extends ChangeNotifier {
     isSwitchingQuality.value = true;
 
     try {
-      await _reloadWithDataSource(quality, position, fromQualitySwitch: true);
+      await _reloadWithDataSource(quality, position);
       currentQuality.value = quality;
       await _savePreferredQuality(quality);
       _userIntendedPosition = position;
@@ -499,7 +480,7 @@ class VideoPlayerController extends ChangeNotifier {
   }
 
   /// 重新加载数据源（用于清晰度切换、卡顿恢复等场景）
-  Future<void> _reloadWithDataSource(String? quality, Duration position, {bool setQuality = true, bool fromQualitySwitch = false}) async {
+  Future<void> _reloadWithDataSource(String? quality, Duration position) async {
     final targetQuality = quality ?? currentQuality.value;
     if (targetQuality == null || _currentResourceId == null) return;
 
@@ -510,7 +491,6 @@ class VideoPlayerController extends ChangeNotifier {
       dataSource,
       seekTo: position.inSeconds > 0 ? position : Duration.zero,
       autoPlay: true,
-      fromQualitySwitch: fromQualitySwitch,
     );
   }
 
@@ -629,6 +609,9 @@ class VideoPlayerController extends ChangeNotifier {
         if (!_hasPlaybackStarted) {
           if (position.inSeconds == 0) return;
           _hasPlaybackStarted = true;
+          // 排查「起始位置非 0」：首帧 position/duration 若非预期，多为播放器或流对齐问题（见 docs/PLAYBACK_START_END_ANALYSIS.md）
+          final dur = _player?.state.duration ?? Duration.zero;
+          _logger.logDebug('首帧 position=${position.inSeconds}s (${position.inMilliseconds}ms), duration=${dur.inSeconds}s');
         }
 
         if (position.inSeconds <= 1 && _hasJustCompleted) {
@@ -654,9 +637,6 @@ class VideoPlayerController extends ChangeNotifier {
 
       _player!.stream.buffer.listen((buffer) {
         _updateBufferedSecond();
-        if (_pendingStablePlay && !_player!.state.buffering && buffer.inSeconds >= _minBufferSeconds) {
-          _schedulePlayWhenStable();
-        }
       }),
 
       _player!.stream.buffering.listen((buffering) {
@@ -679,9 +659,6 @@ class VideoPlayerController extends ChangeNotifier {
           _bufferingShowTimer = null;
           isBuffering.value = false;
           _stalledTimer?.cancel();
-          if (_pendingStablePlay) {
-            _trySchedulePlayWhenStable();
-          }
         }
       }),
 
@@ -736,30 +713,6 @@ class VideoPlayerController extends ChangeNotifier {
 
   }
 
-  /// 仅在 buffering 结束且缓冲量 >= _minBufferSeconds 时才调度 play
-  void _trySchedulePlayWhenStable() {
-    if (!_pendingStablePlay || _isDisposed || _player == null) return;
-    if (_player!.state.buffering) return;
-    if (_player!.state.buffer.inSeconds < _minBufferSeconds) return;
-    _schedulePlayWhenStable();
-  }
-
-  /// 方案 B：真正执行「延迟后 play」，只执行一次，并取消兜底定时器
-  /// 清晰度切换时用更长延迟，避免高码率流起播时音频卡两次
-  void _schedulePlayWhenStable() {
-    if (!_pendingStablePlay || _isDisposed || _player == null) return;
-    _pendingStablePlay = false;
-    _stablePlayFallbackTimer?.cancel();
-    _stablePlayFallbackTimer = null;
-    final delayMs = _isQualitySwitchStablePlay ? _stablePlayDelayQualitySwitchMs : _stablePlayDelayMs;
-    _isQualitySwitchStablePlay = false;
-    Future.delayed(Duration(milliseconds: delayMs), () {
-      if (_isDisposed || _player == null) return;
-      play();
-      _audioSession?.setActive(true);
-    });
-  }
-
   /// 移除事件监听（照搬 pilipala 的 removeListeners）
   void removeListeners() {
     for (final s in _subscriptions) {
@@ -772,8 +725,6 @@ class VideoPlayerController extends ChangeNotifier {
     _seekTimer = null;
     _bufferingShowTimer?.cancel();
     _bufferingShowTimer = null;
-    _stablePlayFallbackTimer?.cancel();
-    _stablePlayFallbackTimer = null;
   }
 
   /// 处理卡顿恢复（参考 pili_plus 的 refreshPlayer，复用 setDataSource）
@@ -790,7 +741,7 @@ class VideoPlayerController extends ChangeNotifier {
       if (currentPos <= Duration.zero) return;
 
       _logger.logDebug('_handleStalled: refreshPlayer from ${currentPos.inSeconds}s');
-      await _reloadWithDataSource(currentQuality.value!, currentPos, setQuality: false);
+      await _reloadWithDataSource(currentQuality.value!, currentPos);
       _userIntendedPosition = currentPos;
     } catch (e) {
       _logger.logDebug('_handleStalled 失败: $e');
@@ -803,22 +754,17 @@ class VideoPlayerController extends ChangeNotifier {
 
   /// 获取指定清晰度的 DataSource（统一入口）
   ///
-  /// 优先从缓存的 manifest 获取；manifest 过期或缺失则重新请求；
-  /// 旧资源直接回退到 m3u8。
+  /// DASH 直连视频+音频 URL（从缓存的 manifest 取）；旧资源回退 m3u8。
   Future<DataSource> _getDataSourceForQuality(String quality) async {
-    // DASH 缓存命中且未过期
-    if (_dashManifest != null && _supportsDash && !_dashManifest!.isExpired) {
-      final cached = _dashManifest!.getDataSource(quality);
-      if (cached != null) return cached;
+    if (_supportsDash && _manifest != null) {
+      // manifest 过期时重新获取（签名 URL 有时效）
+      if (_manifest!.isExpired && _currentResourceId != null) {
+        _manifest = await _streamService.getDashManifest(_currentResourceId!);
+      }
+      final ds = _manifest!.getDataSource(quality);
+      if (ds != null) return ds;
     }
-    // DASH 缓存过期或缺失，重新获取
-    if (_supportsDash) {
-      _dashManifest = await _streamService.getDashManifest(_currentResourceId!);
-      availableQualities.value = _dashManifest!.qualities;
-      final cached = _dashManifest!.getDataSource(quality);
-      if (cached != null) return cached;
-    }
-    // 最终回退：旧资源 m3u8 或 DASH 缓存里没有该清晰度
+    // 旧资源回退 m3u8
     return _streamService.getM3u8DataSource(_currentResourceId!, quality);
   }
 
@@ -828,7 +774,7 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _configurePlayerOnce(String decodeMode) async {
     if (_player == null) return;
 
-    // seek 精度：双独立流(video+audio-files)必须用精确 seek
+    // 提升 seek 精度
     _player!.setProperty('hr-seek', 'yes');
 
     // 禁用帧插值
@@ -837,7 +783,7 @@ class VideoPlayerController extends ChangeNotifier {
     // fMP4 容错：discardcorrupt 丢弃损坏帧
     _player!.setProperty('demuxer-lavf-o', 'fflags=+discardcorrupt');
 
-    // 禁止 demuxer 回退读取，防止 fMP4 fragment 边界 PTS 回退
+    // 禁止 demuxer 回退读取，避免 fMP4 fragment 边界触发 PTS 回退导致画面/进度冻结
     _player!.setProperty('demuxer-max-back-bytes', '0');
 
     // 网络超时配置
@@ -1099,7 +1045,6 @@ class VideoPlayerController extends ChangeNotifier {
     if (_isDisposed) return;
     _isDisposing = true;
     _isDisposed = true;
-    _dashManifest = null;
 
     WakelockManager.disable();
     await _disposeAudioSession();
@@ -1107,10 +1052,8 @@ class VideoPlayerController extends ChangeNotifier {
     _seekTimer?.cancel();
     _stalledTimer?.cancel();
     _bufferingShowTimer?.cancel();
-    _stablePlayFallbackTimer?.cancel();
-    _stablePlayFallbackTimer = null;
 
-    // pilipala: removeListeners + 清空 audio-files
+    // pilipala: removeListeners
     removeListeners();
     await _connectivitySubscription?.cancel();
 
@@ -1118,13 +1061,12 @@ class VideoPlayerController extends ChangeNotifier {
     await audioHandler.stop();
     audioHandler.detachPlayer();
 
+    _manifest = null;
+
     // 清理视频缓存
     _cacheService.cleanupAllTempCache();
 
     if (_player != null) {
-      try {
-        _player!.setProperty('audio-files', '');
-      } catch (_) {}
       await _player!.dispose();
       _player = null;
     }
