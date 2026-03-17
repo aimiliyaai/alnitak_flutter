@@ -1136,7 +1136,6 @@ class VideoPlayerController extends ChangeNotifier {
     if (_player == null || _isDisposed) return;
 
     if (isPaused) {
-      // 进入后台
       if (!backgroundPlayEnabled.value) {
         pause();
       }
@@ -1146,7 +1145,6 @@ class VideoPlayerController extends ChangeNotifier {
         _userIntendedPosition = pos;
       }
     } else {
-      // 回到前台，刷新通知栏信息
       if (_videoTitle != null) {
         audioHandler.setMediaItem(
           id: _currentResourceId?.toString() ?? '',
@@ -1158,12 +1156,13 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 与 pili_plus 一致：先 player.play 再 setActive，避免音频路由切换时卡顿
   Future<void> play() async {
     if (_isDisposed || _player == null) return;
+    await _player!.play();
     if (_audioSession != null) {
       await _audioSession!.setActive(true);
     }
-    await _player!.play();
   }
 
   /// [isInterrupt] 系统中断时传 true，不释放音频焦点
@@ -1228,13 +1227,10 @@ class VideoPlayerController extends ChangeNotifier {
         case AudioInterruptionType.pause:
           if (_wasPlayingBeforeInterruption) {
             _wasPlayingBeforeInterruption = false;
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (_player == null || _isDisposed) return;
-              if (!_player!.state.playing) {
-                play();
-                _logger.logDebug('[AudioSession] 中断结束，恢复播放', tag: 'AudioSession');
-              }
-            });
+            if (_player != null && !_isDisposed && !_player!.state.playing) {
+              play();
+              _logger.logDebug('[AudioSession] 中断结束，恢复播放', tag: 'AudioSession');
+            }
           }
           break;
         case AudioInterruptionType.unknown:
@@ -1267,8 +1263,11 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 清理音频会话
+  /// 清理音频会话（必须先 setActive(false) 释放焦点，否则电话中断后系统状态异常需重启才能恢复）
   Future<void> _disposeAudioSession() async {
+    try {
+      await _audioSession?.setActive(false);
+    } catch (_) {}
     await _interruptionSubscription?.cancel();
     await _becomingNoisySubscription?.cancel();
     _interruptionSubscription = null;
