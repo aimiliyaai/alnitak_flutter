@@ -97,7 +97,13 @@
       "Bash(python -c \":*)",
       "Bash(ffprobe -show_entries format=format_name,duration -show_entries format_tags=major_brand,compatible_brands -show_entries stream=codec_name,width,height,r_frame_rate,avg_frame_rate,codec_type,profile \"C:\\\\Users\\\\anime\\\\Downloads\\\\yt\\\\video_399_HXB7PyEP_BA.mp4\")",
       "Bash(ffprobe -show_entries format=format_name,duration -show_entries format_tags=major_brand -show_entries stream=codec_name,sample_rate,channels,codec_type \"C:\\\\Users\\\\anime\\\\Downloads\\\\yt\\\\audio_251_HXB7PyEP_BA.webm\")",
-      "Bash(ffprobe -select_streams v:0 -show_frames -show_entries frame=pict_type,pts_time \"C:\\\\Users\\\\anime\\\\Downloads\\\\yt\\\\video_399_HXB7PyEP_BA.mp4\")"
+      "Bash(ffprobe -select_streams v:0 -show_frames -show_entries frame=pict_type,pts_time \"C:\\\\Users\\\\anime\\\\Downloads\\\\yt\\\\video_399_HXB7PyEP_BA.mp4\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries frame=pts_time,pict_type -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/1920x1080_4807k_60_video.m4s\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries frame=pts_time,pict_type -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/1920x1080_4807k_30_video.m4s\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries frame=pts_time,pict_type -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/1280x720_3004k_30_video.m4s\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries frame=pts_time,pict_type -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/852x480_1502k_30_video.m4s\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries frame=pts_time,pict_type -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/640x360_601k_30_video.m4s\")",
+      "Bash(ffprobe -v error -select_streams a:0 -show_entries frame=pts_time -of csv=p=0 \"E:/server/alnitak/server/upload/video/2028681619799281664/audio.m4s\")"
     ],
     "deny": [],
     "ask": [],

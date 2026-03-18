@@ -4,8 +4,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../models/article_detail_model.dart';
 import '../../../services/article_api_service.dart';
+import '../../../config/api_config.dart';
 import '../../../utils/login_guard.dart';
-import '../../../utils/http_client.dart';
 import '../../../theme/theme_extensions.dart';
 
 /// 文章操作按钮（点赞、收藏、分享）
@@ -213,11 +213,9 @@ class _ArticleActionButtonsState extends State<ArticleActionButtons>
     });
   }
 
-  /// 获取分享URL
+  /// 获取分享URL（与视频分享一致，使用 ApiConfig.getShareUrl）
   String _getShareUrl() {
-    final baseUrl = HttpClient().dio.options.baseUrl;
-    final domain = baseUrl.replaceAll('/api', '').replaceAll(RegExp(r'/$'), '');
-    return '$domain/article/${widget.aid}';
+    return ApiConfig.getShareUrl('article/${widget.aid}');
   }
 
   /// 显示二维码对话框

@@ -11,18 +11,19 @@ class ApiConfig {
 
   /// 默认服务器域名（可被 override 覆盖）
   static const String defaultHost = 'anime.ayypd.cn';
-  static const int defaultPort = 9000;
+  static const int defaultPortHttp = 9000;
+  static const int defaultPortHttps = 9001;
   static const String defaultShareHost = 'anime.ayypd.cn';
   static const int defaultSharePort = 3000;
 
-  static bool _httpsEnabled = false;
+  static bool _httpsEnabled = true;
   static String? _hostOverride;
   static int? _portOverride;
 
   /// 当前生效的服务器域名
   static String get host => _hostOverride ?? defaultHost;
-  /// 当前生效的 API 端口
-  static int get port => _portOverride ?? defaultPort;
+  /// 当前生效的 API 端口（HTTPS 9001，HTTP 9000）
+  static int get port => _portOverride ?? (_httpsEnabled ? defaultPortHttps : defaultPortHttp);
   static String get shareHost => defaultShareHost;
   static int get sharePort => defaultSharePort;
 
@@ -30,7 +31,7 @@ class ApiConfig {
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _httpsEnabled = prefs.getBool(_httpsEnabledKey) ?? false;
+    _httpsEnabled = prefs.getBool(_httpsEnabledKey) ?? true;
     final savedHost = prefs.getString(_hostOverrideKey);
     _hostOverride = (savedHost != null && savedHost.isNotEmpty) ? savedHost : null;
     final savedPort = prefs.getInt(_portOverrideKey);
@@ -88,8 +89,8 @@ class ApiConfig {
     return '$_protocol://$host';
   }
 
-  /// 分享地址（与API地址一致，动态协议）
-  /// 80/443端口不带端口，其他端口带端口
+  /// 分享地址（HTTPS 启用时自动用 https 前缀）
+  /// 80/443 端口不带端口，其他端口带端口
   static String getShareUrl(String path) {
     final portStr = sharePort == 80 || sharePort == 443 ? '' : ':$sharePort';
     return '$_protocol://$shareHost$portStr/$path';
