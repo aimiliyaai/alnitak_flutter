@@ -17,6 +17,7 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
   StreamSubscription<bool>? _playingSubscription;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
+  StreamSubscription<Duration>? _bufferSubscription;
 
   VideoAudioHandler() {
     _initPlaybackState();
@@ -39,6 +40,8 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.fastForward,
+        MediaAction.rewind,
       },
     ));
   }
@@ -83,6 +86,10 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
         mediaItem.add(mediaItem.value!.copyWith(duration: duration));
       }
     });
+
+    _bufferSubscription = _player!.stream.buffer.listen((buffer) {
+      _updatePlaybackState(bufferedPosition: buffer);
+    });
   }
 
   /// 更新播放信息（显示在通知栏/锁屏）
@@ -107,10 +114,12 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
   void _updatePlaybackState({
     bool? playing,
     Duration? position,
+    Duration? bufferedPosition,
   }) {
     if (_player == null) return;
     final currentPlaying = playing ?? _player!.state.playing;
     final currentPosition = position ?? _player!.state.position;
+    final currentBuffered = bufferedPosition ?? _player!.state.buffer;
 
     playbackState.add(playbackState.value.copyWith(
       playing: currentPlaying,
@@ -121,9 +130,15 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
       ],
       androidCompactActionIndices: const [0, 1, 2],
       updatePosition: currentPosition,
+      bufferedPosition: currentBuffered,
+      speed: 1.0,
       processingState: AudioProcessingState.ready,
       systemActions: const {
         MediaAction.seek,
+        MediaAction.seekForward,
+        MediaAction.seekBackward,
+        MediaAction.fastForward,
+        MediaAction.rewind,
       },
     ));
   }
@@ -203,9 +218,11 @@ class VideoAudioHandler extends BaseAudioHandler with SeekHandler {
     _playingSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
+    _bufferSubscription?.cancel();
     _playingSubscription = null;
     _positionSubscription = null;
     _durationSubscription = null;
+    _bufferSubscription = null;
   }
 
   /// 解绑播放器并清除通知
