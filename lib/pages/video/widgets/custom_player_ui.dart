@@ -31,6 +31,8 @@ class CustomPlayerUI extends StatefulWidget {
   final bool? forceFullscreen;
   /// 全屏切换回调（若提供则用此替代 media_kit 的 toggleFullscreen）
   final VoidCallback? onFullscreenToggle;
+  /// 用户点击「重播」（从播放结束态从头播放）时回调，用于页面侧重置进度上报状态等
+  final VoidCallback? onReplayFromEnd;
 
   const CustomPlayerUI({
     super.key,
@@ -42,6 +44,7 @@ class CustomPlayerUI extends StatefulWidget {
     this.onlineCount,
     this.forceFullscreen,
     this.onFullscreenToggle,
+    this.onReplayFromEnd,
   });
 
   @override
@@ -835,6 +838,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   if (completed) {
                     return GestureDetector(
                       onTap: () {
+                        // 必须先通知页面层：结束态已解除，否则进度上报会因「已上报完成」被永久跳过
+                        widget.logic.onReplayAfterCompletion?.call();
                         widget.logic.seek(Duration.zero);
                         widget.logic.play();
                         _startHideTimer();

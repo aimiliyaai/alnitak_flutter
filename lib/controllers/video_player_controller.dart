@@ -67,6 +67,9 @@ class VideoPlayerController extends ChangeNotifier {
   Function(Duration position, Duration totalDuration)? onProgressUpdate;
   Function(String quality)? onQualityChanged;
   Function(bool playing)? onPlayingStateChanged;
+  /// 用户从「播放结束」状态点重播（先 seek 到开头再 play）时，在 seek/play 之前由 UI 调用。
+  /// 供播放页重置「已上报完成」等状态，否则 `_onProgressUpdate` 会一直跳过进度上报。
+  VoidCallback? onReplayAfterCompletion;
 
   // ============ 内部状态 ============
   int? _currentResourceId;
@@ -1289,6 +1292,7 @@ class VideoPlayerController extends ChangeNotifier {
     _bufferingShowTimer?.cancel();
 
     // pilipala: removeListeners
+    onReplayAfterCompletion = null;
     removeListeners();
     await _connectivitySubscription?.cancel();
 

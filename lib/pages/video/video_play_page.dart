@@ -1052,6 +1052,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 onControllerReady: (controller) {
                   _playerController = controller;
                   controller.setVideoContext(vid: _currentVid, part: _currentPart);
+                  controller.onReplayAfterCompletion = () {
+                    if (!mounted) return;
+                    _hasReportedCompleted = false;
+                    _lastSavedSeconds = null;
+                  };
                 },
                 title: _videoDetail!.resources.length > 1
                     ? currentResource.title
