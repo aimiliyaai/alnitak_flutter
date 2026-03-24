@@ -1,24 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../controllers/video_player_controller.dart';
 import '../../../controllers/danmaku_controller.dart';
 import '../../../widgets/danmaku_overlay.dart';
+import 'player_gesture_handler.dart';
 import 'player_quality_panel.dart';
 import 'player_speed_panel.dart';
 import 'player_progress_slider.dart';
 import 'player_top_bar.dart';
 import 'player_bottom_bar.dart';
-
-/// 手势反馈数据（不可变，用于 ValueNotifier 驱动局部重建）
-class _GestureFeedback {
-  final IconData icon;
-  final String text;
-  final double? value;
-
-  const _GestureFeedback({required this.icon, required this.text, this.value});
-}
 
 /// 自定义播放器 UI (V8 完整版)
 ///
@@ -60,16 +52,21 @@ class CustomPlayerUI extends StatefulWidget {
   State<CustomPlayerUI> createState() => _CustomPlayerUIState();
 }
 
-class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProviderStateMixin {
-  static const String _volumeKey = 'player_volume';
-  static const String _brightnessKey = 'player_brightness';
-
-  SharedPreferences? _prefs;
+class _CustomPlayerUIState extends State<CustomPlayerUI>
+    with SingleTickerProviderStateMixin, PlayerGestureHandler<CustomPlayerUI> {
 
   ButtonStyle get _lockButtonStyle => IconButton.styleFrom(
     backgroundColor: Colors.black.withValues(alpha: 0.5),
     padding: const EdgeInsets.all(12),
   );
+
+  // ============ mixin 依赖 ============
+  @override
+  Player get gesturePlayer => widget.controller.player;
+  @override
+  VideoPlayerController get gestureLogic => widget.logic;
+  @override
+  bool get isLocked => _isLocked;
 
   // ============ UI 状态 ============
   bool _showControls = true;
@@ -82,21 +79,6 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   late Animation<double> _titleScrollAnimation;
   bool _wasFullscreen = false;
 
-  // ============ 手势反馈（ValueNotifier 避免 60fps setState） ============
-  final ValueNotifier<_GestureFeedback?> _gestureFeedback = ValueNotifier(null);
-
-  // ============ 拖拽逻辑 ============
-  Offset _dragStartPos = Offset.zero;
-  int _gestureType = 0;
-
-  double _playerBrightness = 1.0;
-  double _startVolumeSnapshot = 1.0;
-  double _startBrightnessSnapshot = 1.0;
-  Duration _seekPos = Duration.zero;
-
-  // ============ 长按倍速（ValueNotifier 避免 setState） ============
-  final ValueNotifier<bool> _isLongPressing = ValueNotifier(false);
-  double _normalSpeed = 1.0;
 
   // ============ 清晰度面板 ============
   bool _showQualityPanel = false;
@@ -128,7 +110,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     super.initState();
     _startHideTimer();
     // 加载保存的音量和亮度设置
-    _loadSettings();
+    loadGestureSettings();
 
     // 初始化标题滚动动画控制器
     _titleScrollController = AnimationController(
@@ -147,48 +129,13 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     });
   }
 
-  /// 加载保存的音量和亮度设置
-  Future<void> _loadSettings() async {
-    try {
-      _prefs ??= await SharedPreferences.getInstance();
-
-      final savedVolume = _prefs!.getDouble(_volumeKey) ?? 100.0;
-      widget.controller.player.setVolume(savedVolume);
-
-      final savedBrightness = _prefs!.getDouble(_brightnessKey) ?? 1.0;
-      setState(() {
-        _playerBrightness = savedBrightness;
-      });
-    } catch (e) {
-      // 加载播放器设置失败
-    }
-  }
-
-  Future<void> _saveVolume(double volume) async {
-    try {
-      _prefs ??= await SharedPreferences.getInstance();
-      await _prefs!.setDouble(_volumeKey, volume);
-    } catch (e) {
-      // 保存音量设置失败
-    }
-  }
-
-  Future<void> _saveBrightness(double brightness) async {
-    try {
-      _prefs ??= await SharedPreferences.getInstance();
-      await _prefs!.setDouble(_brightnessKey, brightness);
-    } catch (e) {
-      // 保存亮度设置失败
-    }
-  }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
     _playingSubscription?.cancel();
     _titleScrollController.dispose();
-    _gestureFeedback.dispose();
-    _isLongPressing.dispose();
+    disposeGesture();
     super.dispose();
   }
 
@@ -271,141 +218,16 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     _hideTimer?.cancel();
   }
 
-  // ============ 手势处理逻辑 ============
+  // ============ PlayerGestureHandler 回调 ============
 
-  void _onDragStart(DragStartDetails details, double width) {
-    if (_isLocked) return;
-    _dragStartPos = details.localPosition;
-    setState(() => _showControls = false); 
-    
-    _startVolumeSnapshot = widget.controller.player.state.volume / 100.0;
-    _startBrightnessSnapshot = _playerBrightness;
+  @override
+  void onGestureDragStarted() {
+    setState(() => _showControls = false);
   }
 
-  void _onDragUpdate(DragUpdateDetails details, double width) {
-    if (_isLocked) return;
-    final delta = details.localPosition - _dragStartPos;
-
-    if (_gestureType == 0 && delta.distance < 10) return;
-
-    if (_gestureType == 0) {
-      if (delta.dx.abs() > delta.dy.abs()) {
-        _gestureType = 3; 
-      } else {
-        _gestureType = _dragStartPos.dx < width / 2 ? 2 : 1;
-      }
-    }
-
-    const double sensitivity = 600.0;
-
-    if (_gestureType == 1) {
-      // 音量调节
-      final val = (_startVolumeSnapshot - delta.dy / sensitivity).clamp(0.0, 1.0);
-      final volumePercent = val * 100;
-      widget.controller.player.setVolume(volumePercent);
-      _showFeedbackUI(Icons.volume_up, '音量 ${volumePercent.toInt()}%', val);
-
-    } else if (_gestureType == 2) {
-      // 亮度调节 (灵敏度 1200)
-      final val = (_startBrightnessSnapshot - delta.dy / 1200).clamp(0.0, 1.0);
-      _playerBrightness = val;
-      setState(() {});
-      _showFeedbackUI(Icons.brightness_medium, '亮度 ${(val * 100).toInt()}%', val);
-
-    } else if (_gestureType == 3) {
-      final total = widget.controller.player.state.duration.inSeconds;
-      final current = widget.controller.player.state.position.inSeconds;
-      final seekDelta = (delta.dx / width) * 90; 
-      final target = (current + seekDelta).clamp(0, total);
-      _seekPos = Duration(seconds: target.toInt());
-
-      final diff = _seekPos.inSeconds - current;
-      final sign = diff > 0 ? '+' : '';
-      _showFeedbackUI(
-        diff > 0 ? Icons.fast_forward : Icons.fast_rewind,
-        '${_formatDuration(_seekPos)} / ${_formatDuration(widget.controller.player.state.duration)}\n($sign$diff秒)',
-        null,
-    );
-  }
-}
-
-  void _onDragEnd() {
-    if (_gestureType == 3) {
-      // 使用封装的seek方法，支持缓冲检测
-      widget.logic.seek(_seekPos);
-    } else if (_gestureType == 1) {
-      // 音量调节结束，保存设置
-      final currentVolume = widget.controller.player.state.volume;
-      _saveVolume(currentVolume);
-    } else if (_gestureType == 2) {
-      // 亮度调节结束，保存设置
-      _saveBrightness(_playerBrightness);
-    }
-    _gestureType = 0;
-
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _gestureFeedback.value = null;
-    });
-  }
-
-  void _onLongPressStart() {
-    if (_isLocked) return;
-    _isLongPressing.value = true;
-    _normalSpeed = widget.controller.player.state.rate;
-    widget.controller.player.setRate(2.0);
-  }
-
-  void _onLongPressEnd() {
-    if (!_isLongPressing.value) return;
-    _isLongPressing.value = false;
-    widget.controller.player.setRate(_normalSpeed);
-    _gestureFeedback.value = null;
-  }
-
-  void _onDoubleTap(Offset pos, double width) {
-    if (_isLocked) return;
-    final leftZone = width * 0.3;
-    final rightZone = width * 0.7;
-
-    if (pos.dx < leftZone) {
-      _seekRelative(-10, Icons.fast_rewind, '-10秒');
-    } else if (pos.dx > rightZone) {
-      _seekRelative(10, Icons.fast_forward, '+10秒');
-    } else {
-      if (widget.controller.player.state.playing) {
-        widget.logic.pause();
-      } else {
-        widget.logic.play();
-      }
-      _toggleControls();
-    }
-  }
-
-  void _seekRelative(int seconds, IconData icon, String label) {
-    final currentPos = widget.controller.player.state.position;
-    final maxPos = widget.controller.player.state.duration;
-    final newPos = currentPos + Duration(seconds: seconds);
-    final clampedPos = Duration(
-      milliseconds: newPos.inMilliseconds.clamp(0, maxPos.inMilliseconds),
-    );
-    widget.logic.seek(clampedPos);
-    _showFeedbackUI(icon, label, null);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) _gestureFeedback.value = null;
-    });
-  }
-
-  void _showFeedbackUI(IconData icon, String text, double? value) {
-    _gestureFeedback.value = _GestureFeedback(icon: icon, text: text, value: value);
-  }
-
-  String _formatDuration(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
-    final s = d.inSeconds % 60;
-    return h > 0
-        ? '$h:${m.toString().padLeft(2,'0')}:${s.toString().padLeft(2,'0')}'
-        : '${m.toString().padLeft(2,'0')}:${s.toString().padLeft(2,'0')}';
+  @override
+  void onDoubleTapCenter() {
+    _toggleControls();
   }
 
   // ============ UI 构建 ============
@@ -442,15 +264,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                   GestureDetector(
                     behavior: HitTestBehavior.translucent,
                     onTap: _toggleControls,
-                    onDoubleTapDown: (d) => _onDoubleTap(d.localPosition, width),
-                    onLongPressStart: (_) => _onLongPressStart(),
-                    onLongPressEnd: (_) => _onLongPressEnd(),
-                    onVerticalDragStart: (d) => _onDragStart(d, width),
-                    onVerticalDragUpdate: (d) => _onDragUpdate(d, width),
-                    onVerticalDragEnd: (_) => _onDragEnd(),
-                    onHorizontalDragStart: (d) => _onDragStart(d, width),
-                    onHorizontalDragUpdate: (d) => _onDragUpdate(d, width),
-                    onHorizontalDragEnd: (_) => _onDragEnd(),
+                    onDoubleTapDown: (d) => onDoubleTap(d.localPosition, width),
+                    onLongPressStart: (_) => onLongPressStart(),
+                    onLongPressEnd: (_) => onLongPressEnd(),
+                    onVerticalDragStart: (d) => onDragStart(d, width),
+                    onVerticalDragUpdate: (d) => onDragUpdate(d, width),
+                    onVerticalDragEnd: (_) => onDragEnd(),
+                    onHorizontalDragStart: (d) => onDragStart(d, width),
+                    onHorizontalDragUpdate: (d) => onDragUpdate(d, width),
+                    onHorizontalDragEnd: (_) => onDragEnd(),
                     child: Container(color: Colors.transparent),
                   ),
 
@@ -475,8 +297,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                     ),
 
                   // 3. 手势反馈（ValueNotifier 驱动，避免拖拽时全树重建）
-                  ValueListenableBuilder<_GestureFeedback?>(
-                    valueListenable: _gestureFeedback,
+                  ValueListenableBuilder<GestureFeedback?>(
+                    valueListenable: gestureFeedback,
                     builder: (context, feedback, _) {
                       if (feedback == null) return const SizedBox.shrink();
                       return Center(
@@ -521,7 +343,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
 
                   // 3.5 长按倍速小标签（ValueNotifier 驱动）
                   ValueListenableBuilder<bool>(
-                    valueListenable: _isLongPressing,
+                    valueListenable: isLongPressing,
                     builder: (context, isLongPressing, _) {
                       if (!isLongPressing) return const SizedBox.shrink();
                       return Positioned(
@@ -884,7 +706,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         onSliderDragStart: widget.logic.onSliderDragStart,
         onSliderDragUpdate: widget.logic.onSliderDragUpdate,
         onSliderDragEnd: widget.logic.onSliderDragEnd,
-        formatDuration: _formatDuration,
+        formatDuration: formatDuration,
         onInteraction: _startHideTimer,
       ),
       controlRow: _buildControlButtonsRow(),

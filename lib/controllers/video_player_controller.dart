@@ -13,6 +13,7 @@ import '../services/cache_service.dart';
 import '../services/history_service.dart';
 import '../services/logger_service.dart';
 import '../models/data_source.dart';
+import 'player_event_listener.dart';
 import '../models/dash_models.dart';
 import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
@@ -63,12 +64,8 @@ class VideoPlayerController extends ChangeNotifier {
   Stream<Duration> get positionStream => _positionStreamController.stream;
 
   // ============ 回调 ============
-  VoidCallback? onVideoEnd;
-  Function(Duration position, Duration totalDuration)? onProgressUpdate;
-  Function(String quality)? onQualityChanged;
-  Function(bool playing)? onPlayingStateChanged;
-  /// 用户从「播放结束」状态点重播（先 seek 到开头再 play）时，在 seek/play 之前由 UI 调用。
-  /// 供播放页重置「已上报完成」等状态，否则 `_onProgressUpdate` 会一直跳过进度上报。
+  PlayerEventListener? eventListener;
+  /// 用户从「播放结束」状态点重播时回调（由页面设置，UI 调用）
   VoidCallback? onReplayAfterCompletion;
 
   // ============ 内部状态 ============
@@ -168,7 +165,7 @@ class VideoPlayerController extends ChangeNotifier {
       return;
     }
     _lastVideoEndAt = now;
-    onVideoEnd?.call();
+    eventListener?.onVideoEnd();
   }
 
   // ============ pili_plus 风格：秒级更新方法（统一封装）============
@@ -231,11 +228,11 @@ class VideoPlayerController extends ChangeNotifier {
     _positionStreamController.add(position);
     _userIntendedPosition = position;
 
-    if (onProgressUpdate != null && position.inSeconds > 0) {
+    if (eventListener != null && position.inSeconds > 0) {
       final diff = (position.inMilliseconds - _lastReportedPosition.inMilliseconds).abs();
       if (diff >= 500) {
         _lastReportedPosition = position;
-        onProgressUpdate!(position, _player!.state.duration);
+        eventListener!.onProgressUpdate(position, _player!.state.duration);
       }
     }
   }
@@ -630,7 +627,7 @@ class VideoPlayerController extends ChangeNotifier {
         currentQuality.value = quality;
         await _savePreferredQuality(quality);
         _userIntendedPosition = position;
-        onQualityChanged?.call(quality);
+        eventListener?.onQualityChanged(quality);
       } catch (e) {
         _logger.logError(message: '切换清晰度失败', error: e);
         errorMessage.value = ErrorHandler.getErrorMessage(e);
@@ -730,7 +727,7 @@ class VideoPlayerController extends ChangeNotifier {
           _hasTriggeredCompletion = false;
         }
 
-        onPlayingStateChanged?.call(playing);
+        eventListener?.onPlayingStateChanged(playing);
 
         // 参考 pili_plus: WakelockPlus.toggle(enable: event)
         WakelockManager.toggle(enable: playing);
@@ -1292,7 +1289,7 @@ class VideoPlayerController extends ChangeNotifier {
     _bufferingShowTimer?.cancel();
 
     // pilipala: removeListeners
-    onReplayAfterCompletion = null;
+    eventListener = null;
     removeListeners();
     await _connectivitySubscription?.cancel();
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../../../controllers/video_player_controller.dart';
+import '../../../controllers/player_event_listener.dart';
 import '../../../controllers/danmaku_controller.dart';
 import 'custom_player_ui.dart';
 
@@ -85,22 +86,7 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
   void _bindCallbacks() {
     if (_controller == null) return;
 
-    _controller!.onVideoEnd = () {
-      if (_isDisposed || !mounted) return;
-      widget.onVideoEnd?.call();
-    };
-
-    _controller!.onProgressUpdate = (pos, dur) {
-      if (_isDisposed || !mounted) return;
-      widget.onProgressUpdate?.call(pos, dur);
-    };
-
-    _controller!.onQualityChanged = widget.onQualityChanged;
-
-    _controller!.onPlayingStateChanged = (playing) {
-      if (_isDisposed || !mounted) return;
-      widget.onPlayingStateChanged?.call(playing);
-    };
+    _controller!.eventListener = _WidgetEventBridge(this);
   }
 
   void _setMetadata() {
@@ -331,4 +317,36 @@ class _MediaPlayerWidgetState extends State<MediaPlayerWidget>
   }
 
   void _handleRetry() => _initializePlayer();
+}
+
+/// 桥接 PlayerEventListener，添加 dispose/mounted 安全检查后转发到 widget 回调
+class _WidgetEventBridge with PlayerEventListener {
+  final _MediaPlayerWidgetState _state;
+
+  _WidgetEventBridge(this._state);
+
+  bool get _isAlive => !_state._isDisposed && _state.mounted;
+
+  @override
+  void onVideoEnd() {
+    if (!_isAlive) return;
+    _state.widget.onVideoEnd?.call();
+  }
+
+  @override
+  void onProgressUpdate(Duration position, Duration totalDuration) {
+    if (!_isAlive) return;
+    _state.widget.onProgressUpdate?.call(position, totalDuration);
+  }
+
+  @override
+  void onQualityChanged(String quality) {
+    _state.widget.onQualityChanged?.call(quality);
+  }
+
+  @override
+  void onPlayingStateChanged(bool playing) {
+    if (!_isAlive) return;
+    _state.widget.onPlayingStateChanged?.call(playing);
+  }
 }
