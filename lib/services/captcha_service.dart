@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../utils/http_client.dart';
 import '../models/captcha_models.dart';
+import 'logger_service.dart';
 
 /// 发送验证码时需要人机验证异常
 class SendCodeCaptchaRequiredException implements Exception {
@@ -41,6 +42,7 @@ class CaptchaService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取验证码失败: $e', tag: 'CaptchaService');
       return null;
     }
   }
@@ -71,6 +73,7 @@ class CaptchaService {
 
       return success;
     } catch (e) {
+      LoggerService.instance.logWarning('验证滑块失败: $e', tag: 'CaptchaService');
       return false;
     }
   }
@@ -107,6 +110,7 @@ class CaptchaService {
       if (e is SendCodeCaptchaRequiredException) {
         rethrow;
       }
+      LoggerService.instance.logWarning('发送邮箱验证码失败: $e', tag: 'CaptchaService');
       return false;
     }
   }

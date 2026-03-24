@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../models/danmaku.dart';
 import '../utils/http_client.dart';
+import 'logger_service.dart';
 
 /// 弹幕API服务
 class DanmakuService {
@@ -38,6 +39,7 @@ class DanmakuService {
         return [];
       }
     } catch (e) {
+      LoggerService.instance.logWarning('获取弹幕列表失败: $e', tag: 'DanmakuService');
       return [];
     }
   }
@@ -57,6 +59,7 @@ class DanmakuService {
         return false;
       }
     } catch (e) {
+      LoggerService.instance.logWarning('发送弹幕失败: $e', tag: 'DanmakuService');
       return false;
     }
   }

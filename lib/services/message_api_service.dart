@@ -5,6 +5,7 @@ import '../models/message_models.dart';
 import '../utils/http_client.dart';
 import '../utils/message_read_status.dart';
 import '../utils/token_manager.dart';
+import 'logger_service.dart';
 
 /// 消息API服务
 class MessageApiService {
@@ -31,6 +32,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取公告列表失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -59,6 +61,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取@消息列表失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -87,6 +90,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取点赞消息列表失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -115,6 +119,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取回复消息列表失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -137,6 +142,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取私信列表失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -169,6 +175,7 @@ class MessageApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取私信详情失败: $e', tag: 'MessageApiService');
       return [];
     }
   }
@@ -193,6 +200,7 @@ class MessageApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('发送私信失败: $e', tag: 'MessageApiService');
       return false;
     }
   }
@@ -265,6 +273,7 @@ class MessageApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('标记私信已读失败: $e', tag: 'MessageApiService');
       return false;
     }
   }

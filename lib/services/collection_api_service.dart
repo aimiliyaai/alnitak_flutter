@@ -1,5 +1,6 @@
 import '../models/collection_models.dart';
 import '../utils/http_client.dart';
+import 'logger_service.dart';
 
 /// 收藏API服务
 class CollectionApiService {
@@ -20,6 +21,7 @@ class CollectionApiService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('创建收藏夹失败: $e', tag: 'CollectionApiService');
       return null;
     }
   }
@@ -37,6 +39,7 @@ class CollectionApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹列表失败: $e', tag: 'CollectionApiService');
       return [];
     }
   }
@@ -54,6 +57,7 @@ class CollectionApiService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹详细信息失败: $e', tag: 'CollectionApiService');
       return null;
     }
   }
@@ -85,6 +89,7 @@ class CollectionApiService {
       }
       return (videos: <CollectionVideo>[], total: 0);
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹视频列表失败: $e', tag: 'CollectionApiService');
       return (videos: <CollectionVideo>[], total: 0);
     }
   }
@@ -111,6 +116,7 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('编辑收藏夹失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -124,6 +130,7 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('删除收藏夹失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -143,6 +150,7 @@ class CollectionApiService {
       }
       return false;
     } catch (e) {
+      LoggerService.instance.logWarning('检查视频是否被收藏失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -161,6 +169,7 @@ class CollectionApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取视频收藏信息失败: $e', tag: 'CollectionApiService');
       return [];
     }
   }
@@ -175,6 +184,7 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('收藏/取消收藏视频失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -194,6 +204,7 @@ class CollectionApiService {
       }
       return false;
     } catch (e) {
+      LoggerService.instance.logWarning('检查文章是否被收藏失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -208,6 +219,7 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('收藏文章失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }
@@ -222,6 +234,7 @@ class CollectionApiService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('取消收藏文章失败: $e', tag: 'CollectionApiService');
       return false;
     }
   }

@@ -2,8 +2,7 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
 import '../models/user_model.dart';
-import 'auth_service.dart';
-
+import 'logger_service.dart';
 /// 用户服务
 class UserService {
   static final UserService _instance = UserService._internal();
@@ -11,7 +10,6 @@ class UserService {
   UserService._internal();
 
   final HttpClient _httpClient = HttpClient();
-  final AuthService _authService = AuthService();
   final TokenManager _tokenManager = TokenManager();
 
   /// 根据用户ID获取用户基础信息
@@ -34,6 +32,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户基础信息失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -46,7 +45,7 @@ class UserService {
     }
 
     try {
-      final token = _authService.getToken();
+      final token = _tokenManager.token;
       if (token == null) {
         return null;
       }
@@ -66,6 +65,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取个人用户信息失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -83,6 +83,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取关注粉丝统计失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -100,6 +101,7 @@ class UserService {
       }
       return 0;
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户关系失败: $e', tag: 'UserService');
       return 0;
     }
   }
@@ -121,6 +123,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户视频列表失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -142,6 +145,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户关注列表失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -163,6 +167,7 @@ class UserService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户粉丝列表失败: $e', tag: 'UserService');
       return null;
     }
   }
@@ -180,6 +185,7 @@ class UserService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('关注用户失败: $e', tag: 'UserService');
       return false;
     }
   }
@@ -197,6 +203,7 @@ class UserService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('取消关注失败: $e', tag: 'UserService');
       return false;
     }
   }
@@ -216,7 +223,7 @@ class UserService {
     }
 
     try {
-      final token = _authService.getToken();
+      final token = _tokenManager.token;
       if (token == null) {
         return false;
       }
@@ -241,6 +248,7 @@ class UserService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('编辑用户信息失败: $e', tag: 'UserService');
       return false;
     }
   }

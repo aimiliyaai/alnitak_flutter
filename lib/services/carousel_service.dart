@@ -1,5 +1,6 @@
 import '../models/carousel_model.dart';
 import '../utils/http_client.dart';
+import 'logger_service.dart';
 
 /// 轮播图服务
 class CarouselService {
@@ -20,6 +21,7 @@ class CarouselService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取轮播图列表失败: $e', tag: 'CarouselService');
       return [];
     }
   }

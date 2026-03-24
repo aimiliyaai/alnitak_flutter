@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import '../models/collection.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
+import 'logger_service.dart';
 
 /// 收藏夹服务
 class CollectionService {
@@ -29,6 +30,7 @@ class CollectionService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹列表失败: $e', tag: 'CollectionService');
       return null;
     }
   }
@@ -48,6 +50,7 @@ class CollectionService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('创建收藏夹失败: $e', tag: 'CollectionService');
       return null;
     }
   }
@@ -74,6 +77,7 @@ class CollectionService {
       });
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('编辑收藏夹失败: $e', tag: 'CollectionService');
       return false;
     }
   }
@@ -88,6 +92,7 @@ class CollectionService {
       final response = await _dio.delete('/api/v1/collection/deleteCollection/$id');
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('删除收藏夹失败: $e', tag: 'CollectionService');
       return false;
     }
   }
@@ -101,6 +106,7 @@ class CollectionService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹详情失败: $e', tag: 'CollectionService');
       return null;
     }
   }
@@ -122,6 +128,7 @@ class CollectionService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏夹视频列表失败: $e', tag: 'CollectionService');
       return [];
     }
   }

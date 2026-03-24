@@ -11,6 +11,15 @@ import 'player_progress_slider.dart';
 import 'player_top_bar.dart';
 import 'player_bottom_bar.dart';
 
+/// 手势反馈数据（不可变，用于 ValueNotifier 驱动局部重建）
+class _GestureFeedback {
+  final IconData icon;
+  final String text;
+  final double? value;
+
+  const _GestureFeedback({required this.icon, required this.text, this.value});
+}
+
 /// 自定义播放器 UI (V8 完整版)
 ///
 /// 包含修改：
@@ -73,11 +82,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   late Animation<double> _titleScrollAnimation;
   bool _wasFullscreen = false;
 
-  // ============ 手势反馈 ============
-  bool _showFeedback = false;
-  IconData? _feedbackIcon;
-  String _feedbackText = '';
-  double? _feedbackValue;
+  // ============ 手势反馈（ValueNotifier 避免 60fps setState） ============
+  final ValueNotifier<_GestureFeedback?> _gestureFeedback = ValueNotifier(null);
 
   // ============ 拖拽逻辑 ============
   Offset _dragStartPos = Offset.zero;
@@ -88,8 +94,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   double _startBrightnessSnapshot = 1.0;
   Duration _seekPos = Duration.zero;
 
-  // ============ 长按倍速 ============
-  bool _isLongPressing = false;
+  // ============ 长按倍速（ValueNotifier 避免 setState） ============
+  final ValueNotifier<bool> _isLongPressing = ValueNotifier(false);
   double _normalSpeed = 1.0;
 
   // ============ 清晰度面板 ============
@@ -181,6 +187,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     _hideTimer?.cancel();
     _playingSubscription?.cancel();
     _titleScrollController.dispose();
+    _gestureFeedback.dispose();
+    _isLongPressing.dispose();
     super.dispose();
   }
 
@@ -228,6 +236,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     if (_showControls) _startHideTimer();
   }
 
+  /// 计算面板右边缘距离（对齐按钮右边缘）
+  double? _calcPanelRight(GlobalKey buttonKey) {
+    final renderBox = buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return null;
+    final buttonPos = renderBox.localToGlobal(Offset.zero);
+    final screenWidth = (context.findRenderObject() as RenderBox).size.width;
+    return screenWidth - buttonPos.dx - renderBox.size.width;
+  }
+
   void _toggleQualityPanel() {
     if (_showQualityPanel) {
       setState(() => _showQualityPanel = false);
@@ -239,15 +256,15 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     if (buttonBox == null) return;
 
     final isFull = _fullscreen;
-    final buttonGlobalPos = buttonBox.localToGlobal(Offset.zero);
-    final buttonSize = buttonBox.size;
     final overlaySize = (context.findRenderObject() as RenderBox).size;
+    final distFromRight = _calcPanelRight(_qualityButtonKey);
+    if (distFromRight == null) return;
+
+    final buttonGlobalPos = buttonBox.localToGlobal(Offset.zero);
+    final buttonBottomToScreenBottom = overlaySize.height - (buttonGlobalPos.dy + buttonBox.size.height);
 
     setState(() {
-      final distFromRight = overlaySize.width - (buttonGlobalPos.dx + buttonSize.width);
       _panelRight = (distFromRight - 15.0).clamp(0.0, overlaySize.width - 76);
-
-      final buttonBottomToScreenBottom = overlaySize.height - (buttonGlobalPos.dy + buttonSize.height);
       _panelBottom = buttonBottomToScreenBottom + (isFull ? 30.0 : 55.0);
       _showQualityPanel = true;
     });
@@ -327,24 +344,22 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     _gestureType = 0;
 
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => _showFeedback = false);
+      if (mounted) _gestureFeedback.value = null;
     });
   }
 
   void _onLongPressStart() {
     if (_isLocked) return;
-    _isLongPressing = true;
+    _isLongPressing.value = true;
     _normalSpeed = widget.controller.player.state.rate;
     widget.controller.player.setRate(2.0);
-    // 长按倍速不使用大的反馈UI，而是使用顶部小标签
-    setState(() {});
   }
 
   void _onLongPressEnd() {
-    if (!_isLongPressing) return;
-    _isLongPressing = false;
+    if (!_isLongPressing.value) return;
+    _isLongPressing.value = false;
     widget.controller.player.setRate(_normalSpeed);
-    setState(() => _showFeedback = false);
+    _gestureFeedback.value = null;
   }
 
   void _onDoubleTap(Offset pos, double width) {
@@ -376,17 +391,12 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
     widget.logic.seek(clampedPos);
     _showFeedbackUI(icon, label, null);
     Future.delayed(const Duration(milliseconds: 600), () {
-      if (mounted) setState(() => _showFeedback = false);
+      if (mounted) _gestureFeedback.value = null;
     });
   }
 
   void _showFeedbackUI(IconData icon, String text, double? value) {
-    setState(() {
-      _showFeedback = true;
-      _feedbackIcon = icon;
-      _feedbackText = text;
-      _feedbackValue = value;
-    });
+    _gestureFeedback.value = _GestureFeedback(icon: icon, text: text, value: value);
   }
 
   String _formatDuration(Duration d) {
@@ -464,77 +474,87 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                       ),
                     ),
 
-                  // 3. 手势反馈
-                  if (_showFeedback)
-                    Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(_feedbackIcon, color: Colors.white, size: 40),
-                            const SizedBox(height: 8),
-                            Text(
-                              _feedbackText,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            if (_feedbackValue != null) ...[
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: 100,
-                                height: 4,
-                                child: LinearProgressIndicator(
-                                  value: _feedbackValue,
-                                  color: Colors.blue,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.3),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-
-                  // 3.5 长按倍速小标签（顶部居中）
-                  if (_isLongPressing)
-                    Positioned(
-                      top: 50,
-                      left: 0,
-                      right: 0,
-                      child: Center(
+                  // 3. 手势反馈（ValueNotifier 驱动，避免拖拽时全树重建）
+                  ValueListenableBuilder<_GestureFeedback?>(
+                    valueListenable: _gestureFeedback,
+                    builder: (context, feedback, _) {
+                      if (feedback == null) return const SizedBox.shrink();
+                      return Center(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(16),
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Row(
+                          child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.fast_forward, color: Colors.white, size: 16),
-                              SizedBox(width: 4),
+                              Icon(feedback.icon, color: Colors.white, size: 40),
+                              const SizedBox(height: 8),
                               Text(
-                                '2.0x',
-                                style: TextStyle(
+                                feedback.text,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 13,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
+                              if (feedback.value != null) ...[
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: 100,
+                                  height: 4,
+                                  child: LinearProgressIndicator(
+                                    value: feedback.value,
+                                    color: Colors.blue,
+                                    backgroundColor: Colors.white.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
+                  ),
+
+                  // 3.5 长按倍速小标签（ValueNotifier 驱动）
+                  ValueListenableBuilder<bool>(
+                    valueListenable: _isLongPressing,
+                    builder: (context, isLongPressing, _) {
+                      if (!isLongPressing) return const SizedBox.shrink();
+                      return Positioned(
+                        top: 50,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.fast_forward, color: Colors.white, size: 16),
+                                SizedBox(width: 4),
+                                Text(
+                                  '2.0x',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
 
                   // 4. 控制 UI
                   StreamBuilder<bool>(
@@ -546,9 +566,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                         // 播放结束：始终显示重播按钮，点击空白可切换控制UI
                         return Stack(
                           children: [
-                            // 重播按钮始终显示
                             Center(child: _buildCenterPlayButton()),
-                            // 控制UI可切换显示/隐藏
                             IgnorePointer(
                               ignoring: !_showControls,
                               child: AnimatedOpacity(
@@ -556,36 +574,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                                 duration: const Duration(milliseconds: 300),
                                 child: Stack(
                                   children: [
-                                    if (!_isLocked)
-                                PlayerTopBar(
-                                  title: widget.title,
-                                  onBack: widget.onBack,
-                                  fullscreen: _fullscreen,
-                                  wasFullscreen: _wasFullscreen,
-                                  onFullscreenEnter: () {
-                                    setState(() {
-                                      _wasFullscreen = true;
-                                      _hasPlayedTitleAnimation = false;
-                                      _titleScrollController.reset();
-                                    });
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                                      if (mounted && widget.title.isNotEmpty) {
-                                        _checkAndStartTitleAnimation();
-                                      }
-                                    });
-                                  },
-                                  onFullscreenExit: () {
-                                    setState(() {
-                                      _wasFullscreen = false;
-                                      _hasPlayedTitleAnimation = false;
-                                      _titleScrollController.reset();
-                                    });
-                                  },
-                                  titleScrollController: _titleScrollController,
-                                  titleScrollAnimation: _titleScrollAnimation,
-                                  checkAndStartTitleAnimation: _checkAndStartTitleAnimation,
-                                  onlineCount: widget.onlineCount,
-                                ),
+                                    if (!_isLocked) _buildTopBar(),
                                     if (!_isLocked) _buildBottomBar(),
                                   ],
                                 ),
@@ -603,36 +592,7 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
                           duration: const Duration(milliseconds: 300),
                           child: Stack(
                             children: [
-                              if (!_isLocked)
-                                PlayerTopBar(
-                                  title: widget.title,
-                                  onBack: widget.onBack,
-                                  fullscreen: _fullscreen,
-                                  wasFullscreen: _wasFullscreen,
-                                  onFullscreenEnter: () {
-                                    setState(() {
-                                      _wasFullscreen = true;
-                                      _hasPlayedTitleAnimation = false;
-                                      _titleScrollController.reset();
-                                    });
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                                      if (mounted && widget.title.isNotEmpty) {
-                                        _checkAndStartTitleAnimation();
-                                      }
-                                    });
-                                  },
-                                  onFullscreenExit: () {
-                                    setState(() {
-                                      _wasFullscreen = false;
-                                      _hasPlayedTitleAnimation = false;
-                                      _titleScrollController.reset();
-                                    });
-                                  },
-                                  titleScrollController: _titleScrollController,
-                                  titleScrollAnimation: _titleScrollAnimation,
-                                  checkAndStartTitleAnimation: _checkAndStartTitleAnimation,
-                                  onlineCount: widget.onlineCount,
-                                ),
+                              if (!_isLocked) _buildTopBar(),
                               if (!_isLocked) _buildLockButton(),
                               if (!_isLocked) _buildCenterPlayButton(),
                               if (!_isLocked) _buildBottomBar(),
@@ -788,6 +748,38 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
         }
       });
     }
+  }
+
+  Widget _buildTopBar() {
+    return PlayerTopBar(
+      title: widget.title,
+      onBack: widget.onBack,
+      fullscreen: _fullscreen,
+      wasFullscreen: _wasFullscreen,
+      onFullscreenEnter: () {
+        setState(() {
+          _wasFullscreen = true;
+          _hasPlayedTitleAnimation = false;
+          _titleScrollController.reset();
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && widget.title.isNotEmpty) {
+            _checkAndStartTitleAnimation();
+          }
+        });
+      },
+      onFullscreenExit: () {
+        setState(() {
+          _wasFullscreen = false;
+          _hasPlayedTitleAnimation = false;
+          _titleScrollController.reset();
+        });
+      },
+      titleScrollController: _titleScrollController,
+      titleScrollAnimation: _titleScrollAnimation,
+      checkAndStartTitleAnimation: _checkAndStartTitleAnimation,
+      onlineCount: widget.onlineCount,
+    );
   }
 
   Widget _buildLockButton() {
@@ -1149,15 +1141,8 @@ class _CustomPlayerUIState extends State<CustomPlayerUI> with SingleTickerProvid
   }
 
   void _toggleSpeedPanel() {
-    // 计算按钮位置
     if (!_showSpeedPanel) {
-      final RenderBox? renderBox = _speedButtonKey.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox != null) {
-        final buttonPosition = renderBox.localToGlobal(Offset.zero);
-        final screenWidth = MediaQuery.of(context).size.width;
-        // 面板右边缘对齐按钮右边缘
-        _speedPanelRight = screenWidth - buttonPosition.dx - renderBox.size.width;
-      }
+      _speedPanelRight = _calcPanelRight(_speedButtonKey);
     }
 
     setState(() {

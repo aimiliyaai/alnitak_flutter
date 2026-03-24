@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/article_list_model.dart';
 import '../models/article_detail_model.dart';
 import '../utils/http_client.dart';
+import 'logger_service.dart';
 
 /// 文章/专栏列表 API 服务
 ///
@@ -95,8 +96,7 @@ class ArticleApiService {
       }
       return null;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('获取文章统计信息失败: $e', tag: 'ArticleApiService');
       return null;
     }
   }
@@ -110,6 +110,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('文章分享计数失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -126,8 +127,7 @@ class ArticleApiService {
       }
       return false;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('获取文章点赞状态失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -141,8 +141,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('点赞文章失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -156,8 +155,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('取消点赞文章失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -174,8 +172,7 @@ class ArticleApiService {
       }
       return false;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('获取文章收藏状态失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -189,8 +186,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('收藏文章失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -204,8 +200,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('取消收藏文章失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -230,8 +225,7 @@ class ArticleApiService {
       }
       return null;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('获取文章评论列表失败: $e', tag: 'ArticleApiService');
       return null;
     }
   }
@@ -257,8 +251,7 @@ class ArticleApiService {
       }
       return null;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('获取评论回复列表失败: $e', tag: 'ArticleApiService');
       return null;
     }
   }
@@ -288,8 +281,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('发表文章评论失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }
@@ -302,8 +294,7 @@ class ArticleApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('删除文章评论失败: $e', tag: 'ArticleApiService');
       return false;
     }
   }

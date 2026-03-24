@@ -559,7 +559,7 @@ class VideoPlayerController extends ChangeNotifier {
         try {
           await _seekInternal(target);
         } catch (e) {
-          _logger.logDebug('seek 错误: $e');
+          _logger.logWarning('seek 错误: $e');
         } finally {
           _isSeeking = false;
         }
@@ -633,7 +633,7 @@ class VideoPlayerController extends ChangeNotifier {
         onQualityChanged?.call(quality);
       } catch (e) {
         _logger.logError(message: '切换清晰度失败', error: e);
-        errorMessage.value = '切换清晰度失败';
+        errorMessage.value = ErrorHandler.getErrorMessage(e);
       } finally {
         isSwitchingQuality.value = false;
       }
@@ -944,7 +944,7 @@ class VideoPlayerController extends ChangeNotifier {
         await _reloadWithDataSource(currentQuality.value!, currentPos);
         _userIntendedPosition = currentPos;
       } catch (e) {
-        _logger.logDebug('_handleStalled 失败: $e');
+        _logger.logWarning('_handleStalled 失败: $e');
       } finally {
         _isHandlingStall = false;
       }

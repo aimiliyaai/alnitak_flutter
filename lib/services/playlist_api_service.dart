@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
+import 'logger_service.dart';
 
 /// 合集创建/编辑结果
 class PlaylistResult {
@@ -39,6 +40,7 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取视频所属合集列表失败: $e', tag: 'PlaylistApiService');
       return [];
     }
   }
@@ -64,6 +66,7 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取合集视频列表失败: $e', tag: 'PlaylistApiService');
       return [];
     }
   }
@@ -81,6 +84,7 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取自己的合集列表失败: $e', tag: 'PlaylistApiService');
       return [];
     }
   }
@@ -116,6 +120,7 @@ class PlaylistApiService {
         );
       }
     } catch (e) {
+      LoggerService.instance.logWarning('创建合集失败: $e', tag: 'PlaylistApiService');
       return PlaylistResult(
         success: false,
         errorMessage: '网络错误，请稍后重试',
@@ -157,6 +162,7 @@ class PlaylistApiService {
         );
       }
     } catch (e) {
+      LoggerService.instance.logWarning('编辑合集失败: $e', tag: 'PlaylistApiService');
       return PlaylistResult(
         success: false,
         errorMessage: '网络错误，请稍后重试',
@@ -171,6 +177,7 @@ class PlaylistApiService {
       final response = await _dio.delete('/api/v1/playlist/del/$id');
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('删除合集失败: $e', tag: 'PlaylistApiService');
       return false;
     }
   }
@@ -188,6 +195,7 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('添加视频到合集失败: $e', tag: 'PlaylistApiService');
       return false;
     }
   }
@@ -205,6 +213,7 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('从合集移除视频失败: $e', tag: 'PlaylistApiService');
       return false;
     }
   }
@@ -222,6 +231,7 @@ class PlaylistApiService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('调整合集视频排序失败: $e', tag: 'PlaylistApiService');
       return false;
     }
   }
@@ -239,6 +249,7 @@ class PlaylistApiService {
       }
       return '暂无原因说明';
     } catch (e) {
+      LoggerService.instance.logWarning('获取合集审核记录失败: $e', tag: 'PlaylistApiService');
       return '获取失败';
     }
   }
@@ -255,6 +266,7 @@ class PlaylistApiService {
       }
       return {};
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户合集视频ID映射失败: $e', tag: 'PlaylistApiService');
       return {};
     }
   }
@@ -270,6 +282,7 @@ class PlaylistApiService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取用户所有视频列表失败: $e', tag: 'PlaylistApiService');
       return [];
     }
   }
@@ -286,6 +299,7 @@ class PlaylistApiService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取合集视频列表(含分P)失败: $e', tag: 'PlaylistApiService');
       return null;
     }
   }

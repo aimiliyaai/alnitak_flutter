@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import '../models/video_detail.dart';
 import '../models/comment.dart';
+import '../services/logger_service.dart';
 import '../utils/http_client.dart';
 
 /// 视频服务 - 完全基于参考项目的API
@@ -20,6 +21,7 @@ class VideoService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取视频详情失败: $e', tag: 'VideoService');
       return null;
     }
   }
@@ -33,6 +35,7 @@ class VideoService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取视频统计信息失败: $e', tag: 'VideoService');
       return null;
     }
   }
@@ -43,6 +46,7 @@ class VideoService {
       final response = await _dio.post('/api/v1/archive/video/share', data: {'vid': vid});
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('视频分享计数失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -59,21 +63,27 @@ class VideoService {
       if (likeResp.data['code'] == 200 && likeResp.data['data'] != null) {
         hasLiked = likeResp.data['data']['like'] == true;
       }
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('获取点赞状态失败: $e', tag: 'VideoService');
+    }
 
     try {
       final collectResp = await _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid});
       if (collectResp.data['code'] == 200 && collectResp.data['data'] != null) {
         hasCollected = collectResp.data['data']['collect'] == true;
       }
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('获取收藏状态失败: $e', tag: 'VideoService');
+    }
 
     try {
       final relationResp = await _dio.get('/api/v1/relation/getUserRelation', queryParameters: {'userId': authorUid});
       if (relationResp.data['code'] == 200 && relationResp.data['data'] != null) {
         relationStatus = relationResp.data['data']['relation'] ?? 0;
       }
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('获取用户关系状态失败: $e', tag: 'VideoService');
+    }
 
 
     return UserActionStatus(
@@ -92,6 +102,7 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('点赞视频失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -105,6 +116,7 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('取消点赞失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -118,6 +130,7 @@ class VideoService {
       }
       return false;
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏状态失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -131,6 +144,7 @@ class VideoService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取收藏信息失败: $e', tag: 'VideoService');
       return [];
     }
   }
@@ -145,6 +159,7 @@ class VideoService {
       });
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('收藏视频失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -155,6 +170,7 @@ class VideoService {
       final response = await _dio.post('/api/v1/relation/follow', data: {'id': uid});
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('关注用户失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -165,6 +181,7 @@ class VideoService {
       final response = await _dio.post('/api/v1/relation/unfollow', data: {'id': uid});
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('取消关注失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -178,6 +195,7 @@ class VideoService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取推荐视频列表失败: $e', tag: 'VideoService');
       return [];
     }
   }
@@ -205,6 +223,7 @@ class VideoService {
       }
       return [];
     } catch (e) {
+      LoggerService.instance.logWarning('获取资源清晰度失败: $e', tag: 'VideoService');
       return [];
     }
   }
@@ -243,6 +262,7 @@ class VideoService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取评论列表失败: $e', tag: 'VideoService');
       return null;
     }
   }
@@ -279,6 +299,7 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('发表评论失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -292,6 +313,7 @@ class VideoService {
       );
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('删除评论失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -304,6 +326,7 @@ class VideoService {
           : await _dio.delete('/api/v1/comment/like/$commentId');
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('点赞评论失败: $e', tag: 'VideoService');
       return false;
     }
   }
@@ -332,6 +355,7 @@ class VideoService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取评论回复列表失败: $e', tag: 'VideoService');
       return null;
     }
   }
@@ -353,6 +377,7 @@ class VideoService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('获取上传视频列表失败: $e', tag: 'VideoService');
       return null;
     }
   }
@@ -364,6 +389,7 @@ class VideoService {
       final response = await _dio.delete('/api/v1/video/deleteVideo/$vid');
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('删除视频失败: $e', tag: 'VideoService');
       return false;
     }
   }

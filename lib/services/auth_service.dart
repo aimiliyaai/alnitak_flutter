@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
 import '../models/auth_models.dart';
+import 'logger_service.dart';
 
 /// 需要人机验证异常（登录用）
 class CaptchaRequiredException implements Exception {
@@ -50,6 +51,7 @@ class AuthService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('用户注册失败: $e', tag: 'AuthService');
       return false;
     }
   }
@@ -136,6 +138,7 @@ class AuthService {
       }
       return null;
     } catch (e) {
+      LoggerService.instance.logWarning('更新Token失败: $e', tag: 'AuthService');
       return null;
     }
   }
@@ -162,6 +165,7 @@ class AuthService {
       await _tokenManager.clearTokens();
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('退出登录失败: $e', tag: 'AuthService');
       await _tokenManager.clearTokens(); // 即使请求失败，也清除本地 token
       return false;
     }
@@ -198,6 +202,7 @@ class AuthService {
       if (e is ResetPasswordCaptchaRequiredException) {
         rethrow;
       }
+      LoggerService.instance.logWarning('重置密码验证失败: $e', tag: 'AuthService');
       return false;
     }
   }
@@ -222,6 +227,7 @@ class AuthService {
 
       return response.data['code'] == 200;
     } catch (e) {
+      LoggerService.instance.logWarning('修改密码失败: $e', tag: 'AuthService');
       return false;
     }
   }
