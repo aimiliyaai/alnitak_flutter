@@ -15,6 +15,10 @@ class HistoryService {
   factory HistoryService() => _instance;
   HistoryService._internal();
 
+  /// 测试用构造器，跳过 Dio/TokenManager 初始化
+  @visibleForTesting
+  HistoryService.forTest();
+
   final Dio _dio = HttpClient().dio;
   final TokenManager _tokenManager = TokenManager();
 

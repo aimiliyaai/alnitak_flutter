@@ -152,7 +152,8 @@ class VideoPageController extends ChangeNotifier {
 
   /// 根据历史进度数据计算调整后的播放位置
   /// 返回 (targetPart, adjustedPosition)
-  static (int, double?) _resolveProgress(dynamic progressData, int fallbackPart) {
+  @visibleForTesting
+  static (int, double?) resolveProgress(dynamic progressData, int fallbackPart) {
     if (progressData == null) return (fallbackPart, null);
 
     final progress = progressData.progress as double;
@@ -175,7 +176,7 @@ class VideoPageController extends ChangeNotifier {
       final progressData = await _historyService.getProgress(vid: requestVid, part: part);
       if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
 
-      final (targetPart, position) = _resolveProgress(progressData, part ?? 1);
+      final (targetPart, position) = resolveProgress(progressData, part ?? 1);
       _startPlayback(targetPart, position);
     } catch (e) {
       if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
@@ -382,7 +383,7 @@ class VideoPageController extends ChangeNotifier {
       final progressData = await _historyService.getProgress(vid: targetVid, part: null);
       if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
 
-      final (part, position) = _resolveProgress(progressData, 1);
+      final (part, position) = resolveProgress(progressData, 1);
       _startPlaybackSeamless(videoDetail, part, position);
     } catch (e) {
       if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
