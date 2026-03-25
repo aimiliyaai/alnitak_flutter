@@ -11,6 +11,7 @@ import 'player_speed_panel.dart';
 import 'player_progress_slider.dart';
 import 'player_top_bar.dart';
 import 'player_bottom_bar.dart';
+import 'player_control_buttons.dart';
 
 /// 自定义播放器 UI (V8 完整版)
 ///
@@ -709,256 +710,63 @@ class _CustomPlayerUIState extends State<CustomPlayerUI>
         formatDuration: formatDuration,
         onInteraction: _startHideTimer,
       ),
-      controlRow: _buildControlButtonsRow(),
-    );
-  }
-
-  /// 构建控制按钮行
-  Widget _buildControlButtonsRow() {
-    final fullscreen = _fullscreen;
-
-    return Row(
-      children: [
-        // 播放/暂停按钮
-        StreamBuilder<bool>(
-          stream: widget.controller.player.stream.playing,
-          builder: (context, snapshot) {
-            final playing = snapshot.data ?? widget.controller.player.state.playing;
-            return IconButton(
-              icon: Icon(
-                playing ? Icons.pause : Icons.play_arrow,
-                color: Colors.white,
-                size: fullscreen ? 24 : 22,
-              ),
-              padding: EdgeInsets.zero,
-              constraints: BoxConstraints(minWidth: fullscreen ? 36 : 32, minHeight: 32),
-              onPressed: () {
-                if (widget.controller.player.state.playing) {
-                  widget.logic.pause();
-                } else {
-                  widget.logic.play();
-                }
-                _startHideTimer();
-              },
-            );
-          },
-        ),
-
-        // 弹幕控制按钮
-        if (widget.danmakuController != null)
-          ListenableBuilder(
-            listenable: widget.danmakuController!,
-            builder: (context, _) {
-              final isVisible = widget.danmakuController!.isVisible;
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 弹幕开关
-                  GestureDetector(
-                    onTap: () {
-                      widget.danmakuController!.toggleVisibility();
-                      _startHideTimer();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isVisible
-                            ? Colors.blue.withValues(alpha: 0.3)
-                            : Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: isVisible ? Colors.blue : Colors.white54,
-                          width: 1,
-                        ),
-                      ),
-                      child: Text(
-                        '弹',
-                        style: TextStyle(
-                          color: isVisible ? Colors.blue : Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  // 弹幕设置
-                  IconButton(
-                    icon: Icon(
-                      Icons.tune,
-                      color: _showDanmakuSettings ? Colors.blue : Colors.white,
-                      size: fullscreen ? 20 : 18,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(minWidth: fullscreen ? 32 : 28, minHeight: 28),
-                    onPressed: () {
-                      setState(() {
-                        _showDanmakuSettings = !_showDanmakuSettings;
-                        _showDanmakuInput = false;
-                        if (_showDanmakuSettings) {
-                          _showQualityPanel = false;
-                        }
-                      });
-                      if (!_showDanmakuSettings) {
-                        _startHideTimer();
-                      } else {
-                        _hideTimer?.cancel();
-                      }
-                    },
-                  ),
-                ],
-              );
-            },
-          ),
-
-        // 弹幕发送按钮（全屏时显示）
-        if (widget.danmakuController != null && fullscreen)
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                _showDanmakuInput = !_showDanmakuInput;
-                _showDanmakuSettings = false;
-                _showQualityPanel = false;
-                _showControls = false;
-              });
-              if (_showDanmakuInput) {
-                _hideTimer?.cancel();
-              } else {
-                _startHideTimer();
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              margin: const EdgeInsets.only(left: 4),
-              decoration: BoxDecoration(
-                color: _showDanmakuInput
-                    ? Colors.blue.withValues(alpha: 0.3)
-                    : Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: _showDanmakuInput ? Colors.blue : Colors.white54,
-                  width: 1,
-                ),
-              ),
-              child: Text(
-                '发弹幕',
-                style: TextStyle(
-                  color: _showDanmakuInput ? Colors.blue : Colors.white70,
-                  fontSize: 11,
-                ),
-              ),
-            ),
-          ),
-
-        const Spacer(),
-
-        // 倍速选择
-        TextButton(
-          key: _speedButtonKey,
-          onPressed: _toggleSpeedPanel,
-          style: TextButton.styleFrom(
-            foregroundColor: _currentSpeed != 1.0 ? Colors.blue : Colors.white,
-            padding: EdgeInsets.symmetric(horizontal: fullscreen ? 8 : 4, vertical: 4),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: Text(
-            _currentSpeed == 1.0 ? '倍速' : '${_currentSpeed}x',
-            style: TextStyle(fontSize: fullscreen ? 13 : 12),
-          ),
-        ),
-
-        // 清晰度选择
-        ValueListenableBuilder<List<String>>(
-          valueListenable: widget.logic.availableQualities,
-          builder: (context, qualities, _) {
-            if (qualities.length <= 1) return const SizedBox.shrink();
-
-            return ValueListenableBuilder<String?>(
-              valueListenable: widget.logic.currentQuality,
-              builder: (context, currentQuality, _) {
-                final qualityDisplayName = currentQuality != null
-                    ? widget.logic.getQualityDisplayName(currentQuality)
-                    : '画质';
-                return TextButton(
-                  key: _qualityButtonKey,
-                  onPressed: _toggleQualityPanel,
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: fullscreen ? 8 : 4, vertical: 4),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: PlayerQualityPanel.buildQualityLabel(qualityDisplayName, false),
-                );
-              },
-            );
-          },
-        ),
-
-        // 后台播放按钮（全屏时显示）
-        if (fullscreen)
-          ValueListenableBuilder<bool>(
-            valueListenable: widget.logic.backgroundPlayEnabled,
-            builder: (context, bgEnabled, _) {
-              return IconButton(
-                icon: Icon(
-                  bgEnabled ? Icons.headphones : Icons.headphones_outlined,
-                  color: bgEnabled ? Colors.blue : Colors.white,
-                  size: 20,
-                ),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                tooltip: bgEnabled ? '后台播放：开' : '后台播放：关',
-                onPressed: () {
-                  widget.logic.toggleBackgroundPlay();
-                  _startHideTimer();
-                },
-              );
-            },
-          ),
-
-        // 循环模式按钮（全屏时显示）
-        if (fullscreen)
-          ValueListenableBuilder(
-            valueListenable: widget.logic.loopMode,
-            builder: (context, loopMode, _) {
-              return IconButton(
-                icon: Icon(
-                  loopMode.index == 1 ? Icons.repeat_one : Icons.repeat,
-                  color: loopMode.index == 1 ? Colors.blue : Colors.white,
-                  size: 20,
-                ),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: () {
-                  widget.logic.toggleLoopMode();
-                  _startHideTimer();
-                },
-              );
-            },
-          ),
-
-        // 全屏按钮
-        IconButton(
-          icon: Icon(
-            fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-            color: Colors.white,
-            size: fullscreen ? 24 : 22,
-          ),
-          padding: EdgeInsets.zero,
-          constraints: BoxConstraints(minWidth: fullscreen ? 36 : 32, minHeight: 32),
-          onPressed: () async {
-            if (widget.onFullscreenToggle != null) {
-              widget.onFullscreenToggle!();
-            } else {
-              await toggleFullscreen(context);
+      controlRow: PlayerControlButtons(
+        player: widget.controller.player,
+        logic: widget.logic,
+        danmakuController: widget.danmakuController,
+        fullscreen: _fullscreen,
+        showDanmakuSettings: _showDanmakuSettings,
+        showDanmakuInput: _showDanmakuInput,
+        currentSpeed: _currentSpeed,
+        qualityButtonKey: _qualityButtonKey,
+        speedButtonKey: _speedButtonKey,
+        onPlayPause: () {
+          if (widget.controller.player.state.playing) {
+            widget.logic.pause();
+          } else {
+            widget.logic.play();
+          }
+        },
+        onToggleDanmakuSettings: () {
+          setState(() {
+            _showDanmakuSettings = !_showDanmakuSettings;
+            _showDanmakuInput = false;
+            if (_showDanmakuSettings) {
+              _showQualityPanel = false;
             }
-            await Future.delayed(const Duration(milliseconds: 100));
-            if (mounted) _startHideTimer();
-          },
-        ),
-      ],
+          });
+          if (!_showDanmakuSettings) {
+            _startHideTimer();
+          } else {
+            _hideTimer?.cancel();
+          }
+        },
+        onToggleDanmakuInput: () {
+          setState(() {
+            _showDanmakuInput = !_showDanmakuInput;
+            _showDanmakuSettings = false;
+            _showQualityPanel = false;
+            _showControls = false;
+          });
+          if (_showDanmakuInput) {
+            _hideTimer?.cancel();
+          } else {
+            _startHideTimer();
+          }
+        },
+        onToggleSpeedPanel: _toggleSpeedPanel,
+        onToggleQualityPanel: _toggleQualityPanel,
+        onToggleFullscreen: () async {
+          if (widget.onFullscreenToggle != null) {
+            widget.onFullscreenToggle!();
+          } else {
+            await toggleFullscreen(context);
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+          if (mounted) _startHideTimer();
+        },
+        onInteraction: _startHideTimer,
+      ),
     );
   }
 

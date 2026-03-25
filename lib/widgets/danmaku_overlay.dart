@@ -534,12 +534,17 @@ borderRadius: BorderRadius.circular(4.r),
           child: SliderTheme(
             data: SliderThemeData(
               activeTrackColor: Colors.blue,
-              inactiveTrackColor: Colors.white24,
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
               thumbColor: Colors.white,
-              overlayColor: Colors.blue.withValues(alpha: 0.2),
-              trackHeight: 2,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+              overlayColor: Colors.blue.withValues(alpha: 0.12),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(
+                enabledThumbRadius: 6,
+                elevation: 2,
+                pressedElevation: 4,
+              ),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              trackShape: const RoundedRectSliderTrackShape(),
             ),
             child: Slider(
               value: value.clamp(min, max),
