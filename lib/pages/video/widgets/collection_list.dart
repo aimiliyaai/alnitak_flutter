@@ -158,21 +158,21 @@ class CollectionListState extends State<CollectionList> {
     }
   }
 
-  /// 获取下一个视频
+  /// 获取下一个分P（仅分P类型有效）
+  int? getNextPart() {
+    if (!_autoNext || _listType != 'parts') return null;
+    if (widget.currentPart < _displayList.length) {
+      return widget.currentPart + 1;
+    }
+    return null;
+  }
+
+  /// 获取下一个视频（仅合集类型有效）
   int? getNextVideo() {
-    if (!_autoNext || _displayList.isEmpty) return null;
-    
-    if (_listType == 'parts') {
-      // 分P类型
-      if (widget.currentPart < _displayList.length) {
-        return _displayList[widget.currentPart].vid;
-      }
-    } else {
-      // 合集类型
-      final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
-      if (idx >= 0 && idx < _videoList.length - 1) {
-        return _videoList[idx + 1].vid;
-      }
+    if (!_autoNext || _listType != 'collection') return null;
+    final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
+    if (idx >= 0 && idx < _videoList.length - 1) {
+      return _videoList[idx + 1].vid;
     }
     return null;
   }
