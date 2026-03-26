@@ -13,6 +13,8 @@ class UserBaseInfo {
   final String spaceCover;
   final String birthday;
   final DateTime createdAt;
+  /// 搜索用户等接口可能返回
+  final int? fans;
 
   UserBaseInfo({
     required this.uid,
@@ -26,6 +28,7 @@ class UserBaseInfo {
     required this.spaceCover,
     required this.birthday,
     required this.createdAt,
+    this.fans,
   });
 
   factory UserBaseInfo.fromJson(Map<String, dynamic> json) {
@@ -39,10 +42,11 @@ class UserBaseInfo {
       avatar: json['avatar'] ?? '',
       gender: json['gender'] ?? 0,
       spaceCover: json['spaceCover'] ?? '',
-      birthday: json['birthday'] ?? '',
+      birthday: json['birthday']?.toString() ?? '',
       createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
+          ? DateTime.parse(json['createdAt'] as String)
           : DateTime.now(),
+      fans: json['fans'] != null ? (json['fans'] as num).toInt() : null,
     );
   }
 
@@ -59,6 +63,7 @@ class UserBaseInfo {
       'spaceCover': spaceCover,
       'birthday': birthday,
       'createdAt': createdAt.toIso8601String(),
+      if (fans != null) 'fans': fans,
     };
   }
 }

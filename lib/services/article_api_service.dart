@@ -84,6 +84,27 @@ class ArticleApiService {
     }
   }
 
+  /// 搜索专栏（关键词 + 分页，与视频搜索一致）
+  static Future<List<ArticleListItem>> searchArticles({
+    required String keywords,
+    int page = 1,
+    int pageSize = 15,
+  }) async {
+    final response = await _httpClient.dio.post(
+      '/api/v1/article/searchArticle',
+      data: {
+        'page': page,
+        'pageSize': pageSize > 30 ? 30 : pageSize,
+        'keywords': keywords,
+      },
+    );
+    final apiResponse = ArticleListResponse.fromJson(response.data as Map<String, dynamic>);
+    if (apiResponse.isSuccess) {
+      return apiResponse.articles;
+    }
+    throw Exception('搜索专栏失败: ${apiResponse.msg}');
+  }
+
   /// 获取文章统计信息
   static Future<ArticleStat?> getArticleStat(int aid) async {
     try {

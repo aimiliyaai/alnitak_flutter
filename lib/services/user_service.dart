@@ -252,4 +252,32 @@ class UserService {
       return false;
     }
   }
+
+  /// 搜索用户 / UP（公开接口）
+  Future<List<UserBaseInfo>> searchUsers({
+    required String keywords,
+    int page = 1,
+    int pageSize = 30,
+  }) async {
+    final response = await _httpClient.dio.post(
+      '/api/v1/user/searchUser',
+      data: {
+        'page': page,
+        'pageSize': pageSize > 30 ? 30 : pageSize,
+        'keywords': keywords,
+      },
+    );
+
+    if (response.data['code'] == 200) {
+      final data = response.data['data'];
+      if (data is Map<String, dynamic> && data['users'] is List) {
+        final list = data['users'] as List;
+        return list
+            .map((e) => UserBaseInfo.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    }
+    throw Exception('搜索用户失败: ${response.data['msg']}');
+  }
 }

@@ -67,7 +67,7 @@ class VideoApiService {
       data: {
         'page': page,
         'pageSize': pageSize > 30 ? 30 : pageSize,
-        'keyWords': keywords,
+        'keywords': keywords,
       },
     );
 
