@@ -89,6 +89,8 @@ class ArticleApiService {
     required String keywords,
     int page = 1,
     int pageSize = 15,
+    String sort = 'relevance',
+    String timeRange = 'all',
   }) async {
     final response = await _httpClient.dio.post(
       '/api/v1/article/searchArticle',
@@ -96,6 +98,8 @@ class ArticleApiService {
         'page': page,
         'pageSize': pageSize > 30 ? 30 : pageSize,
         'keywords': keywords,
+        'sort': sort,
+        'timeRange': timeRange,
       },
     );
     final apiResponse = ArticleListResponse.fromJson(response.data as Map<String, dynamic>);

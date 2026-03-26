@@ -54,6 +54,8 @@ class _SearchPageState extends State<SearchPage>
   bool _hasSearched = false;
   String _keywords = '';
   String? _errorMessage;
+  String _sort = 'relevance'; // relevance | newest | most_viewed
+  String _timeRange = 'all'; // all | 24h | week | month | year
 
   @override
   void initState() {
@@ -149,6 +151,164 @@ class _SearchPageState extends State<SearchPage>
     await _loadCurrentTab(reset: true);
   }
 
+  String get _sortLabel {
+    switch (_sort) {
+      case 'newest':
+        return '上传日期';
+      case 'most_viewed':
+        return '观看次数';
+      default:
+        return '相关性';
+    }
+  }
+
+  String get _timeRangeLabel {
+    switch (_timeRange) {
+      case '24h':
+        return '今天';
+      case 'week':
+        return '本周';
+      case 'month':
+        return '本月';
+      case 'year':
+        return '今年';
+      default:
+        return '不限';
+    }
+  }
+
+  Future<void> _openFilters() async {
+    final colors = context.colors;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      // 兼容 LightColors/DarkColors 字段：使用 card 作为底部面板背景
+      backgroundColor: colors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        String tmpSort = _sort;
+        String tmpTime = _timeRange;
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 14,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('搜索过滤条件',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setModalState(() {
+                            tmpSort = 'relevance';
+                            tmpTime = 'all';
+                          });
+                        },
+                        child: Text('重置', style: TextStyle(color: colors.textSecondary)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text('排序依据', style: TextStyle(color: colors.textSecondary)),
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('相关性'),
+                        selected: tmpSort == 'relevance',
+                        onSelected: (_) => setModalState(() => tmpSort = 'relevance'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('上传日期'),
+                        selected: tmpSort == 'newest',
+                        onSelected: (_) => setModalState(() => tmpSort = 'newest'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('观看次数'),
+                        selected: tmpSort == 'most_viewed',
+                        onSelected: (_) => setModalState(() => tmpSort = 'most_viewed'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text('上传日期', style: TextStyle(color: colors.textSecondary)),
+                  Wrap(
+                    spacing: 10,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('不限'),
+                        selected: tmpTime == 'all',
+                        onSelected: (_) => setModalState(() => tmpTime = 'all'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('今天'),
+                        selected: tmpTime == '24h',
+                        onSelected: (_) => setModalState(() => tmpTime = '24h'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('本周'),
+                        selected: tmpTime == 'week',
+                        onSelected: (_) => setModalState(() => tmpTime = 'week'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('本月'),
+                        selected: tmpTime == 'month',
+                        onSelected: (_) => setModalState(() => tmpTime = 'month'),
+                      ),
+                      ChoiceChip(
+                        label: const Text('今年'),
+                        selected: tmpTime == 'year',
+                        onSelected: (_) => setModalState(() => tmpTime = 'year'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        setState(() {
+                          _sort = tmpSort;
+                          _timeRange = tmpTime;
+                          _videos = [];
+                          _videoPage = 1;
+                          _videoHasMore = true;
+                          _articles = [];
+                          _articlePage = 1;
+                          _articleHasMore = true;
+                          _users = [];
+                          _userPage = 1;
+                          _userHasMore = true;
+                        });
+                        if (_keywords.isNotEmpty) {
+                          await _loadCurrentTab(reset: true);
+                        }
+                      },
+                      child: const Text('应用'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _loadCurrentTab({required bool reset}) async {
     final i = _tabController.index;
     if (i == 0) await _loadVideos(reset: reset);
@@ -169,6 +329,8 @@ class _SearchPageState extends State<SearchPage>
         keywords: _keywords,
         page: _videoPage,
         pageSize: _pageSize,
+        sort: _sort,
+        timeRange: _timeRange,
       );
       if (!mounted) return;
       setState(() {
@@ -214,6 +376,8 @@ class _SearchPageState extends State<SearchPage>
         keywords: _keywords,
         page: _articlePage,
         pageSize: _pageSize,
+        sort: _sort,
+        timeRange: _timeRange,
       );
       if (!mounted) return;
       setState(() {
@@ -258,6 +422,8 @@ class _SearchPageState extends State<SearchPage>
         keywords: _keywords,
         page: _userPage,
         pageSize: _pageSize,
+        sort: _sort,
+        timeRange: _timeRange,
       );
       if (!mounted) return;
       setState(() {
@@ -382,12 +548,80 @@ class _SearchPageState extends State<SearchPage>
       );
     }
 
-    return TabBarView(
-      controller: _tabController,
+    return Column(
       children: [
-        _buildVideoTab(colors),
-        _buildArticleTab(colors),
-        _buildUserTab(colors),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (_timeRange != 'all')
+                      InputChip(
+                        label: Text(_timeRangeLabel),
+                        onDeleted: () async {
+                          setState(() => _timeRange = 'all');
+                          if (_keywords.isNotEmpty) {
+                            setState(() {
+                              _videos = [];
+                              _videoPage = 1;
+                              _videoHasMore = true;
+                              _articles = [];
+                              _articlePage = 1;
+                              _articleHasMore = true;
+                              _users = [];
+                              _userPage = 1;
+                              _userHasMore = true;
+                            });
+                            await _loadCurrentTab(reset: true);
+                          }
+                        },
+                      ),
+                    if (_sort != 'relevance')
+                      InputChip(
+                        label: Text(_sortLabel),
+                        onDeleted: () async {
+                          setState(() => _sort = 'relevance');
+                          if (_keywords.isNotEmpty) {
+                            setState(() {
+                              _videos = [];
+                              _videoPage = 1;
+                              _videoHasMore = true;
+                              _articles = [];
+                              _articlePage = 1;
+                              _articleHasMore = true;
+                              _users = [];
+                              _userPage = 1;
+                              _userHasMore = true;
+                            });
+                            await _loadCurrentTab(reset: true);
+                          }
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _openFilters,
+                icon: Icon(Icons.tune, color: colors.textSecondary, size: 18),
+                label: Text('筛选', style: TextStyle(color: colors.textSecondary)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildVideoTab(colors),
+              _buildArticleTab(colors),
+              _buildUserTab(colors),
+            ],
+          ),
+        ),
       ],
     );
   }

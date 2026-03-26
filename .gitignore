@@ -48,3 +48,6 @@ app.*.map.json
 *.bak
 *.before_*
 *.orig
+
+# Local AI assistant config (do not commit)
+.claude/

@@ -258,6 +258,8 @@ class UserService {
     required String keywords,
     int page = 1,
     int pageSize = 30,
+    String sort = 'relevance',
+    String timeRange = 'all',
   }) async {
     final response = await _httpClient.dio.post(
       '/api/v1/user/searchUser',
@@ -265,6 +267,8 @@ class UserService {
         'page': page,
         'pageSize': pageSize > 30 ? 30 : pageSize,
         'keywords': keywords,
+        'sort': sort,
+        'timeRange': timeRange,
       },
     );
 

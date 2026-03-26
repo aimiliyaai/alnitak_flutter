@@ -61,6 +61,8 @@ class VideoApiService {
     required String keywords,
     int page = 1,
     int pageSize = 30,
+    String sort = 'relevance',
+    String timeRange = 'all',
   }) async {
     final response = await _dio.post(
       '/api/v1/video/searchVideo',
@@ -68,6 +70,8 @@ class VideoApiService {
         'page': page,
         'pageSize': pageSize > 30 ? 30 : pageSize,
         'keywords': keywords,
+        'sort': sort,
+        'timeRange': timeRange,
       },
     );
 
