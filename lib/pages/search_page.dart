@@ -663,7 +663,7 @@ class _SearchPageState extends State<SearchPage>
                       context,
                       MaterialPageRoute(
                         builder: (context) =>
-                            VideoPlayPage(vid: int.parse(v.id)),
+                            VideoPlayPage(videoRef: v.playRef),
                       ),
                     );
                   },

@@ -1100,7 +1100,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       context,
       MaterialPageRoute(
         builder: (context) => VideoPlayPage(
-          vid: int.parse(video.id),
+          videoRef: video.playRef,
         ),
       ),
     );
@@ -1123,27 +1123,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         // 优先解析统一的播放页链接：/watch?v=<vid>&p=<part>
         final v = uri.queryParameters['v'];
         if (v != null && v.isNotEmpty) {
-          final vid = int.tryParse(v);
-          if (vid != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => VideoPlayPage(vid: vid),
-              ),
-            );
-            return;
-          }
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VideoPlayPage(videoRef: v),
+            ),
+          );
+          return;
         }
 
-        // 兼容旧链接格式：/video/123
-        final videoMatch = RegExp(r'/video/(\d+)').firstMatch(uri.path);
+        // 兼容路径：/video/<数字 id 或 shortId>
+        final videoMatch = RegExp(r'/video/([^/?#]+)').firstMatch(uri.path);
         if (videoMatch != null) {
-          final vid = int.tryParse(videoMatch.group(1)!);
-          if (vid != null) {
+          final ref = Uri.decodeComponent(videoMatch.group(1)!);
+          if (ref.isNotEmpty) {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => VideoPlayPage(vid: vid),
+                builder: (context) => VideoPlayPage(videoRef: ref),
               ),
             );
             return;

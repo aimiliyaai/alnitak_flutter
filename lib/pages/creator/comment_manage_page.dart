@@ -356,7 +356,7 @@ class _CommentManagePageState extends State<CommentManagePage>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoPlayPage(vid: vid),
+        builder: (context) => VideoPlayPage(videoRef: vid.toString()),
       ),
     );
   }

@@ -149,16 +149,19 @@ class ManageCommentListResponse {
 /// 用户视频列表项（用于下拉选择）
 class UserVideoItem {
   final int vid;
+  final String? shortId;
   final String title;
 
   UserVideoItem({
     required this.vid,
+    this.shortId,
     required this.title,
   });
 
   factory UserVideoItem.fromJson(Map<String, dynamic> json) {
     return UserVideoItem(
       vid: json['vid'] ?? 0,
+      shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
     );
   }

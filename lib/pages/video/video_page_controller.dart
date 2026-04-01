@@ -36,7 +36,9 @@ class VideoPageController extends ChangeNotifier {
   bool isLoading = true;
   String? errorMessage;
 
-  late int currentVid;
+  /// 解析后的数字视频 id（接口返回）；首包加载完成前可能为 0
+  int currentVid = 0;
+  String? _bootstrapVideoRef;
   late int currentPart;
   int? currentResourceId;
   double? currentInitialPosition;
@@ -68,16 +70,17 @@ class VideoPageController extends ChangeNotifier {
 
   int _nextPageRequestToken() => ++_pageRequestToken;
 
-  bool _isActiveRequest(int token, {int? expectedVid}) {
+  bool _isActiveRequest(int token) {
     if (_disposed || token != _pageRequestToken) return false;
-    if (expectedVid != null && currentVid != expectedVid) return false;
     return true;
   }
 
   // ============ 初始化 / 销毁 ============
 
-  void init(int vid, {int? initialPart}) {
-    currentVid = vid;
+  void init(String videoRef, {int? initialPart}) {
+    final t = videoRef.trim();
+    _bootstrapVideoRef = t.isEmpty ? null : t;
+    currentVid = 0;
     currentPart = initialPart ?? 1;
     danmakuController.addListener(_onDanmakuChanged);
     _authStateManager.addListener(_onAuthStateChanged);
@@ -114,14 +117,16 @@ class VideoPageController extends ChangeNotifier {
 
   Future<void> loadVideoData({int? part}) async {
     final requestToken = _nextPageRequestToken();
-    final requestVid = currentVid;
+    final vidQuery = (_bootstrapVideoRef != null && _bootstrapVideoRef!.isNotEmpty)
+        ? _bootstrapVideoRef!
+        : currentVid.toString();
     isLoading = true;
     errorMessage = null;
     notifyListeners();
 
     try {
-      final detail = await _videoService.getVideoDetail(requestVid);
-      if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
+      final detail = await _videoService.getVideoDetail(vidQuery);
+      if (!_isActiveRequest(requestToken)) return;
 
       if (detail == null) {
         errorMessage = '视频不存在或已被删除';
@@ -130,18 +135,20 @@ class VideoPageController extends ChangeNotifier {
         return;
       }
 
+      _bootstrapVideoRef = null;
       videoDetail = detail;
+      currentVid = detail.vid;
       currentPart = part ?? 1;
       videoStat = VideoStat(like: 0, collect: 0, share: 0);
       actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
       isLoading = false;
       notifyListeners();
 
-      _fetchProgressAndRestore(part: part, requestToken: requestToken, requestVid: requestVid);
-      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: requestVid);
-      onlineWebSocketService.connect(requestVid);
+      _fetchProgressAndRestore(part: part, requestToken: requestToken, requestVid: detail.vid);
+      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: detail.vid);
+      onlineWebSocketService.connect(detail.vid);
     } catch (e) {
-      if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
+      if (!_isActiveRequest(requestToken)) return;
       errorMessage = '加载失败，请重试';
       isLoading = false;
       notifyListeners();
@@ -174,12 +181,12 @@ class VideoPageController extends ChangeNotifier {
   Future<void> _fetchProgressAndRestore({int? part, required int requestToken, required int requestVid}) async {
     try {
       final progressData = await _historyService.getProgress(vid: requestVid, part: part);
-      if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
+      if (!_isActiveRequest(requestToken)) return;
 
       final (targetPart, position) = resolveProgress(progressData, part ?? 1);
       _startPlayback(targetPart, position);
     } catch (e) {
-      if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
+      if (!_isActiveRequest(requestToken)) return;
       _startPlayback(part ?? 1, null);
     }
   }
@@ -211,7 +218,7 @@ class VideoPageController extends ChangeNotifier {
       _videoService.getUserActionStatus(requestVid, authorUid).catchError((e) => null),
     ]);
 
-    if (!_isActiveRequest(requestToken, expectedVid: requestVid)) return;
+    if (!_isActiveRequest(requestToken)) return;
 
     final stat = futures[0] as VideoStat?;
     final commentResponse = futures[1] as CommentListResponse?;
@@ -227,6 +234,7 @@ class VideoPageController extends ChangeNotifier {
   }
 
   Future<void> refreshCommentPreview() async {
+    if (currentVid == 0) return;
     final requestVid = currentVid;
     try {
       final commentResponse = await _videoService.getComments(vid: requestVid, page: 1, pageSize: 1);
@@ -243,7 +251,7 @@ class VideoPageController extends ChangeNotifier {
     if (videoDetail == null) return;
     final requestVid = currentVid;
     try {
-      final detail = await _videoService.getVideoDetail(requestVid);
+      final detail = await _videoService.getVideoDetail(requestVid.toString());
       if (_disposed || currentVid != requestVid) return;
       if (detail != null) {
         videoDetail = detail;
@@ -253,7 +261,7 @@ class VideoPageController extends ChangeNotifier {
   }
 
   Future<void> refreshUserActionStatus() async {
-    if (videoDetail == null) return;
+    if (videoDetail == null || currentVid == 0) return;
     try {
       final status = await _videoService.getUserActionStatus(currentVid, videoDetail!.author.uid);
       if (status != null && !_disposed) {
@@ -338,8 +346,8 @@ class VideoPageController extends ChangeNotifier {
     final requestToken = _nextPageRequestToken();
 
     try {
-      final detail = await _videoService.getVideoDetail(targetVid);
-      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
+      final detail = await _videoService.getVideoDetail(targetVid.toString());
+      if (!_isActiveRequest(requestToken)) return;
 
       if (detail == null) {
         errorMessage = '视频不存在或已被删除';
@@ -348,6 +356,7 @@ class VideoPageController extends ChangeNotifier {
       }
 
       videoDetail = detail;
+      currentVid = detail.vid;
       currentPart = 1;
       videoStat = VideoStat(like: 0, collect: 0, share: 0);
       actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
@@ -356,10 +365,10 @@ class VideoPageController extends ChangeNotifier {
       errorMessage = null;
       notifyListeners();
 
-      onlineWebSocketService.connect(targetVid);
-      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: targetVid);
+      onlineWebSocketService.connect(detail.vid);
+      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: detail.vid);
       _fetchProgressAndRestoreSeamless(
-        targetVid: targetVid,
+        targetVid: detail.vid,
         videoDetail: detail,
         targetPart: targetPart,
         requestToken: requestToken,
@@ -375,18 +384,18 @@ class VideoPageController extends ChangeNotifier {
   }) async {
     try {
       if (targetPart != null) {
-        if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
+        if (!_isActiveRequest(requestToken)) return;
         _startPlaybackSeamless(videoDetail, targetPart, null);
         return;
       }
 
       final progressData = await _historyService.getProgress(vid: targetVid, part: null);
-      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
+      if (!_isActiveRequest(requestToken)) return;
 
       final (part, position) = resolveProgress(progressData, 1);
       _startPlaybackSeamless(videoDetail, part, position);
     } catch (e) {
-      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
+      if (!_isActiveRequest(requestToken)) return;
       _startPlaybackSeamless(videoDetail, targetPart ?? 1, null);
     }
   }

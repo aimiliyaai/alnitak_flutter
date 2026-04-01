@@ -173,7 +173,7 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
         }
 
         _descController.text = videoStatus.desc;
-        _tags = videoStatus.tags.split(',').where((t) => t.isNotEmpty).toList();
+        _tags = videoStatus.tags.where((t) => t.isNotEmpty).toList();
         _copyright = videoStatus.copyright;
         _coverUrl = videoStatus.cover;
         _resources = videoStatus.resources; // 加载资源列表

@@ -198,6 +198,7 @@ class UserVideoListResponse {
 /// 用户视频
 class UserVideo {
   final int vid;
+  final String? shortId;
   final String title;
   final String cover;
   final String desc;
@@ -207,6 +208,7 @@ class UserVideo {
 
   UserVideo({
     required this.vid,
+    this.shortId,
     required this.title,
     required this.cover,
     required this.desc,
@@ -218,6 +220,7 @@ class UserVideo {
   factory UserVideo.fromJson(Map<String, dynamic> json) {
     return UserVideo(
       vid: json['vid'] ?? 0,
+      shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
       cover: json['cover'] ?? '',
       desc: json['desc'] ?? '',

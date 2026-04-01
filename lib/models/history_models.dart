@@ -56,6 +56,7 @@ class PlayProgressData {
 /// 历史记录项
 class HistoryItem {
   final int vid;
+  final String? shortId;
   final int uid;
   final String title;
   final String cover;
@@ -66,6 +67,7 @@ class HistoryItem {
 
   HistoryItem({
     required this.vid,
+    this.shortId,
     required this.uid,
     required this.title,
     required this.cover,
@@ -78,6 +80,7 @@ class HistoryItem {
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
     return HistoryItem(
       vid: json['vid'] as int,
+      shortId: json['shortId'] as String?,
       uid: json['uid'] as int,
       title: json['title'] as String,
       cover: json['cover'] as String,

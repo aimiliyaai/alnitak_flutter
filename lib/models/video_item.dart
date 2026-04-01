@@ -1,7 +1,10 @@
 import 'video_api_model.dart';
 import '../config/api_config.dart';
+import '../utils/video_route.dart';
 
 class VideoItem {
+  final int vid;
+  final String? shortId;
   final String id;
   final String title;
   final String coverUrl;
@@ -13,6 +16,8 @@ class VideoItem {
   final String? authorAvatar;
 
   VideoItem({
+    required this.vid,
+    this.shortId,
     required this.id,
     required this.title,
     required this.coverUrl,
@@ -38,6 +43,8 @@ class VideoItem {
     }
 
     return VideoItem(
+      vid: apiModel.vid,
+      shortId: apiModel.shortId,
       id: apiModel.vid.toString(),
       title: apiModel.title,
       coverUrl: getFullImageUrl(apiModel.cover),
@@ -51,6 +58,9 @@ class VideoItem {
           : null,
     );
   }
+
+  /// 跳转播放页使用的标识（优先 shortId）
+  String get playRef => videoPathRef(vid: vid, shortId: shortId);
 
   // 格式化播放次数
   String get formattedPlayCount {

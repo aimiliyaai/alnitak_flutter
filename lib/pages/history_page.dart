@@ -8,6 +8,7 @@ import '../theme/theme_extensions.dart';
 import '../utils/time_utils.dart';
 import '../widgets/loading_more_indicator.dart';
 import 'video/video_play_page.dart';
+import '../utils/video_route.dart';
 
 /// 历史记录页面
 class HistoryPage extends StatefulWidget {
@@ -170,7 +171,9 @@ class _HistoryPageState extends State<HistoryPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoPlayPage(vid: item.vid),
+        builder: (context) => VideoPlayPage(
+          videoRef: videoPathRef(vid: item.vid, shortId: item.shortId),
+        ),
       ),
     );
   }

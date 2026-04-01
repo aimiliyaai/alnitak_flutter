@@ -1,3 +1,16 @@
+import '../utils/json_field.dart';
+
+List<String> _parseTags(dynamic v) {
+  if (v == null) return [];
+  if (v is List) {
+    return v.map((e) => e.toString().trim()).where((t) => t.isNotEmpty).toList();
+  }
+  if (v is String) {
+    return v.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+  }
+  return [];
+}
+
 class VideoApiModel {
   final int vid;
   // 短 ID（后端返回 shortId，可选）
@@ -8,7 +21,7 @@ class VideoApiModel {
   final String desc;
   final String createdAt;
   final bool copyright;
-  final String tags;
+  final List<String> tags;
   final double duration;
   final int clicks;
   final int partitionId;
@@ -36,22 +49,26 @@ class VideoApiModel {
 
   factory VideoApiModel.fromJson(Map<String, dynamic> json) {
     return VideoApiModel(
-      vid: json['vid'] ?? 0,
-      shortId: json['shortId'] as String?,
-      uid: json['uid'] ?? 0,
-      title: json['title'] ?? '',
-      cover: json['cover'] ?? '',
-      desc: json['desc'] ?? '',
-      createdAt: json['createdAt'] ?? '',
+      vid: jsonAsInt(json['vid']),
+      shortId: jsonAsStringOrNull(json['shortId']),
+      uid: jsonAsInt(json['uid']),
+      title: jsonAsString(json['title']),
+      cover: jsonAsString(json['cover']),
+      desc: jsonAsString(json['desc']),
+      createdAt: jsonAsString(json['createdAt']),
       copyright: json['copyright'] ?? false,
-      tags: json['tags'] ?? '',
+      tags: _parseTags(json['tags']),
       duration: (json['duration'] ?? 0).toDouble(),
-      clicks: json['clicks'] ?? 0,
-      partitionId: json['partitionId'] ?? 0,
-      danmakuCount: json['danmakuCount'] ?? 0,
-      author: AuthorModel.fromJson(json['author'] ?? {}),
+      clicks: jsonAsInt(json['clicks']),
+      partitionId: jsonAsInt(json['partitionId']),
+      danmakuCount: jsonAsInt(json['danmakuCount'] ?? json['danmaku_count']),
+      author: AuthorModel.fromJson(
+        Map<String, dynamic>.from(json['author'] as Map? ?? {}),
+      ),
       resources: (json['resources'] as List<dynamic>?)
-              ?.map((r) => ResourceModel.fromJson(r as Map<String, dynamic>))
+              ?.map((r) => ResourceModel.fromJson(
+                    Map<String, dynamic>.from(r as Map),
+                  ))
               .toList() ??
           [],
     );
@@ -92,16 +109,16 @@ class AuthorModel {
 
   factory AuthorModel.fromJson(Map<String, dynamic> json) {
     return AuthorModel(
-      uid: json['uid'] ?? 0,
-      name: json['name'] ?? '',
-      sign: json['sign'] ?? '',
-      email: json['email'] ?? '',
-      phone: json['phone'] ?? '',
-      avatar: json['avatar'] ?? '',
-      gender: json['gender'] ?? 0,
-      spaceCover: json['spaceCover'] ?? '',
-      birthday: json['birthday'] ?? '',
-      createdAt: json['createdAt'] ?? '',
+      uid: jsonAsInt(json['uid']),
+      name: jsonAsString(json['name']),
+      sign: jsonAsString(json['sign']),
+      email: jsonAsString(json['email']),
+      phone: jsonAsString(json['phone']),
+      avatar: jsonAsString(json['avatar']),
+      gender: jsonAsInt(json['gender']),
+      spaceCover: jsonAsString(json['spaceCover']),
+      birthday: jsonAsString(json['birthday']),
+      createdAt: jsonAsString(json['createdAt']),
     );
   }
 }
@@ -128,13 +145,13 @@ class ResourceModel {
 
   factory ResourceModel.fromJson(Map<String, dynamic> json) {
     return ResourceModel(
-      id: json['id'] ?? 0,
-      shortId: json['shortId'] as String?,
-      createdAt: json['createdAt'] ?? '',
-      vid: json['vid'] ?? 0,
-      title: json['title'] ?? '',
+      id: jsonAsInt(json['id']),
+      shortId: jsonAsStringOrNull(json['shortId']),
+      createdAt: jsonAsString(json['createdAt']),
+      vid: jsonAsInt(json['vid']),
+      title: jsonAsString(json['title']),
       duration: (json['duration'] ?? 0).toDouble(),
-      status: json['status'] ?? 0,
+      status: jsonAsInt(json['status']),
     );
   }
 }

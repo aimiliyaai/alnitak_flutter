@@ -14,12 +14,13 @@ import '../../widgets/danmaku_overlay.dart';
 
 /// 视频播放页面（纯 UI 层，业务逻辑委托给 VideoPageController）
 class VideoPlayPage extends StatefulWidget {
-  final int vid;
+  /// 路由/API 层视频标识：数字 id 或 shortId（与后端 ParseVideoID 一致）
+  final String videoRef;
   final int? initialPart;
 
   const VideoPlayPage({
     super.key,
-    required this.vid,
+    required this.videoRef,
     this.initialPart,
   });
 
@@ -46,7 +47,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
       recommendListKey: _recommendListKey,
     );
     _controller.addListener(_onControllerChanged);
-    _controller.init(widget.vid, initialPart: widget.initialPart);
+    _controller.init(widget.videoRef, initialPart: widget.initialPart);
     WidgetsBinding.instance.addObserver(this);
   }
 

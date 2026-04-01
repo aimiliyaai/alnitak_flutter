@@ -1,3 +1,14 @@
+List<String> _parseTags(dynamic v) {
+  if (v == null) return [];
+  if (v is List) {
+    return v.map((e) => e.toString().trim()).where((t) => t.isNotEmpty).toList();
+  }
+  if (v is String) {
+    return v.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+  }
+  return [];
+}
+
 /// 上传视频模型
 class UploadVideo {
   final int vid;
@@ -114,7 +125,7 @@ class VideoStatus {
   final String title;
   final String cover;
   final String desc;
-  final String tags;
+  final List<String> tags;
   final int status;
   final bool copyright;
   final int partitionId;
@@ -140,7 +151,7 @@ class VideoStatus {
       title: json['title'] as String? ?? '',
       cover: json['cover'] as String? ?? '',
       desc: json['desc'] as String? ?? '',
-      tags: json['tags'] as String? ?? '',
+      tags: _parseTags(json['tags']),
       status: json['status'] as int? ?? 0,
       copyright: json['copyright'] as bool? ?? false,
       partitionId: json['partitionId'] as int? ?? 0,
@@ -157,6 +168,7 @@ class VideoStatus {
 /// 用户投稿视频列表项
 class ManuscriptVideo {
   final int vid;
+  final String? shortId;
   final String title;
   final String cover;
   final int status;
@@ -167,6 +179,7 @@ class ManuscriptVideo {
 
   ManuscriptVideo({
     required this.vid,
+    this.shortId,
     required this.title,
     required this.cover,
     required this.status,
@@ -179,6 +192,7 @@ class ManuscriptVideo {
   factory ManuscriptVideo.fromJson(Map<String, dynamic> json) {
     return ManuscriptVideo(
       vid: json['vid'] as int,
+      shortId: json['shortId'] as String?,
       title: json['title'] as String,
       cover: json['cover'] as String,
       status: json['status'] as int,

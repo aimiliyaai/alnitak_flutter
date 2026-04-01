@@ -12,10 +12,13 @@ class VideoService {
 
   final Dio _dio = HttpClient().dio;
 
-  /// 获取视频详情
-  Future<VideoDetail?> getVideoDetail(int vid) async {
+  /// 获取视频详情（[vidQuery] 为数字 id 或 shortId 字符串）
+  Future<VideoDetail?> getVideoDetail(String vidQuery) async {
     try {
-      final response = await _dio.get('/api/v1/video/getVideoById', queryParameters: {'vid': vid});
+      final response = await _dio.get(
+        '/api/v1/video/getVideoById',
+        queryParameters: {'vid': vidQuery},
+      );
       if (response.data['code'] == 200) {
         return VideoDetail.fromJson(response.data['data']['video']);
       }

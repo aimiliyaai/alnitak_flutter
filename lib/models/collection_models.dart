@@ -102,6 +102,7 @@ class CollectionItem {
 /// 收藏夹内的视频
 class CollectionVideo {
   final int vid;
+  final String? shortId;
   final String title;
   final String cover;
   final String desc;
@@ -111,6 +112,7 @@ class CollectionVideo {
 
   CollectionVideo({
     required this.vid,
+    this.shortId,
     required this.title,
     required this.cover,
     required this.desc,
@@ -122,6 +124,7 @@ class CollectionVideo {
   factory CollectionVideo.fromJson(Map<String, dynamic> json) {
     return CollectionVideo(
       vid: json['vid'] ?? 0,
+      shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
       cover: json['cover'] ?? '',
       desc: json['desc'] ?? '',

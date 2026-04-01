@@ -6,6 +6,7 @@ import '../../theme/theme_extensions.dart';
 import '../../utils/login_guard.dart';
 import '../../utils/image_utils.dart';
 import '../video/video_play_page.dart';
+import '../../utils/video_route.dart';
 
 /// UP主个人空间页面
 class UserSpacePage extends StatefulWidget {
@@ -643,7 +644,9 @@ class _UserVideosTabState extends State<_UserVideosTab>
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => VideoPlayPage(vid: video.vid),
+            builder: (context) => VideoPlayPage(
+              videoRef: videoPathRef(vid: video.vid, shortId: video.shortId),
+            ),
           ),
         );
       },

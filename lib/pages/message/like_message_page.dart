@@ -7,6 +7,7 @@ import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import '../video/video_play_page.dart';
+import '../../utils/video_route.dart';
 
 /// 点赞消息页面
 class LikeMessagePage extends StatefulWidget {
@@ -95,7 +96,12 @@ class _LikeMessagePageState extends State<LikeMessagePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => VideoPlayPage(vid: message.video!.vid),
+          builder: (context) => VideoPlayPage(
+            videoRef: videoPathRef(
+              vid: message.video!.vid,
+              shortId: message.video!.shortId,
+            ),
+          ),
         ),
       );
     }

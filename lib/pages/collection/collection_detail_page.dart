@@ -5,6 +5,7 @@ import '../../utils/image_utils.dart';
 import '../../widgets/cached_image_widget.dart';
 import '../../theme/theme_extensions.dart';
 import '../video/video_play_page.dart';
+import '../../utils/video_route.dart';
 
 /// 收藏夹详情页面
 class CollectionDetailPage extends StatefulWidget {
@@ -158,7 +159,9 @@ class _CollectionDetailPageState extends State<CollectionDetailPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoPlayPage(vid: video.vid),
+        builder: (context) => VideoPlayPage(
+          videoRef: videoPathRef(vid: video.vid, shortId: video.shortId),
+        ),
       ),
     );
   }
