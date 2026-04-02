@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/pgc_models.dart';
 import '../../../services/pgc_api_service.dart';
+import '../../../services/logger_service.dart';
 import '../../../theme/theme_extensions.dart';
 
 class PgcSeasonPanel extends StatefulWidget {
@@ -66,7 +67,11 @@ class PgcSeasonPanelState extends State<PgcSeasonPanel> {
         _panel = res;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      LoggerService.instance.logWarning(
+        'PgcSeasonPanel 加载失败 vid=${widget.vid}: $e\n$st',
+        tag: 'PgcSeasonPanel',
+      );
       if (!mounted) return;
       setState(() {
         _panel = null;

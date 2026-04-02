@@ -12,6 +12,7 @@ import '../widgets/video_card.dart';
 import '../widgets/pgc_card.dart';
 import '../theme/theme_extensions.dart';
 import '../utils/image_utils.dart';
+import '../utils/video_route.dart';
 import 'video/video_play_page.dart';
 import 'article/article_view_page.dart';
 import 'user/user_space_page.dart';
@@ -727,7 +728,7 @@ class _SearchPageState extends State<SearchPage>
                       context,
                       MaterialPageRoute(
                         builder: (context) => VideoPlayPage(
-                          videoRef: 'pgc:$vid:$epId',
+                          videoRef: pgcVideoPlayRef(vid, epId: epId),
                         ),
                       ),
                     );

@@ -14,7 +14,9 @@ import 'widgets/pgc_recommend_list.dart';
 import 'widgets/pgc_season_panel.dart';
 import '../../widgets/danmaku_overlay.dart';
 import '../../services/pgc_api_service.dart';
+import '../../services/logger_service.dart';
 import '../../models/pgc_models.dart';
+import '../../utils/video_route.dart';
 
 /// 视频播放页面（纯 UI 层，业务逻辑委托给 VideoPageController）
 class VideoPlayPage extends StatefulWidget {
@@ -50,17 +52,9 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
   PgcPlayPanel? _pgcPanel;
   // 预留：后续可用于顶部信息展示/缓存，当前未使用
 
-  bool get _isPGCMode => widget.pgcMode || widget.videoRef.startsWith('pgc:');
+  bool get _isPGCMode => widget.pgcMode || isPgcVideoPlayRef(widget.videoRef);
 
-  String get _resolvedVideoRef {
-    final raw = widget.videoRef.trim();
-    if (!raw.startsWith('pgc:')) return raw;
-    final parts = raw.split(':');
-    if (parts.length >= 2 && parts[1].trim().isNotEmpty) {
-      return parts[1].trim();
-    }
-    return raw;
-  }
+  String get _resolvedVideoRef => resolveVideoRefForPlayback(widget.videoRef);
 
   @override
   void initState() {
@@ -94,7 +88,12 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
         // ignore: unused_local_variable
         final _ = rec;
       });
-    } catch (_) {}
+    } catch (e, st) {
+      LoggerService.instance.logWarning(
+        'PGC 元数据加载失败 vid=$vid: $e\n$st',
+        tag: 'VideoPlayPage',
+      );
+    }
   }
 
   @override

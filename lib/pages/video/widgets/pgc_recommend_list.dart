@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/pgc_models.dart';
 import '../../../services/pgc_api_service.dart';
+import '../../../services/logger_service.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../../widgets/cached_image_widget.dart';
 
@@ -46,7 +47,11 @@ class PgcRecommendListState extends State<PgcRecommendList> {
         _list = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      LoggerService.instance.logWarning(
+        'PgcRecommendList 加载失败 vid=${widget.vid}: $e\n$st',
+        tag: 'PgcRecommendList',
+      );
       if (!mounted) return;
       setState(() {
         _list = [];

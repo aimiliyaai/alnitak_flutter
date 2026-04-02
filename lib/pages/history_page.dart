@@ -166,11 +166,11 @@ class _HistoryPageState extends State<HistoryPage> {
   /// 格式化时间
   String _formatTime(String updatedAt) => TimeUtils.formatTime(updatedAt);
 
-  /// 跳转到视频播放页（PGC 使用 `pgc:<vid>:<epId>` 以进入剧集面板与信息卡）
+  /// 跳转到视频播放页（PGC 使用 [pgcVideoPlayRef] 以进入剧集面板与信息卡）
   void _navigateToVideo(HistoryItem item) {
     final String ref;
     if (item.pgcAttached) {
-      ref = item.epId > 0 ? 'pgc:${item.vid}:${item.epId}' : 'pgc:${item.vid}:';
+      ref = pgcVideoPlayRef(item.vid, epId: item.epId > 0 ? item.epId : null);
     } else {
       ref = videoPathRef(vid: item.vid, shortId: item.shortId);
     }

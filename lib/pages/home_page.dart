@@ -20,6 +20,7 @@ import '../widgets/cached_image_widget.dart';
 import '../utils/grid_delegate.dart';
 import '../services/pgc_api_service.dart';
 import '../models/pgc_models.dart';
+import '../utils/video_route.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -656,7 +657,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             context,
                             MaterialPageRoute(
                               builder: (context) => VideoPlayPage(
-                                videoRef: 'pgc:$vid:$epId',
+                                videoRef: pgcVideoPlayRef(vid, epId: epId),
                               ),
                             ),
                           );
