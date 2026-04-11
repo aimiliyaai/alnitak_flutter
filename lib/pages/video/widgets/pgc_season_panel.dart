@@ -4,6 +4,7 @@ import '../../../models/pgc_models.dart';
 import '../../../services/pgc_api_service.dart';
 import '../../../services/logger_service.dart';
 import '../../../theme/theme_extensions.dart';
+import 'auto_play_source.dart';
 
 class PgcSeasonPanel extends StatefulWidget {
   final int vid;
@@ -19,7 +20,7 @@ class PgcSeasonPanel extends StatefulWidget {
   State<PgcSeasonPanel> createState() => PgcSeasonPanelState();
 }
 
-class PgcSeasonPanelState extends State<PgcSeasonPanel> {
+class PgcSeasonPanelState extends State<PgcSeasonPanel> with AutoPlaySource {
   bool _autoNext = true;
   bool _showTitleMode = true;
   bool _loading = true;
@@ -90,6 +91,7 @@ class PgcSeasonPanelState extends State<PgcSeasonPanel> {
     _saveSettings();
   }
 
+  @override
   int? getNextVideo() {
     if (!_autoNext) return null;
     final eps = _panel?.episodes ?? const <PgcEpisode>[];

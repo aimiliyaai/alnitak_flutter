@@ -19,6 +19,7 @@ import '../models/loop_mode.dart';
 import '../utils/wakelock_manager.dart';
 import '../utils/error_handler.dart';
 import '../utils/quality_utils.dart';
+import '../services/player_settings_service.dart';
 import '../main.dart' show audioHandler;
 
 class VideoPlayerController extends ChangeNotifier {
@@ -126,9 +127,6 @@ class VideoPlayerController extends ChangeNotifier {
   static const String _preferredQualityKey = 'preferred_video_quality_display_name';
   static const String _loopModeKey = 'video_loop_mode';
   static const String _backgroundPlayKey = 'background_play_enabled';
-  static const String _decodeModeKey = 'video_decode_mode';
-  static const String _expandBufferKey = 'video_expand_buffer';
-  static const String _audioOutputKey = 'video_audio_output';
 
   SharedPreferences? _prefs;
 
@@ -187,14 +185,11 @@ class VideoPlayerController extends ChangeNotifier {
 
   void _updateBufferedSecond() {
     final buffer = _player?.state.buffer.inSeconds ?? 0;
-    
+
     if (_supportsDash && _player != null) {
       _tryGetVideoBuffer().then((videoBuffer) {
-        if (videoBuffer > 0) {
-          _updateNotifierValue(bufferedSeconds, videoBuffer);
-          return;
-        }
-        _updateNotifierValue(bufferedSeconds, buffer);
+        if (_isDisposed) return;
+        _updateNotifierValue(bufferedSeconds, videoBuffer > 0 ? videoBuffer : buffer);
       });
     } else {
       _updateNotifierValue(bufferedSeconds, buffer);
@@ -379,9 +374,9 @@ class VideoPlayerController extends ChangeNotifier {
 
       final isNewPlayer = _player == null;
       if (isNewPlayer) {
-        final decodeMode = await getDecodeMode();
-        final expandBuffer = await getExpandBuffer();
-        final audioOutput = await getAudioOutput();
+        final decodeMode = await PlayerSettingsService.getDecodeMode();
+        final expandBuffer = await PlayerSettingsService.getExpandBuffer();
+        final audioOutput = await PlayerSettingsService.getAudioOutput();
         // 对齐 pili_plus：必须在 mpv_initialize 之前设置的选项通过 options 传入
         final opt = <String, String>{
           'video-sync': 'display-resample',
@@ -501,33 +496,36 @@ class VideoPlayerController extends ChangeNotifier {
     if (_player == null) return false;
     try {
       final raw = _player!.getProperty('video-out-params');
-      if (_hasValidVideoSize(raw)) return true;
+      if (hasValidVideoSize(raw)) return true;
       final fallback = _player!.getProperty('video-params');
-      return _hasValidVideoSize(fallback);
+      return hasValidVideoSize(fallback);
     } catch (_) {
       return false;
     }
   }
 
-  bool _hasValidVideoSize(String raw) {
+  @visibleForTesting
+  static bool hasValidVideoSize(String raw) {
     if (raw.isEmpty) return false;
-
     try {
-      final dynamic parsed = jsonDecode(raw);
+      final parsed = jsonDecode(raw);
       if (parsed is Map) {
-        final w = int.tryParse('${parsed['w'] ?? ''}') ?? 0;
-        final h = int.tryParse('${parsed['h'] ?? ''}') ?? 0;
-        if (w > 0 && h > 0) return true;
+        final w = (parsed['w'] as num?)?.toInt() ?? 0;
+        final h = (parsed['h'] as num?)?.toInt() ?? 0;
+        return w > 0 && h > 0;
       }
-    } catch (_) {
-      // 非 JSON 字符串时走正则兜底
-    }
+    } catch (_) {}
+    return false;
+  }
 
-    final wMatch = RegExp(r'(?:^|[\s,{])w(?:=|:)\s*"?(\d+)').firstMatch(raw);
-    final hMatch = RegExp(r'(?:^|[\s,{])h(?:=|:)\s*"?(\d+)').firstMatch(raw);
-    final w = int.tryParse(wMatch?.group(1) ?? '') ?? 0;
-    final h = int.tryParse(hMatch?.group(1) ?? '') ?? 0;
-    return w > 0 && h > 0;
+  /// 判断播放完成事件是否为真正的播放结束（非断网假完成）
+  /// [posMs] 当前播放位置（毫秒），[durMs] 视频总时长（毫秒）
+  /// 返回 true 表示真正播完，false 表示假完成（断网导致流中断）
+  @visibleForTesting
+  static bool isRealCompletion(int posMs, int durMs) {
+    if (durMs <= 0) return true; // 未获取到时长时默认为真完成
+    final progress = posMs / durMs;
+    return progress >= 0.9;
   }
 
   // ============ seek（统一封装）============
@@ -740,16 +738,13 @@ class VideoPlayerController extends ChangeNotifier {
         if (completed && !_hasTriggeredCompletion && !_isSeeking && !isSwitchingQuality.value) {
           // 断网假完成检测：HLS 加载不到后续 ts 分片时 mpv 会发出 completed=true，
           // 但实际并没有播放到结尾。用播放进度比例判断：超过 90% 视为真正结束。
-          // dur=0（未获取到时长）时不阻塞连播，默认为真完成。
           final pos = _player!.state.position;
           final dur = _player!.state.duration;
-          final progress = dur.inSeconds > 0
-              ? pos.inMilliseconds / dur.inMilliseconds
-              : 1.0; // dur=0 时默认为播完
-          final isRealEnd = progress >= 0.9;
+          final isRealEnd = isRealCompletion(pos.inMilliseconds, dur.inMilliseconds);
 
           if (!isRealEnd && pos.inSeconds > 0) {
             // 假完成（断网导致流中断）：不触发结束逻辑，改为重试
+            final progress = dur.inSeconds > 0 ? pos.inMilliseconds / dur.inMilliseconds : 1.0;
             _logger.logDebug('断网假完成检测: pos=${pos.inSeconds}s, dur=${dur.inSeconds}s, progress=${(progress * 100).toInt()}%, 尝试重试');
             _handleStalled();
             return;
@@ -792,8 +787,7 @@ class VideoPlayerController extends ChangeNotifier {
             position.inSeconds <= 1 &&
             _lastReportedPosition.inSeconds > 5) {
           final dur = _player?.state.duration ?? Duration.zero;
-          if (dur.inSeconds > 0 &&
-              _lastReportedPosition.inMilliseconds / dur.inMilliseconds > 0.9) {
+          if (isRealCompletion(_lastReportedPosition.inMilliseconds, dur.inMilliseconds) && dur.inSeconds > 0) {
             _logger.logDebug('loop-file 循环重播检测: 触发 onVideoEnd');
             _notifyVideoEndOnce();
           }
@@ -1042,62 +1036,6 @@ class VideoPlayerController extends ChangeNotifier {
   void setVideoContext({required int vid, int part = 1}) {
     _currentVid = vid;
     _currentPart = part;
-  }
-
-  static Future<String> getDecodeMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_decodeModeKey) ?? 'no';
-  }
-
-  static Future<void> setDecodeMode(String mode) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_decodeModeKey, mode);
-  }
-
-  /// 扩展缓冲：true=32MB，false=16MB（弱网可关闭以节省内存）
-  static Future<bool> getExpandBuffer() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_expandBufferKey) ?? true;
-  }
-
-  static Future<void> setExpandBuffer(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_expandBufferKey, value);
-  }
-
-  /// 音频输出后端（仅 Android）：audiotrack/aaudio/opensles
-  static Future<String> getAudioOutput() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_audioOutputKey) ?? 'audiotrack';
-  }
-
-  static Future<void> setAudioOutput(String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_audioOutputKey, value);
-  }
-
-  static String getAudioOutputDisplayName(String value) {
-    switch (value) {
-      case 'audiotrack':
-        return 'AudioTrack';
-      case 'aaudio':
-        return 'AAudio';
-      case 'opensles':
-        return 'OpenSL ES';
-      default:
-        return value;
-    }
-  }
-
-  static String getDecodeModeDisplayName(String mode) {
-    switch (mode) {
-      case 'no':
-        return '软解码';
-      case 'auto-copy':
-        return '硬解码';
-      default:
-        return '软解码';
-    }
   }
 
   String getQualityDisplayName(String quality) {

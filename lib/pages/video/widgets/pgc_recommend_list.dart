@@ -4,6 +4,7 @@ import '../../../services/pgc_api_service.dart';
 import '../../../services/logger_service.dart';
 import '../../../theme/theme_extensions.dart';
 import '../../../widgets/cached_image_widget.dart';
+import 'auto_play_source.dart';
 
 class PgcRecommendList extends StatefulWidget {
   final int vid;
@@ -19,7 +20,7 @@ class PgcRecommendList extends StatefulWidget {
   State<PgcRecommendList> createState() => PgcRecommendListState();
 }
 
-class PgcRecommendListState extends State<PgcRecommendList> {
+class PgcRecommendListState extends State<PgcRecommendList> with AutoPlaySource {
   bool _loading = true;
   List<PgcItem> _list = [];
 
@@ -61,6 +62,7 @@ class PgcRecommendListState extends State<PgcRecommendList> {
   }
 
   // 推荐区不参与自动连播：只保留一个开关（放在正片列表里）
+  @override
   int? getNextVideo() => null;
 
   @override

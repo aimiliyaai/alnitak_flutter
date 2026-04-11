@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/video_service.dart';
+import 'auto_play_source.dart';
 import '../../../utils/image_utils.dart';
 import '../../../widgets/cached_image_widget.dart';
 
@@ -19,7 +20,7 @@ class RecommendList extends StatefulWidget {
   State<RecommendList> createState() => RecommendListState();
 }
 
-class RecommendListState extends State<RecommendList> {
+class RecommendListState extends State<RecommendList> with AutoPlaySource {
   final VideoService _videoService = VideoService();
   List<Map<String, dynamic>> _recommendVideos = [];
   bool _isLoading = true;
@@ -101,7 +102,7 @@ class RecommendListState extends State<RecommendList> {
     _saveSettings();
   }
 
-  /// 获取下一个视频
+  @override
   int? getNextVideo() {
     if (!_autoNext || _recommendVideos.isEmpty) return null;
     // _currentPlayIndex 为 -1 表示还没开始播放推荐视频，此时返回第一个

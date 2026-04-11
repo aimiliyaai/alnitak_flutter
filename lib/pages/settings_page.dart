@@ -11,7 +11,7 @@ import '../services/auth_service.dart';
 import '../services/cache_service.dart';
 import '../services/theme_service.dart';
 import '../services/logger_service.dart';
-import '../controllers/video_player_controller.dart';
+import '../services/player_settings_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_colors.dart';
 import '../widgets/cached_image_widget.dart';
@@ -206,7 +206,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 加载解码模式设置
   Future<void> _loadDecodeModeSetting() async {
-    final mode = await VideoPlayerController.getDecodeMode();
+    final mode = await PlayerSettingsService.getDecodeMode();
     if (mounted) {
       setState(() {
         _decodeMode = mode;
@@ -216,7 +216,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存解码模式设置
   Future<void> _saveDecodeModeSetting(String mode) async {
-    await VideoPlayerController.setDecodeMode(mode);
+    await PlayerSettingsService.setDecodeMode(mode);
     setState(() {
       _decodeMode = mode;
     });
@@ -233,7 +233,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 加载扩展缓冲设置
   Future<void> _loadExpandBufferSetting() async {
-    final value = await VideoPlayerController.getExpandBuffer();
+    final value = await PlayerSettingsService.getExpandBuffer();
     if (mounted) {
       setState(() {
         _expandBuffer = value;
@@ -243,7 +243,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存扩展缓冲设置
   Future<void> _saveExpandBufferSetting(bool value) async {
-    await VideoPlayerController.setExpandBuffer(value);
+    await PlayerSettingsService.setExpandBuffer(value);
     setState(() {
       _expandBuffer = value;
     });
@@ -259,7 +259,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 加载音频输出设置
   Future<void> _loadAudioOutputSetting() async {
-    final value = await VideoPlayerController.getAudioOutput();
+    final value = await PlayerSettingsService.getAudioOutput();
     if (mounted) {
       setState(() {
         _audioOutput = value;
@@ -269,7 +269,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   /// 保存音频输出设置
   Future<void> _saveAudioOutputSetting(String value) async {
-    await VideoPlayerController.setAudioOutput(value);
+    await PlayerSettingsService.setAudioOutput(value);
     setState(() {
       _audioOutput = value;
     });
@@ -702,7 +702,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildTappableTile(
               icon: Icons.memory_outlined,
               title: '解码模式',
-              value: VideoPlayerController.getDecodeModeDisplayName(_decodeMode),
+              value: PlayerSettingsService.getDecodeModeDisplayName(_decodeMode),
               onTap: _showDecodeModeDialog,
               colors: colors,
             ),
@@ -720,7 +720,7 @@ class _SettingsPageState extends State<SettingsPage> {
               _buildTappableTile(
                 icon: Icons.volume_up_outlined,
                 title: '音频输出',
-                value: VideoPlayerController.getAudioOutputDisplayName(_audioOutput),
+                value: PlayerSettingsService.getAudioOutputDisplayName(_audioOutput),
                 onTap: _showAudioOutputDialog,
                 colors: colors,
               ),

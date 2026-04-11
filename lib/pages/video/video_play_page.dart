@@ -68,6 +68,11 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
     _controller.addListener(_onControllerChanged);
     _controller.init(_resolvedVideoRef, initialPart: widget.initialPart);
     WidgetsBinding.instance.addObserver(this);
+
+    LoggerService.instance.reportEvent(
+      '进入播放页',
+      {'videoRef': _resolvedVideoRef, 'pgcMode': _isPGCMode, 'epId': widget.epId, 'initialPart': widget.initialPart},
+    );
   }
 
   void _onControllerChanged() {

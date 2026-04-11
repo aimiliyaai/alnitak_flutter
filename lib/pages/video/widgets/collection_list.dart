@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/playlist.dart';
 import '../../../services/playlist_api_service.dart';
 import '../../../theme/theme_extensions.dart';
+import 'auto_play_source.dart';
 
 /// 合集列表组件（样式与 PartList 一致）
 class CollectionList extends StatefulWidget {
@@ -23,7 +24,7 @@ class CollectionList extends StatefulWidget {
   State<CollectionList> createState() => CollectionListState();
 }
 
-class CollectionListState extends State<CollectionList> {
+class CollectionListState extends State<CollectionList> with AutoPlaySource {
   final PlaylistApiService _playlistApi = PlaylistApiService();
 
   bool _showTitleMode = true;
@@ -167,6 +168,7 @@ class CollectionListState extends State<CollectionList> {
   }
 
   /// 获取下一个分P（仅分P类型有效）
+  @override
   int? getNextPart() {
     if (!_autoNext || _listType != 'parts') return null;
     if (widget.currentPart < _displayList.length) {
@@ -176,6 +178,7 @@ class CollectionListState extends State<CollectionList> {
   }
 
   /// 获取下一个视频（仅合集类型有效）
+  @override
   int? getNextVideo() {
     if (!_autoNext || _listType != 'collection') return null;
     final idx = _videoList.indexWhere((v) => v.vid == widget.vid);

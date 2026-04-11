@@ -10,6 +10,7 @@ import '../../controllers/video_player_controller.dart';
 import '../../controllers/danmaku_controller.dart';
 import '../../utils/auth_state_manager.dart';
 import 'progress_tracker.dart';
+import 'widgets/auto_play_source.dart';
 
 /// 视频播放页面业务逻辑控制器
 ///
@@ -26,7 +27,8 @@ class VideoPageController extends ChangeNotifier {
   final ProgressTracker progressTracker = ProgressTracker();
   final AuthStateManager _authStateManager = AuthStateManager();
   final DanmakuController danmakuController = DanmakuController();
-  final OnlineWebSocketService onlineWebSocketService = OnlineWebSocketService();
+  final OnlineWebSocketService onlineWebSocketService =
+      OnlineWebSocketService();
   final ValueNotifier<int> danmakuCountNotifier = ValueNotifier<int>(0);
 
   // ============ 状态 ============
@@ -70,8 +72,9 @@ class VideoPageController extends ChangeNotifier {
 
   int _nextPageRequestToken() => ++_pageRequestToken;
 
-  bool _isActiveRequest(int token) {
+  bool _isActiveRequest(int token, {int? expectedVid}) {
     if (_disposed || token != _pageRequestToken) return false;
+    if (expectedVid != null && currentVid != expectedVid) return false;
     return true;
   }
 
@@ -84,6 +87,11 @@ class VideoPageController extends ChangeNotifier {
     currentPart = initialPart ?? 1;
     danmakuController.addListener(_onDanmakuChanged);
     _authStateManager.addListener(_onAuthStateChanged);
+    
+    LoggerService.instance.reportEvent(
+      'VideoPageController初始化',
+      {'videoRef': videoRef, 'initialPart': initialPart},
+    );
     loadVideoData();
   }
 
@@ -117,15 +125,17 @@ class VideoPageController extends ChangeNotifier {
 
   Future<void> loadVideoData({int? part}) async {
     final requestToken = _nextPageRequestToken();
-    final vidQuery = (_bootstrapVideoRef != null && _bootstrapVideoRef!.isNotEmpty)
-        ? _bootstrapVideoRef!
-        : currentVid.toString();
+    final vidQuery =
+        (_bootstrapVideoRef != null && _bootstrapVideoRef!.isNotEmpty)
+            ? _bootstrapVideoRef!
+            : currentVid.toString();
     isLoading = true;
     errorMessage = null;
     notifyListeners();
 
     try {
       final detail = await _videoService.getVideoDetail(vidQuery);
+      // 首次加载时 currentVid=0，不能用 expectedVid 校验（会误判为过期请求）
       if (!_isActiveRequest(requestToken)) return;
 
       if (detail == null) {
@@ -140,12 +150,25 @@ class VideoPageController extends ChangeNotifier {
       currentVid = detail.vid;
       currentPart = part ?? 1;
       videoStat = VideoStat(like: 0, collect: 0, share: 0);
-      actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
+      actionStatus = UserActionStatus(
+          hasLiked: false, hasCollected: false, relationStatus: 0);
       isLoading = false;
       notifyListeners();
 
-      _fetchProgressAndRestore(part: part, requestToken: requestToken, requestVid: detail.vid);
-      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: detail.vid);
+      LoggerService.instance.reportEvent(
+        '视频数据加载成功',
+        {'vid': detail.vid, 'title': detail.title, 'part': currentPart, 'author': detail.author.name},
+      );
+
+      _fetchProgressAndRestore(
+          part: part,
+          requestToken: requestToken,
+          requestVid: detail.vid,
+          expectedVid: detail.vid);
+      _loadSecondaryData(detail.author.uid,
+          requestToken: requestToken,
+          requestVid: detail.vid,
+          expectedVid: detail.vid);
       onlineWebSocketService.connect(detail.vid);
     } catch (e) {
       if (!_isActiveRequest(requestToken)) return;
@@ -160,7 +183,8 @@ class VideoPageController extends ChangeNotifier {
   /// 根据历史进度数据计算调整后的播放位置
   /// 返回 (targetPart, adjustedPosition)
   @visibleForTesting
-  static (int, double?) resolveProgress(dynamic progressData, int fallbackPart) {
+  static (int, double?) resolveProgress(
+      dynamic progressData, int fallbackPart) {
     if (progressData == null) return (fallbackPart, null);
 
     final progress = progressData.progress as double;
@@ -178,15 +202,20 @@ class VideoPageController extends ChangeNotifier {
     return (part, adjustedProgress);
   }
 
-  Future<void> _fetchProgressAndRestore({int? part, required int requestToken, required int requestVid}) async {
+  Future<void> _fetchProgressAndRestore(
+      {int? part,
+      required int requestToken,
+      required int requestVid,
+      required int expectedVid}) async {
     try {
-      final progressData = await _historyService.getProgress(vid: requestVid, part: part);
-      if (!_isActiveRequest(requestToken)) return;
+      final progressData =
+          await _historyService.getProgress(vid: requestVid, part: part);
+      if (!_isActiveRequest(requestToken, expectedVid: expectedVid)) return;
 
       final (targetPart, position) = resolveProgress(progressData, part ?? 1);
       _startPlayback(targetPart, position);
     } catch (e) {
-      if (!_isActiveRequest(requestToken)) return;
+      if (!_isActiveRequest(requestToken, expectedVid: expectedVid)) return;
       _startPlayback(part ?? 1, null);
     }
   }
@@ -207,18 +236,30 @@ class VideoPageController extends ChangeNotifier {
     notifyListeners();
 
     danmakuController.loadDanmaku(vid: currentVid, part: part);
+
+    LoggerService.instance.reportEvent(
+      '开始播放',
+      {'vid': currentVid, 'part': part, 'position': position, 'resourceId': currentResource.id},
+    );
   }
 
   // ============ 次要数据 ============
 
-  Future<void> _loadSecondaryData(int authorUid, {required int requestToken, required int requestVid}) async {
+  Future<void> _loadSecondaryData(int authorUid,
+      {required int requestToken,
+      required int requestVid,
+      int? expectedVid}) async {
     final futures = await Future.wait([
       _videoService.getVideoStat(requestVid).catchError((e) => null),
-      _videoService.getComments(vid: requestVid, page: 1, pageSize: 1).catchError((e) => null),
-      _videoService.getUserActionStatus(requestVid, authorUid).catchError((e) => null),
+      _videoService
+          .getComments(vid: requestVid, page: 1, pageSize: 1)
+          .catchError((e) => null),
+      _videoService
+          .getUserActionStatus(requestVid, authorUid)
+          .catchError((e) => null),
     ]);
 
-    if (!_isActiveRequest(requestToken)) return;
+    if (!_isActiveRequest(requestToken, expectedVid: expectedVid)) return;
 
     final stat = futures[0] as VideoStat?;
     final commentResponse = futures[1] as CommentListResponse?;
@@ -227,7 +268,9 @@ class VideoPageController extends ChangeNotifier {
     if (stat != null) videoStat = stat;
     if (commentResponse != null) {
       totalComments = commentResponse.total;
-      latestComment = commentResponse.comments.isNotEmpty ? commentResponse.comments.first : null;
+      latestComment = commentResponse.comments.isNotEmpty
+          ? commentResponse.comments.first
+          : null;
     }
     if (action != null) actionStatus = action;
     notifyListeners();
@@ -237,11 +280,14 @@ class VideoPageController extends ChangeNotifier {
     if (currentVid == 0) return;
     final requestVid = currentVid;
     try {
-      final commentResponse = await _videoService.getComments(vid: requestVid, page: 1, pageSize: 1);
+      final commentResponse = await _videoService.getComments(
+          vid: requestVid, page: 1, pageSize: 1);
       if (_disposed || currentVid != requestVid) return;
       if (commentResponse != null) {
         totalComments = commentResponse.total;
-        latestComment = commentResponse.comments.isNotEmpty ? commentResponse.comments.first : null;
+        latestComment = commentResponse.comments.isNotEmpty
+            ? commentResponse.comments.first
+            : null;
         notifyListeners();
       }
     } catch (_) {}
@@ -263,19 +309,22 @@ class VideoPageController extends ChangeNotifier {
   Future<void> refreshUserActionStatus() async {
     if (videoDetail == null || currentVid == 0) return;
     try {
-      final status = await _videoService.getUserActionStatus(currentVid, videoDetail!.author.uid);
+      final status = await _videoService.getUserActionStatus(
+          currentVid, videoDetail!.author.uid);
       if (status != null && !_disposed) {
         actionStatus = status;
         notifyListeners();
       }
     } catch (e) {
-      LoggerService.instance.logWarning('刷新用户操作状态失败: $e', tag: 'VideoPageController');
+      LoggerService.instance
+          .logWarning('刷新用户操作状态失败: $e', tag: 'VideoPageController');
     }
   }
 
   // ============ 分P切换 ============
 
-  Future<void> changePart(int part, {VoidCallback? onInvalidPart, VoidCallback? onComplete}) async {
+  Future<void> changePart(int part,
+      {VoidCallback? onInvalidPart, VoidCallback? onComplete}) async {
     if (videoDetail == null || part == currentPart) return;
     if (part < 1 || part > videoDetail!.resources.length) {
       onInvalidPart?.call();
@@ -288,7 +337,8 @@ class VideoPageController extends ChangeNotifier {
     progressTracker.unlock();
     await progressTracker.saveBeforeSwitch(currentVid, oldPart);
 
-    final progressData = await _historyService.getProgress(vid: currentVid, part: part);
+    final progressData =
+        await _historyService.getProgress(vid: currentVid, part: part);
     if (_disposed || requestToken != _changePartToken) return;
 
     var progress = progressData?.progress;
@@ -312,7 +362,8 @@ class VideoPageController extends ChangeNotifier {
 
   // ============ 视频切换（无缝） ============
 
-  Future<void> switchToVideo(int vid, {int? part, VoidCallback? onComplete}) async {
+  Future<void> switchToVideo(int vid,
+      {int? part, VoidCallback? onComplete}) async {
     if (vid == currentVid || _isSwitchingVideo) return;
     _isSwitchingVideo = true;
 
@@ -328,7 +379,8 @@ class VideoPageController extends ChangeNotifier {
       progressTracker.reset();
       currentPart = 1;
       videoStat = VideoStat(like: 0, collect: 0, share: 0);
-      actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
+      actionStatus = UserActionStatus(
+          hasLiked: false, hasCollected: false, relationStatus: 0);
       totalComments = 0;
       latestComment = null;
       notifyListeners();
@@ -347,7 +399,7 @@ class VideoPageController extends ChangeNotifier {
 
     try {
       final detail = await _videoService.getVideoDetail(targetVid.toString());
-      if (!_isActiveRequest(requestToken)) return;
+      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
 
       if (detail == null) {
         errorMessage = '视频不存在或已被删除';
@@ -359,14 +411,18 @@ class VideoPageController extends ChangeNotifier {
       currentVid = detail.vid;
       currentPart = 1;
       videoStat = VideoStat(like: 0, collect: 0, share: 0);
-      actionStatus = UserActionStatus(hasLiked: false, hasCollected: false, relationStatus: 0);
+      actionStatus = UserActionStatus(
+          hasLiked: false, hasCollected: false, relationStatus: 0);
       totalComments = 0;
       latestComment = null;
       errorMessage = null;
       notifyListeners();
 
       onlineWebSocketService.connect(detail.vid);
-      _loadSecondaryData(detail.author.uid, requestToken: requestToken, requestVid: detail.vid);
+      _loadSecondaryData(detail.author.uid,
+          requestToken: requestToken,
+          requestVid: detail.vid,
+          expectedVid: detail.vid);
       _fetchProgressAndRestoreSeamless(
         targetVid: detail.vid,
         videoDetail: detail,
@@ -384,18 +440,19 @@ class VideoPageController extends ChangeNotifier {
   }) async {
     try {
       if (targetPart != null) {
-        if (!_isActiveRequest(requestToken)) return;
+        if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
         _startPlaybackSeamless(videoDetail, targetPart, null);
         return;
       }
 
-      final progressData = await _historyService.getProgress(vid: targetVid, part: null);
-      if (!_isActiveRequest(requestToken)) return;
+      final progressData =
+          await _historyService.getProgress(vid: targetVid, part: null);
+      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
 
       final (part, position) = resolveProgress(progressData, 1);
       _startPlaybackSeamless(videoDetail, part, position);
     } catch (e) {
-      if (!_isActiveRequest(requestToken)) return;
+      if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
       _startPlaybackSeamless(videoDetail, targetPart ?? 1, null);
     }
   }
@@ -433,26 +490,32 @@ class VideoPageController extends ChangeNotifier {
   }
 
   void onVideoEnded() {
-    final shouldAutoPlay = progressTracker.onVideoEnded(currentVid, currentPart, playerController);
+    final shouldAutoPlay =
+        progressTracker.onVideoEnded(currentVid, currentPart, playerController);
     if (!shouldAutoPlay) return;
 
     // 自动连播：分P → 合集 → 推荐
+    final collectionSource =
+        _collectionListKey?.currentState as AutoPlaySource?;
+    final recommendSource =
+        _recommendListKey?.currentState as AutoPlaySource?;
+
     // 1. 分P连播（CollectionList 在分P模式下提供 getNextPart）
-    final nextPart = (_collectionListKey?.currentState as dynamic)?.getNextPart() as int?;
+    final nextPart = collectionSource?.getNextPart();
     if (nextPart != null) {
       changePart(nextPart);
       return;
     }
 
     // 2. 合集连播
-    final nextCollectionVideo = (_collectionListKey?.currentState as dynamic)?.getNextVideo() as int?;
+    final nextCollectionVideo = collectionSource?.getNextVideo();
     if (nextCollectionVideo != null) {
       switchToVideo(nextCollectionVideo);
       return;
     }
 
     // 3. 推荐连播
-    final nextVideo = (_recommendListKey?.currentState as dynamic)?.getNextVideo() as int?;
+    final nextVideo = recommendSource?.getNextVideo();
     if (nextVideo != null) {
       switchToVideo(nextVideo);
       return;
