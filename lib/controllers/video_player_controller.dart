@@ -198,7 +198,7 @@ class VideoPlayerController extends ChangeNotifier {
 
   Future<int> _tryGetVideoBuffer() async {
     try {
-      final cacheStr = _player!.getProperty('demuxer-cache-state');
+      final cacheStr = await _player!.getProperty('demuxer-cache-state');
       if (cacheStr.isEmpty) return 0;
       final videoRangeMatch = RegExp(r'video\[(\d+)\]:(\d+)-(\d+)').firstMatch(cacheStr);
       if (videoRangeMatch != null) {
@@ -413,7 +413,7 @@ class VideoPlayerController extends ChangeNotifier {
           referer: ApiConfig.baseUrl,
         );
 
-        _videoController = await VideoController.create(
+        _videoController = VideoController(
           _player!,
           configuration: VideoControllerConfiguration(
             enableHardwareAcceleration: decodeMode != 'no',
@@ -474,7 +474,7 @@ class VideoPlayerController extends ChangeNotifier {
 
     while (_isSessionActive(sessionId) &&
         stopwatch.elapsedMilliseconds < _startupReadyTimeoutMs) {
-      final hasVideoParams = _hasVideoOutputParams();
+      final hasVideoParams = await _hasVideoOutputParams();
       final videoBuffer = await _tryGetVideoBuffer();
       final demuxerBufferMs = _player?.state.buffer.inMilliseconds ?? 0;
 
@@ -492,12 +492,12 @@ class VideoPlayerController extends ChangeNotifier {
     );
   }
 
-  bool _hasVideoOutputParams() {
+  Future<bool> _hasVideoOutputParams() async {
     if (_player == null) return false;
     try {
-      final raw = _player!.getProperty('video-out-params');
+      final raw = await _player!.getProperty('video-out-params');
       if (hasValidVideoSize(raw)) return true;
-      final fallback = _player!.getProperty('video-params');
+      final fallback = await _player!.getProperty('video-params');
       return hasValidVideoSize(fallback);
     } catch (_) {
       return false;
@@ -1182,9 +1182,9 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _logPtsState() async {
     if (_player == null) return;
     try {
-      final videoPtsStr = _player!.getProperty('video-pts');
-      final audioPtsStr = _player!.getProperty('audio-pts');
-      final avsyncStr = _player!.getProperty('avsync');
+      final videoPtsStr = await _player!.getProperty('video-pts');
+      final audioPtsStr = await _player!.getProperty('audio-pts');
+      final avsyncStr = await _player!.getProperty('avsync');
       final videoPts = double.tryParse(videoPtsStr) ?? 0;
       final audioPts = double.tryParse(audioPtsStr) ?? 0;
       final avsync = double.tryParse(avsyncStr) ?? 0;

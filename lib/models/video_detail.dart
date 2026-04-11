@@ -56,9 +56,11 @@ class VideoDetail {
       clicks: jsonAsInt(json['clicks']),
       copyright: json['copyright'] ?? false,
       duration: (json['duration'] ?? 0).toDouble(),
-      author: UserInfo.fromJson(
-        Map<String, dynamic>.from(json['author'] as Map? ?? {}),
-      ),
+      author: UserInfo.fromJson({
+        ...Map<String, dynamic>.from(json['author'] as Map? ?? {}),
+        // 后端 fans 在 VideoResp 顶层，不在 author 内，需注入
+        if (json['fans'] != null) 'fans': json['fans'],
+      }),
       resources: (json['resources'] as List<dynamic>?)
               ?.map((e) => VideoResource.fromJson(
                     Map<String, dynamic>.from(e as Map),

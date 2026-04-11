@@ -77,37 +77,11 @@ dependencies:
   # HTML 渲染
   flutter_widget_from_html: ^0.17.0
 dependency_overrides:
-  # 使用 pili_plus 的第三方 fork（支持 PlayerConfiguration.options，用于 ao/video-sync/autosync 等初始化前配置）
+  # 使用自己的 fork（基于官方最新，添加 options/setProperty/getProperty/setMediaHeader）
   media_kit:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: media_kit
-      ref: version_1.2.5
+    path: E:/media-kit/media_kit
   media_kit_video:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: media_kit_video
-      ref: version_1.2.5
-  media_kit_libs_video:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: libs/universal/media_kit_libs_video
-      ref: version_1.2.5
-  media_kit_native_event_loop:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: media_kit_native_event_loop
-      ref: version_1.2.5
-  media_kit_libs_android_video:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: libs/android/media_kit_libs_android_video
-      ref: version_1.2.5
-  media_kit_libs_windows_video:
-    git:
-      url: https://github.com/My-Responsitories/media-kit.git
-      path: libs/windows/media_kit_libs_windows_video
-      ref: version_1.2.5
+    path: E:/media-kit/media_kit_video
   # 传递依赖拉齐到最新，消除 pub get 提示（win32 6.x 需 Dart 3.11+ 故不覆盖）
   characters: ^1.4.1
   matcher: ^0.12.19

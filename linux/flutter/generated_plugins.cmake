@@ -5,7 +5,6 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   emoji_picker_flutter
   file_selector_linux
-  flutter_volume_controller
   media_kit_libs_linux
   media_kit_video
   url_launcher_linux

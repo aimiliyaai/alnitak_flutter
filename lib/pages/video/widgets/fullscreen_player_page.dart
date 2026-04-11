@@ -36,8 +36,8 @@ class _FullscreenPlayerPageState extends State<FullscreenPlayerPage> {
     // 若进入时尚未拿到视频尺寸，延迟再试一次（首帧解码后会有 width/height）
     _orientationUpdateTimer = Timer(const Duration(milliseconds: 800), () {
       if (!mounted) return;
-      final w = widget.controller.player.state.width;
-      final h = widget.controller.player.state.height;
+      final w = widget.controller.player.state.width ?? 0;
+      final h = widget.controller.player.state.height ?? 0;
       if (w > 0 && h > 0) _setFullscreenUI(true);
     });
   }
@@ -53,8 +53,8 @@ class _FullscreenPlayerPageState extends State<FullscreenPlayerPage> {
   void _setFullscreenUI(bool fullscreen) {
     if (fullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      final w = widget.controller.player.state.width;
-      final h = widget.controller.player.state.height;
+      final w = widget.controller.player.state.width ?? 0;
+      final h = widget.controller.player.state.height ?? 0;
       if (w > 0 && h > 0) {
         if (w >= h) {
           // 横屏或方形视频 → 仅允许横屏
