@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.7'
+          channel: stable
+          cache: true
+
+      # media-kit fork 是本地路径依赖，CI 中需要 clone 到对应位置
+      - name: Clone media-kit fork
+        run: |
+          git clone --depth 1 https://github.com/aimiliyaai/media-kit.git /home/runner/media-kit
+
+      # 将 pubspec.yaml 中的本地路径替换为 CI 环境路径
+      - name: Patch dependency paths for CI
+        run: |
+          sed -i 's|path: E:/media-kit/media_kit|path: /home/runner/media-kit/media_kit|' pubspec.yaml
+          sed -i 's|path: E:/media-kit/media_kit_video|path: /home/runner/media-kit/media_kit_video|' pubspec.yaml
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test (unit tests)
+        run: |
+          flutter test \
+            test/error_handler_test.dart \
+            test/history_models_test.dart \
+            test/progress_tracker_test.dart \
+            test/resolve_progress_test.dart \
+            test/video_player_controller_test.dart \
+            test/video_route_test.dart
