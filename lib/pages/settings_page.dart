@@ -113,7 +113,9 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final alreadyIgnoring = await _batteryChannel.invokeMethod('isIgnoringBatteryOptimizations') as bool?;
       if (alreadyIgnoring == true) return true;
-    } catch (_) {}
+    } catch (_) {
+      // 平台不支持时跳过电池优化检查
+    }
 
     if (!mounted) return false;
 

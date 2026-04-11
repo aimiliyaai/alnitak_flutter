@@ -128,7 +128,9 @@ class ProgressTracker {
     if (duration <= 0 && playerController != null) {
       try {
         duration = playerController.player.state.duration.inSeconds.toDouble();
-      } catch (_) {}
+      } catch (_) {
+        // player 已销毁时读取 state 可能抛异常，静默降级
+      }
     }
     if (duration <= 0) return;
 
@@ -140,7 +142,9 @@ class ProgressTracker {
         if (currentPosition.inSeconds > 0) {
           progressToSave = currentPosition.inSeconds.toDouble();
         }
-      } catch (_) {}
+      } catch (_) {
+        // player 已销毁时读取 state 可能抛异常，使用 fallback
+      }
     }
     progressToSave ??= lastReportedPosition?.inSeconds.toDouble();
 

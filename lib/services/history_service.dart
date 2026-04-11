@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/http_client.dart';
 import '../utils/token_manager.dart';
@@ -100,7 +100,7 @@ class HistoryService {
           return null;
         }
       } catch (e) {
-        if (kDebugMode) debugPrint('获取播放进度异常 (#$attempt/$maxRetries): $e');
+        LoggerService.instance.logWarning('获取播放进度异常 (#$attempt/$maxRetries): $e', tag: 'HistoryService');
       }
 
       if (attempt < maxRetries) {
@@ -181,10 +181,10 @@ class HistoryService {
         return true;
       }
 
-      if (kDebugMode) debugPrint('保存历史记录失败: code=$code');
+      LoggerService.instance.logWarning('保存历史记录失败: code=$code', tag: 'HistoryService');
       return false;
     } catch (e) {
-      if (kDebugMode) debugPrint('保存历史记录异常: $e');
+      LoggerService.instance.logWarning('保存历史记录异常: $e', tag: 'HistoryService');
       return false;
     }
   }
@@ -256,7 +256,7 @@ class HistoryService {
 
       return null;
     } catch (e) {
-      if (kDebugMode) debugPrint('获取历史记录异常: $e');
+      LoggerService.instance.logWarning('获取历史记录异常: $e', tag: 'HistoryService');
       return null;
     }
   }

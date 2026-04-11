@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'logger_service.dart';
 
 /// 播放器缓存清理服务
 class CacheService {
@@ -29,14 +30,18 @@ class CacheService {
             if (file is File) {
               try {
                 await file.delete();
-              } catch (_) {}
+              } catch (e) {
+                LoggerService.instance.logWarning('缓存文件删除失败: ${file.path}: $e', tag: 'CacheService');
+              }
             }
           }
           try {
             if (dir.listSync().isEmpty) {
               await dir.delete();
             }
-          } catch (_) {}
+          } catch (e) {
+            LoggerService.instance.logWarning('缓存目录删除失败: ${dir.path}: $e', tag: 'CacheService');
+          }
         }
       }
 
@@ -48,12 +53,18 @@ class CacheService {
             if (shouldDeleteTempFile(entity.path)) {
               try {
                 await entity.delete();
-              } catch (_) {}
+              } catch (e) {
+                LoggerService.instance.logWarning('临时文件删除失败: ${entity.path}: $e', tag: 'CacheService');
+              }
             }
           }
         }
-      } catch (_) {}
-    } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('遍历临时目录失败: $e', tag: 'CacheService');
+      }
+    } catch (e) {
+      LoggerService.instance.logWarning('清理缓存失败: $e', tag: 'CacheService');
+    }
   }
 
   /// 清理所有缓存

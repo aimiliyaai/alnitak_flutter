@@ -28,7 +28,9 @@ class SmartCacheManager extends CacheManager with ImageCacheManager {
   static Future<void> preloadImage(String url) async {
     try {
       await _instance.getSingleFile(url, key: getStableCacheKey(url));
-    } catch (_) {}
+    } catch (_) {
+      // 预加载失败不影响功能，图片会在显示时重新加载
+    }
   }
 
   /// 批量预加载图片

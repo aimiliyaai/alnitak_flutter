@@ -290,7 +290,9 @@ class VideoPageController extends ChangeNotifier {
             : null;
         notifyListeners();
       }
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('获取最新评论失败: $e', tag: 'VideoPageCtrl');
+    }
   }
 
   Future<void> _refreshAuthorInfo() async {
@@ -303,7 +305,9 @@ class VideoPageController extends ChangeNotifier {
         videoDetail = detail;
         notifyListeners();
       }
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('刷新作者信息失败: $e', tag: 'VideoPageCtrl');
+    }
   }
 
   Future<void> refreshUserActionStatus() async {
@@ -429,7 +433,9 @@ class VideoPageController extends ChangeNotifier {
         targetPart: targetPart,
         requestToken: requestToken,
       );
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('自动播放下一个失败: $e', tag: 'VideoPageCtrl');
+    }
   }
 
   Future<void> _fetchProgressAndRestoreSeamless({

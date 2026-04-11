@@ -1,12 +1,13 @@
 import 'dart:async' show StreamSubscription, Timer;
 import 'dart:convert';
 import 'dart:io' show WebSocket;
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
+import 'logger_service.dart';
 
 /// 在线人数 WebSocket 服务
 class OnlineWebSocketService {
@@ -74,9 +75,6 @@ class OnlineWebSocketService {
       final clientId = await _getClientId();
       final url = _buildUrl(_currentVid!, clientId);
 
-      if (kDebugMode) {
-      }
-
       // 使用 IOWebSocketChannel 以获得更好的移动平台支持
       // 先建立原生 WebSocket 连接，然后包装为 channel
       final webSocket = await WebSocket.connect(url).timeout(
@@ -85,9 +83,6 @@ class OnlineWebSocketService {
           throw Exception('WebSocket 连接超时');
         },
       );
-
-      if (kDebugMode) {
-      }
 
       // 连接建立后检查是否已被取消
       if (_isManualClose || _currentVid == null) {
@@ -100,9 +95,6 @@ class OnlineWebSocketService {
       _lastMessageTime = DateTime.now();
       _reconnectAttempts = 0;
 
-      if (kDebugMode) {
-      }
-
       _subscription = _channel!.stream.listen(
         _onMessage,
         onError: _onError,
@@ -110,43 +102,31 @@ class OnlineWebSocketService {
       );
 
       _startHeartbeat();
-
-      if (kDebugMode) {
-      }
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('WebSocket 连接失败: $e', tag: 'OnlineWebSocket');
       _scheduleReconnect();
     }
   }
 
   void _onMessage(dynamic data) {
     _lastMessageTime = DateTime.now();
-    if (kDebugMode) {
-    }
     try {
       final json = jsonDecode(data as String);
       // 后端返回 {"number": N}
       if (json['number'] != null) {
         final count = json['number'] as int;
         onlineCount.value = count;
-        if (kDebugMode) {
-        }
       }
     } catch (e) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('WebSocket 消息解析失败: $e', tag: 'OnlineWebSocket');
     }
   }
 
   void _onError(dynamic error) {
-    if (kDebugMode) {
-    }
+    LoggerService.instance.logWarning('WebSocket 错误: $error', tag: 'OnlineWebSocket');
   }
 
   void _onDone() {
-    if (kDebugMode) {
-    }
     _channel = null;
     _stopHeartbeat();
 
@@ -160,8 +140,6 @@ class OnlineWebSocketService {
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_lastMessageTime != null &&
           DateTime.now().difference(_lastMessageTime!).inSeconds > 45) {
-        if (kDebugMode) {
-        }
         _channel?.sink.close();
       }
     });
@@ -175,8 +153,7 @@ class OnlineWebSocketService {
   void _scheduleReconnect() {
     if (_isManualClose || _isPaused || _currentVid == null) return;
     if (_reconnectAttempts >= _maxReconnectAttempts) {
-      if (kDebugMode) {
-      }
+      LoggerService.instance.logWarning('WebSocket 重连次数已达上限', tag: 'OnlineWebSocket');
       return;
     }
 
@@ -185,9 +162,6 @@ class OnlineWebSocketService {
     final delay = Duration(
       milliseconds: (1000 * _reconnectAttempts).clamp(1000, 10000),
     );
-
-    if (kDebugMode) {
-    }
 
     _reconnectTimer = Timer(delay, () {
       if (!_isManualClose && _currentVid != null) {
@@ -213,8 +187,6 @@ class OnlineWebSocketService {
     if (_isPaused) return;
     _isPaused = true;
     _cleanup();
-    if (kDebugMode) {
-    }
   }
 
   /// 前台恢复：重新连接之前的 vid
@@ -224,8 +196,6 @@ class OnlineWebSocketService {
     if (_currentVid != null && !_isManualClose) {
       _reconnectAttempts = 0;
       _doConnect();
-      if (kDebugMode) {
-      }
     }
   }
 

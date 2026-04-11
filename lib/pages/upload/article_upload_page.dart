@@ -6,6 +6,7 @@ import '../../models/upload_article.dart';
 import '../../services/partition_api_service.dart';
 import '../../services/upload_api_service.dart';
 import '../../services/article_submit_api_service.dart';
+import '../../services/logger_service.dart';
 import '../../widgets/partition_section.dart';
 
 class ArticleUploadPage extends StatefulWidget {
@@ -68,7 +69,9 @@ class _ArticleUploadPageState extends State<ArticleUploadPage> {
         if (await _coverFile!.exists()) {
           await _coverFile!.delete();
         }
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('清理文章封面临时文件失败: $e', tag: 'ArticleUpload');
+      }
       _coverFile = null;
     }
   }

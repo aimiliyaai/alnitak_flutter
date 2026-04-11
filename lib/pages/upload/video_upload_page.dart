@@ -11,6 +11,7 @@ import '../../utils/image_utils.dart';
 import '../../utils/login_guard.dart';
 import '../../theme/theme_extensions.dart';
 import '../../widgets/cached_image_widget.dart';
+import '../../services/logger_service.dart';
 import '../../widgets/partition_section.dart';
 import 'widgets/video_resource_list.dart';
 
@@ -105,7 +106,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     }
 
     // 【新增】清理临时文件
-    _cleanupTempFiles().catchError((_) {});
+    _cleanupTempFiles().catchError((e) {
+      LoggerService.instance.logWarning('清理临时文件失败: $e', tag: 'VideoUpload');
+    });
 
     _titleController.dispose();
     _descController.dispose();
@@ -118,7 +121,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
     // 1. 清理 FilePicker 临时文件（视频）
     try {
       await FilePicker.platform.clearTemporaryFiles();
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('清理 FilePicker 临时文件失败: $e', tag: 'VideoUpload');
+    }
 
     // 2. 清理封面临时文件（ImagePicker 产生）
     if (_coverFile != null) {
@@ -126,7 +131,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
         if (await _coverFile!.exists()) {
           await _coverFile!.delete();
         }
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('清理封面临时文件失败: $e', tag: 'VideoUpload');
+      }
       _coverFile = null;
     }
 
@@ -136,7 +143,9 @@ class _VideoUploadPageState extends State<VideoUploadPage> {
         if (await _videoFile!.exists()) {
           await _videoFile!.delete();
         }
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('清理视频临时文件失败: $e', tag: 'VideoUpload');
+      }
       _videoFile = null;
     }
   }
@@ -347,13 +356,17 @@ Future<void> _uploadVideo({String? title}) async {
           if (await _videoFile!.exists()) {
             await _videoFile!.delete();
           }
-        } catch (_) {}
+        } catch (e) {
+          LoggerService.instance.logWarning('上传后清理视频文件失败: $e', tag: 'VideoUpload');
+        }
         _videoFile = null;
       }
 
       try {
         await FilePicker.platform.clearTemporaryFiles();
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('上传后清理临时文件失败: $e', tag: 'VideoUpload');
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -380,7 +393,9 @@ Future<void> _uploadVideo({String? title}) async {
       // 【新增】上传失败/取消后也清理临时文件
       try {
         await FilePicker.platform.clearTemporaryFiles();
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('取消后清理临时文件失败: $e', tag: 'VideoUpload');
+      }
 
       if (mounted) {
         setState(() {
@@ -511,6 +526,7 @@ Future<void> _uploadVideo({String? title}) async {
       final videoStatus = await VideoSubmitApiService.getVideoStatus(widget.vid!);
       return videoStatus.partitionId;
     } catch (e) {
+      LoggerService.instance.logWarning('获取视频分区ID失败: $e', tag: 'VideoUpload');
       return 0;
     }
   }

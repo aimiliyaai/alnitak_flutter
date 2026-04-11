@@ -71,7 +71,9 @@ String formatQualityDisplayName(String quality) {
         return '4K$suffix';
       }
     }
-  } catch (_) {}
+  } catch (_) {
+    // 格式解析失败，返回原始 quality 字符串
+  }
 
   return quality;
 }
@@ -150,17 +152,14 @@ int _parseResolution(String quality) {
     if (lowerQ == '2k') return 2560 * 1440;
     return 0;
   } catch (_) {
+    // 非标格式，像素数按 0 处理
     return 0;
   }
 }
 
 int _parseFrameRate(String quality) {
-  try {
-    final parts = quality.split('_');
-    return parts.length >= 3 ? (int.tryParse(parts[2]) ?? 30) : 30;
-  } catch (_) {
-    return 30;
-  }
+  final parts = quality.split('_');
+  return parts.length >= 3 ? (int.tryParse(parts[2]) ?? 30) : 30;
 }
 
 /// 从 quality 字符串提取短边（YouTube风格）

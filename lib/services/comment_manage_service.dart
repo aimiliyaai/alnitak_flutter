@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import '../models/comment_manage.dart';
 import '../utils/http_client.dart';
+import 'logger_service.dart';
 
 /// 评论管理服务
 class CommentManageService {
@@ -24,7 +24,7 @@ class CommentManageService {
       }
       return [];
     } catch (e) {
-      if (kDebugMode) debugPrint('获取视频列表失败: $e');
+      LoggerService.instance.logWarning('获取视频列表失败: $e', tag: 'CommentManageService');
       return [];
     }
   }
@@ -42,7 +42,7 @@ class CommentManageService {
       }
       return [];
     } catch (e) {
-      if (kDebugMode) debugPrint('获取文章列表失败: $e');
+      LoggerService.instance.logWarning('获取文章列表失败: $e', tag: 'CommentManageService');
       return [];
     }
   }
@@ -69,10 +69,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return ManageCommentListResponse.fromVideoJson(response.data['data']);
       }
-      if (kDebugMode) debugPrint('获取视频评论失败: ${response.data['msg']}');
+      LoggerService.instance.logWarning('获取视频评论失败: ${response.data['msg']}', tag: 'CommentManageService');
       return null;
     } catch (e) {
-      if (kDebugMode) debugPrint('获取视频评论异常: $e');
+      LoggerService.instance.logWarning('获取视频评论异常: $e', tag: 'CommentManageService');
       return null;
     }
   }
@@ -99,10 +99,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return ManageCommentListResponse.fromArticleJson(response.data['data']);
       }
-      if (kDebugMode) debugPrint('获取文章评论失败: ${response.data['msg']}');
+      LoggerService.instance.logWarning('获取文章评论失败: ${response.data['msg']}', tag: 'CommentManageService');
       return null;
     } catch (e) {
-      if (kDebugMode) debugPrint('获取文章评论异常: $e');
+      LoggerService.instance.logWarning('获取文章评论异常: $e', tag: 'CommentManageService');
       return null;
     }
   }
@@ -117,10 +117,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return true;
       }
-      if (kDebugMode) debugPrint('删除视频评论失败: ${response.data['msg']}');
+      LoggerService.instance.logWarning('删除视频评论失败: ${response.data['msg']}', tag: 'CommentManageService');
       return false;
     } catch (e) {
-      if (kDebugMode) debugPrint('删除视频评论异常: $e');
+      LoggerService.instance.logWarning('删除视频评论异常: $e', tag: 'CommentManageService');
       return false;
     }
   }
@@ -135,10 +135,10 @@ class CommentManageService {
       if (response.data['code'] == 200) {
         return true;
       }
-      if (kDebugMode) debugPrint('删除文章评论失败: ${response.data['msg']}');
+      LoggerService.instance.logWarning('删除文章评论失败: ${response.data['msg']}', tag: 'CommentManageService');
       return false;
     } catch (e) {
-      if (kDebugMode) debugPrint('删除文章评论异常: $e');
+      LoggerService.instance.logWarning('删除文章评论异常: $e', tag: 'CommentManageService');
       return false;
     }
   }

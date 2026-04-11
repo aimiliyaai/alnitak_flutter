@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../models/upload_video.dart';
 import '../../../services/resource_api_service.dart';
+import '../../../services/logger_service.dart';
 import '../../../services/upload_api_service.dart';
 import '../../../theme/theme_extensions.dart';
 import 'dart:io';
@@ -64,6 +65,7 @@ class _VideoResourceListState extends State<VideoResourceList> {
   void dispose() {
     // 【新增】清理队列临时文件
     _cleanupQueueFiles().catchError((e) {
+      LoggerService.instance.logWarning('清理上传队列文件失败: $e', tag: 'VideoResourceList');
     });
 
     _titleEditController.dispose();
@@ -78,12 +80,16 @@ class _VideoResourceListState extends State<VideoResourceList> {
         if (await task.file.exists()) {
           await task.file.delete();
         }
-      } catch (_) {}
+      } catch (e) {
+        LoggerService.instance.logWarning('清理队列任务文件失败: $e', tag: 'VideoResourceList');
+      }
     }
 
     try {
       await FilePicker.platform.clearTemporaryFiles();
-    } catch (_) {}
+    } catch (e) {
+      LoggerService.instance.logWarning('清理 FilePicker 临时文件失败: $e', tag: 'VideoResourceList');
+    }
   }
 
   /// 获取状态文本
@@ -181,7 +187,9 @@ class _VideoResourceListState extends State<VideoResourceList> {
           if (await task.file.exists()) {
             await task.file.delete();
           }
-        } catch (_) {}
+        } catch (e) {
+          LoggerService.instance.logWarning('上传后清理任务文件失败: $e', tag: 'VideoResourceList');
+        }
 
         if (mounted) {
           setState(() {

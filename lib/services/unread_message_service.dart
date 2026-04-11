@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/message_models.dart';
 import '../utils/login_guard.dart';
 import '../utils/message_read_status.dart';
+import 'logger_service.dart';
 import 'message_api_service.dart';
 
 /// 未读消息状态（供「我的」Tab 与个人页「消息」入口展示角标/数量）
@@ -76,8 +77,8 @@ class UnreadMessageService extends ChangeNotifier {
         _unreadCount = count;
         notifyListeners();
       }
-    } catch (_) {
-      // 静默忽略
+    } catch (e) {
+      LoggerService.instance.logWarning('刷新未读消息失败: $e', tag: 'UnreadMessageService');
     }
   }
 }

@@ -56,10 +56,9 @@ class PartitionApiService {
 
   /// 根据ID查找分区
   static Partition? findPartitionById(List<Partition> allPartitions, int id) {
-    try {
-      return allPartitions.firstWhere((p) => p.id == id);
-    } catch (e) {
-      return null;
+    for (final p in allPartitions) {
+      if (p.id == id) return p;
     }
+    return null;
   }
 }

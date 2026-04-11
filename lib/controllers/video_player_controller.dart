@@ -207,7 +207,9 @@ class VideoPlayerController extends ChangeNotifier {
         final videoBuffer = end - pos;
         if (videoBuffer > 0) return videoBuffer;
       }
-    } catch (_) {}
+    } catch (e) {
+      _logger.logDebug('获取视频缓冲状态失败: $e');
+    }
     return 0;
   }
 
@@ -499,7 +501,8 @@ class VideoPlayerController extends ChangeNotifier {
       if (hasValidVideoSize(raw)) return true;
       final fallback = await _player!.getProperty('video-params');
       return hasValidVideoSize(fallback);
-    } catch (_) {
+    } catch (e) {
+      _logger.logDebug('获取视频输出参数失败: $e');
       return false;
     }
   }
@@ -514,7 +517,9 @@ class VideoPlayerController extends ChangeNotifier {
         final h = (parsed['h'] as num?)?.toInt() ?? 0;
         return w > 0 && h > 0;
       }
-    } catch (_) {}
+    } catch (_) {
+      // JSON 解析失败表示 raw 不是有效 JSON，正常返回 false
+    }
     return false;
   }
 
@@ -571,7 +576,9 @@ class VideoPlayerController extends ChangeNotifier {
     try {
       await _player!.stream.buffer.first
           .timeout(const Duration(milliseconds: _seekBufferWaitTimeoutMs));
-    } catch (_) {}
+    } catch (_) {
+      // 超时是正常情况，不需要日志
+    }
   }
 
   Future<void> _seekInternal(Duration position) async {
@@ -595,7 +602,9 @@ class VideoPlayerController extends ChangeNotifier {
           if (_isDisposed || _player == null) return;
           try {
             await _player!.seek(position);
-          } catch (_) {}
+          } catch (e) {
+            _logger.logWarning('seek 执行失败: $e');
+          }
           _isSeeking = false;
         }
       });
@@ -705,7 +714,9 @@ class VideoPlayerController extends ChangeNotifier {
       if ((targetPos - currentPos).abs() > 3) {
         await seek(Duration(seconds: targetPos));
       }
-    } catch (_) {}
+    } catch (e) {
+      _logger.logWarning('恢复播放进度失败: $e');
+    }
   }
 
   // ============ 事件监听（照搬 pilipala 的 startListeners/removeListeners）============
@@ -998,7 +1009,9 @@ class VideoPlayerController extends ChangeNotifier {
       final loopModeValue = prefs.getInt(_loopModeKey) ?? 0;
       loopMode.value = LoopMode.values[loopModeValue];
       _settingsLoaded = true;
-    } catch (_) {}
+    } catch (e) {
+      _logger.logWarning('加载播放器设置失败: $e');
+    }
   }
 
   Future<String> _getPreferredQuality(List<String> qualities) async {
@@ -1006,7 +1019,9 @@ class VideoPlayerController extends ChangeNotifier {
       final prefs = await _preferences;
       final preferredName = prefs.getString(_preferredQualityKey);
       return findBestQualityMatch(qualities, preferredName);
-    } catch (_) {}
+    } catch (e) {
+      _logger.logWarning('获取首选清晰度失败: $e');
+    }
     return getDefaultQuality(qualities);
   }
 
@@ -1015,7 +1030,9 @@ class VideoPlayerController extends ChangeNotifier {
       final prefs = await _preferences;
       final displayName = formatQualityDisplayName(quality);
       await prefs.setString(_preferredQualityKey, displayName);
-    } catch (_) {}
+    } catch (e) {
+      _logger.logWarning('保存首选清晰度失败: $e');
+    }
   }
 
   // ============ 公开方法（custom_player_ui.dart 使用）============
@@ -1067,7 +1084,9 @@ class VideoPlayerController extends ChangeNotifier {
         'loop-file',
         loopMode.value == LoopMode.on ? 'inf' : 'no',
       );
-    } catch (_) {}
+    } catch (e) {
+      _logger.logWarning('设置循环模式失败: $e');
+    }
   }
 
   void handleAppLifecycleState(bool isPaused) {
@@ -1189,7 +1208,9 @@ class VideoPlayerController extends ChangeNotifier {
       final audioPts = double.tryParse(audioPtsStr) ?? 0;
       final avsync = double.tryParse(avsyncStr) ?? 0;
       _logger.logDebug('[PTS] video=${videoPts.toStringAsFixed(3)}s, audio=${audioPts.toStringAsFixed(3)}s, avsync=${avsync.toStringAsFixed(3)}s');
-    } catch (_) {}
+    } catch (_) {
+      // PTS 日志是诊断用，获取失败静默忽略
+    }
   }
 
   /// 处理音频设备变化（耳机拔出等，参考 pili_plus becomingNoisy）
@@ -1205,7 +1226,9 @@ class VideoPlayerController extends ChangeNotifier {
   Future<void> _disposeAudioSession() async {
     try {
       await _audioSession?.setActive(false);
-    } catch (_) {}
+    } catch (e) {
+      _logger.logDebug('释放音频焦点失败: $e');
+    }
     await _interruptionSubscription?.cancel();
     await _becomingNoisySubscription?.cancel();
     _interruptionSubscription = null;
