@@ -251,6 +251,7 @@ class AppTheme {
         unselectedLabelColor: colors.textSecondary,
         indicatorColor: AppColors.primary,
         indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: Colors.transparent,
       ),
     );
   }
@@ -493,6 +494,7 @@ class AppTheme {
         unselectedLabelColor: colors.textSecondary,
         indicatorColor: AppColors.primaryLight,
         indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: Colors.transparent,
       ),
     );
   }
