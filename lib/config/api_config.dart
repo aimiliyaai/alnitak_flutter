@@ -1,33 +1,42 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// API 配置
-/// 统一管理 API 地址，支持默认值 + SharedPreferences 覆盖（便于环境/调试切换）
+///
+/// 统一管理 API / 分享地址，支持默认值 + SharedPreferences 覆盖。
 class ApiConfig {
   ApiConfig._();
+
+  // ── 持久化键 ──
 
   static const String _httpsEnabledKey = 'https_enabled';
   static const String _hostOverrideKey = 'api_host_override';
   static const String _portOverrideKey = 'api_port_override';
 
-  /// 默认服务器域名（可被 override 覆盖）
+  // ── 默认值 ──
+
   static const String defaultHost = 'anime.ayypd.cn';
   static const int defaultPortHttp = 9000;
   static const int defaultPortHttps = 9001;
   static const String defaultShareHost = 'anime.ayypd.cn';
   static const int defaultSharePort = 3000;
+  static const bool defaultShareHttps = true;
+
+  // ── 运行时状态 ──
 
   static bool _httpsEnabled = true;
   static String? _hostOverride;
   static int? _portOverride;
 
-  /// 当前生效的服务器域名
+  // ── 公开 getter ──
+
   static String get host => _hostOverride ?? defaultHost;
-  /// 当前生效的 API 端口（HTTPS 9001，HTTP 9000）
-  static int get port => _portOverride ?? (_httpsEnabled ? defaultPortHttps : defaultPortHttp);
+  static int get port =>
+      _portOverride ?? (_httpsEnabled ? defaultPortHttps : defaultPortHttp);
+  static bool get httpsEnabled => _httpsEnabled;
   static String get shareHost => defaultShareHost;
   static int get sharePort => defaultSharePort;
 
-  static bool get httpsEnabled => _httpsEnabled;
+  // ── 初始化 ──
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -38,7 +47,8 @@ class ApiConfig {
     _portOverride = (savedPort != null && savedPort > 0) ? savedPort : null;
   }
 
-  /// 设置 API 主机/端口覆盖（空字符串或 0 表示恢复默认）
+  // ── 设置方法 ──
+
   static Future<void> setHostPortOverride({String? host, int? port}) async {
     final prefs = await SharedPreferences.getInstance();
     if (host != null) {
@@ -59,40 +69,38 @@ class ApiConfig {
     }
   }
 
-  /// 设置 HTTPS 启用状态
   static Future<void> setHttpsEnabled(bool enabled) async {
     _httpsEnabled = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_httpsEnabledKey, enabled);
   }
 
-  /// 获取当前使用的协议
-  static String get _protocol => _httpsEnabled ? 'https' : 'http';
+  // ── URL 构造 ──
 
-  /// API 基础地址
-  static String get baseUrl {
-    return '$_protocol://$host:$port';
-  }
+  static String get baseUrl => _buildUrl(
+        https: _httpsEnabled,
+        host: host,
+        port: port,
+      );
 
-  /// HTTPS 基础地址
-  static String get httpsBaseUrl {
-    return 'https://$host:$port';
-  }
-
-  /// HTTP 基础地址
-  static String get httpBaseUrl {
-    return 'http://$host:$port';
-  }
-
-  /// Web 地址（用于分享等场景）
-  static String get webUrl {
-    return '$_protocol://$host';
-  }
-
-  /// 分享地址（HTTPS 启用时自动用 https 前缀）
-  /// 80/443 端口不带端口，其他端口带端口
   static String getShareUrl(String path) {
-    final portStr = sharePort == 80 || sharePort == 443 ? '' : ':$sharePort';
-    return '$_protocol://$shareHost$portStr/$path';
+    final base = _buildUrl(
+      https: defaultShareHttps,
+      host: shareHost,
+      port: sharePort,
+    );
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$base/$cleanPath';
+  }
+
+  /// 构造 URL，标准端口（http:80 / https:443）自动省略
+  static String _buildUrl({
+    required bool https,
+    required String host,
+    required int port,
+  }) {
+    final protocol = https ? 'https' : 'http';
+    final isDefaultPort = (https && port == 443) || (!https && port == 80);
+    return isDefaultPort ? '$protocol://$host' : '$protocol://$host:$port';
   }
 }
