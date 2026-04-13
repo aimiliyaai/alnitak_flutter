@@ -42,7 +42,8 @@ class VideoPageController extends ChangeNotifier {
   int currentVid = 0;
   String? _bootstrapVideoRef;
   late int currentPart;
-  int? currentResourceId;
+  /// 当前资源标识（优先 shortId，回退 int ID）
+  Object? currentResourceId;
   double? currentInitialPosition;
 
   int totalComments = 0;
@@ -231,7 +232,7 @@ class VideoPageController extends ChangeNotifier {
     progressTracker.reset();
 
     currentPart = part;
-    currentResourceId = currentResource.id;
+    currentResourceId = currentResource.shortId ?? currentResource.id;
     currentInitialPosition = position;
     notifyListeners();
 
@@ -356,7 +357,7 @@ class VideoPageController extends ChangeNotifier {
     progressTracker.reset();
 
     currentPart = part;
-    currentResourceId = newResource.id;
+    currentResourceId = newResource.shortId ?? newResource.id;
     currentInitialPosition = progress;
     notifyListeners();
 
@@ -473,7 +474,7 @@ class VideoPageController extends ChangeNotifier {
     progressTracker.reset();
 
     currentPart = part;
-    currentResourceId = currentResource.id;
+    currentResourceId = currentResource.shortId ?? currentResource.id;
     currentInitialPosition = position;
     notifyListeners();
 

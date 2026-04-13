@@ -10,7 +10,8 @@ import 'custom_player_ui.dart';
 
 /// 视频播放器组件
 class MediaPlayerWidget extends StatefulWidget {
-  final int? resourceId;
+  /// 资源标识：可以是数字字符串或 shortId
+  final Object? resourceId;
   final double? initialPosition;
   final double? duration;
   final VoidCallback? onVideoEnd;

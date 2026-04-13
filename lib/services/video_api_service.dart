@@ -57,14 +57,15 @@ class VideoApiService {
     }
   }
 
-  static Future<List<VideoApiModel>> searchVideo({
+static Future<List<VideoApiModel>> searchVideo({
     required String keywords,
     int page = 1,
     int pageSize = 30,
     String sort = 'relevance',
     String timeRange = 'all',
+    CancelToken? cancelToken,
   }) async {
-    final response = await _dio.post(
+final response = await _dio.post(
       '/api/v1/video/searchVideo',
       data: {
         'page': page,
@@ -73,6 +74,7 @@ class VideoApiService {
         'sort': sort,
         'timeRange': timeRange,
       },
+      cancelToken: cancelToken,
     );
 
     final apiResponse = ApiResponse.fromJson(response.data as Map<String, dynamic>);

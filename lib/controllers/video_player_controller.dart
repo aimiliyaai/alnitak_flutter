@@ -70,7 +70,8 @@ class VideoPlayerController extends ChangeNotifier {
   VoidCallback? onReplayAfterCompletion;
 
   // ============ 内部状态 ============
-  int? _currentResourceId;
+  Object? _currentResourceId;
+  Future<void>? _playerCreationFuture;
   bool _isDisposed = false;
   bool _isDisposing = false; // 正在 dispose 中，防止回调在清理时触发
   bool _hasTriggeredCompletion = false;
@@ -97,8 +98,7 @@ class VideoPlayerController extends ChangeNotifier {
   Timer? _bufferingShowTimer;
   static const int _bufferingSustainMs = 1500;
   static const int _videoEndDebounceMs = 800;
-  static const int _startupReadyTimeoutMs = 2200;
-  static const int _startupReadyPollMs = 80;
+  static const int _startupReadyTimeoutMs = 1000;
 
   int _playbackSessionId = 0;
   DateTime? _lastVideoEndAt;
@@ -265,7 +265,7 @@ class VideoPlayerController extends ChangeNotifier {
   ///
   /// 统一入口，替代之前的 initialize() 和 initializeWithPreloadedData()
   Future<void> initialize({
-    required int resourceId,
+    required Object resourceId,
     double? initialPosition,
     double? duration,
   }) async {
@@ -288,13 +288,22 @@ class VideoPlayerController extends ChangeNotifier {
         durationSeconds.value = duration.toInt();
       }
 
-      if (!_settingsLoaded) await _loadSettings();
+      // ── 并行 I/O：Settings + Manifest + Player 创建同时执行 ──
+      // 网络请求（100-500ms）与本地初始化（mpv 50-100ms + SharedPreferences）重叠，
+      // 首次加载可节省 50-150ms，后续加载 manifest 与 player 已就绪则几乎零开销。
+      late final DashManifest manifest;
+      await Future.wait<void>([
+        if (!_settingsLoaded) _loadSettings(),
+        _streamService.getDashManifest(resourceId).then((m) => manifest = m),
+        _ensurePlayerReady(),
+      ]);
 
-      // 一次性获取所有清晰度的 DASH 数据（含视频/音频直链）
-      _manifest = await _streamService.getDashManifest(resourceId);
-      _supportsDash = _manifest!.supportsDash;
-      availableQualities.value = _manifest!.qualities;
-      if (_manifest!.qualities.isEmpty) throw Exception('没有可用的清晰度');
+      if (_isDisposed || _currentResourceId != resourceId) return;
+
+      _manifest = manifest;
+      _supportsDash = manifest.supportsDash;
+      availableQualities.value = manifest.qualities;
+      if (manifest.qualities.isEmpty) throw Exception('没有可用的清晰度');
 
       currentQuality.value = await _getPreferredQuality(availableQualities.value);
 
@@ -303,7 +312,7 @@ class VideoPlayerController extends ChangeNotifier {
       // 获取 DataSource：DASH 直连视频+音频URL，旧资源回退 m3u8
       final DataSource dataSource;
       if (_supportsDash) {
-        final ds = _manifest!.getDataSource(currentQuality.value!);
+        final ds = manifest.getDataSource(currentQuality.value!);
         if (ds == null) throw Exception('清晰度数据不可用');
         dataSource = ds;
       } else {
@@ -332,16 +341,94 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
-  // ============ 核心方法：setDataSource（照搬 pilipala）============
+  // ============ Player 预创建（与网络请求并行） ============
 
-  /// 设置播放数据源（pilipala 风格）
+  /// 幂等预创建 Player（已创建则立即返回，并发调用共享同一 Future）
+  Future<void> _ensurePlayerReady() async {
+    if (_player != null || _isDisposed) return;
+    if (_playerCreationFuture != null) {
+      await _playerCreationFuture;
+      return;
+    }
+    _playerCreationFuture = _createPlayerInternal();
+    try {
+      await _playerCreationFuture;
+    } finally {
+      _playerCreationFuture = null;
+    }
+  }
+
+  /// 创建 mpv Player + AudioSession + VideoController
+  ///
+  /// 并行读取 3 个 SharedPreferences 设置项，再一次性创建。
+  Future<void> _createPlayerInternal() async {
+    if (_player != null || _isDisposed) return;
+
+    // 并行读取所有播放器设置（每个都是独立的 SharedPreferences 查询）
+    final results = await Future.wait([
+      PlayerSettingsService.getDecodeMode(),
+      PlayerSettingsService.getExpandBuffer(),
+      PlayerSettingsService.getAudioOutput(),
+    ]);
+    final decodeMode = results[0] as String;
+    final expandBuffer = results[1] as bool;
+    final audioOutput = results[2] as String;
+
+    if (_player != null || _isDisposed) return; // await 后二次检查
+
+    final opt = <String, String>{
+      'video-sync': 'display-resample',
+    };
+    if (Platform.isAndroid) {
+      opt['volume-max'] = '100';
+      opt['ao'] = audioOutput;
+      opt['autosync'] = '30';
+    }
+    final bufferSizeBytes = expandBuffer ? 32 * 1024 * 1024 : 16 * 1024 * 1024;
+    _player = await Player.create(
+      configuration: PlayerConfiguration(
+        bufferSize: bufferSizeBytes,
+        logLevel: kDebugMode ? MPVLogLevel.warn : MPVLogLevel.error,
+        options: opt,
+      ),
+    );
+    audioHandler.attachPlayer(
+      _player!,
+      ownerId: _audioOwnerId,
+      onPlay: () => play(),
+      onPause: () => pause(),
+      onSeek: (pos) => seek(pos),
+    );
+    await _initAudioSession();
+    await _configurePlayerOnce(decodeMode);
+
+    _player!.setMediaHeader(
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+          'AppleWebKit/537.36 (KHTML, like Gecko) '
+          'Chrome/120.0.0.0 Safari/537.36',
+      referer: ApiConfig.baseUrl,
+    );
+
+    _videoController = VideoController(
+      _player!,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: decodeMode != 'no',
+        androidAttachSurfaceAfterVideoParameters: false,
+        hwdec: decodeMode != 'no' ? decodeMode : null,
+      ),
+    );
+  }
+
+  // ============ 核心方法：setDataSource ============
+
+  /// 设置播放数据源
   ///
   /// 流程：
   /// 1. removeListeners()，清空缓冲状态
-  /// 2. 创建 Player（??= 复用），由 mpv 原生解析媒体内音轨
+  /// 2. _ensurePlayerReady()（幂等，通常已在 initialize 中并行完成）
   /// 3. startListeners() 先注册监听
   /// 4. player.open(Media(..., start: seekTo), play: false)
-  /// 5. 若 autoPlay：等待视频就绪后再 play（防止音频先起）
+  /// 5. 若 autoPlay：事件驱动等待视频就绪后再 play
   Future<void> setDataSource(
     DataSource dataSource, {
     Duration seekTo = Duration.zero,
@@ -374,56 +461,8 @@ class VideoPlayerController extends ChangeNotifier {
       _updateSliderPositionSecond();
       _updateBufferedSecond();
 
-      final isNewPlayer = _player == null;
-      if (isNewPlayer) {
-        final decodeMode = await PlayerSettingsService.getDecodeMode();
-        final expandBuffer = await PlayerSettingsService.getExpandBuffer();
-        final audioOutput = await PlayerSettingsService.getAudioOutput();
-        // 对齐 pili_plus：必须在 mpv_initialize 之前设置的选项通过 options 传入
-        final opt = <String, String>{
-          'video-sync': 'display-resample',
-        };
-        if (Platform.isAndroid) {
-          opt['volume-max'] = '100';
-          opt['ao'] = audioOutput;
-          // 对齐 pili_plus 默认值：让视频时钟更平滑追随音频时钟
-          opt['autosync'] = '30';
-        }
-        final bufferSizeBytes = expandBuffer ? 32 * 1024 * 1024 : 16 * 1024 * 1024;
-        _player = await Player.create(
-          configuration: PlayerConfiguration(
-            bufferSize: bufferSizeBytes,
-            logLevel: kDebugMode ? MPVLogLevel.warn : MPVLogLevel.error,
-            options: opt,
-          ),
-        );
-        audioHandler.attachPlayer(
-          _player!,
-          ownerId: _audioOwnerId,
-          onPlay: () => play(),
-          onPause: () => pause(),
-          onSeek: (pos) => seek(pos),
-        );
-        await _initAudioSession();
-        await _configurePlayerOnce(decodeMode);
-
-        // 对齐 pili_plus：通过 setMediaHeader 设置 HTTP 请求头
-        _player!.setMediaHeader(
-          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-              'AppleWebKit/537.36 (KHTML, like Gecko) '
-              'Chrome/120.0.0.0 Safari/537.36',
-          referer: ApiConfig.baseUrl,
-        );
-
-        _videoController = VideoController(
-          _player!,
-          configuration: VideoControllerConfiguration(
-            enableHardwareAcceleration: decodeMode != 'no',
-            androidAttachSurfaceAfterVideoParameters: false,
-            hwdec: decodeMode != 'no' ? decodeMode : null,
-          ),
-        );
-      }
+      // Player 创建（幂等，通常已在 initialize 中并行完成）
+      await _ensurePlayerReady();
 
       // 先注册监听器，再 open(play: false)
       startListeners();
@@ -471,39 +510,47 @@ class VideoPlayerController extends ChangeNotifier {
     }
   }
 
+  /// 事件驱动等待视频起播就绪（替代轮询，响应更快）
+  ///
+  /// 监听 player streams 检测视频参数 + 缓冲就绪，超时兜底。
+  /// 比 80ms 轮询平均快 40ms（事件即时触发 vs 半个轮询周期延迟）。
   Future<void> _waitForVideoReadyBeforePlay(int sessionId) async {
-    final stopwatch = Stopwatch()..start();
+    if (_player == null) return;
 
-    while (_isSessionActive(sessionId) &&
-        stopwatch.elapsedMilliseconds < _startupReadyTimeoutMs) {
-      final hasVideoParams = await _hasVideoOutputParams();
-      final videoBuffer = await _tryGetVideoBuffer();
-      final demuxerBufferMs = _player?.state.buffer.inMilliseconds ?? 0;
+    final completer = Completer<void>();
+    final subs = <StreamSubscription>[];
 
-      final isReady = (hasVideoParams && (videoBuffer >= 1 || demuxerBufferMs >= 800)) ||
-          videoBuffer >= 2;
-      if (isReady) {
-        return;
+    void tryComplete() {
+      if (completer.isCompleted || !_isSessionActive(sessionId)) return;
+      final w = _player?.state.width ?? 0;
+      final h = _player?.state.height ?? 0;
+      final bufMs = _player?.state.buffer.inMilliseconds ?? 0;
+      if ((w > 0 && h > 0 && bufMs >= 800) || bufMs >= 2000) {
+        if (!completer.isCompleted) completer.complete();
       }
-
-      await Future.delayed(const Duration(milliseconds: _startupReadyPollMs));
     }
 
-    _logger.logDebug(
-      '起播门控超时，兜底继续播放: ${stopwatch.elapsedMilliseconds}ms',
-    );
-  }
+    subs.add(_player!.stream.width.listen((_) => tryComplete()));
+    subs.add(_player!.stream.height.listen((_) => tryComplete()));
+    subs.add(_player!.stream.buffer.listen((_) => tryComplete()));
 
-  Future<bool> _hasVideoOutputParams() async {
-    if (_player == null) return false;
-    try {
-      final raw = await _player!.getProperty('video-out-params');
-      if (hasValidVideoSize(raw)) return true;
-      final fallback = await _player!.getProperty('video-params');
-      return hasValidVideoSize(fallback);
-    } catch (e) {
-      _logger.logDebug('获取视频输出参数失败: $e');
-      return false;
+    final timeout = Timer(
+      Duration(milliseconds: _startupReadyTimeoutMs),
+      () {
+        if (!completer.isCompleted) {
+          _logger.logDebug('起播门控超时，兜底继续播放');
+          completer.complete();
+        }
+      },
+    );
+
+    // 立即检查（open 后可能已就绪）
+    tryComplete();
+
+    await completer.future;
+    timeout.cancel();
+    for (final sub in subs) {
+      sub.cancel();
     }
   }
 
@@ -1246,13 +1293,17 @@ class VideoPlayerController extends ChangeNotifier {
     await _disposeAudioSession();
 
     _seekTimer?.cancel();
+    _seekTimer = null;
     _stalledTimer?.cancel();
+    _stalledTimer = null;
     _bufferingShowTimer?.cancel();
+    _bufferingShowTimer = null;
 
     // pilipala: removeListeners
     eventListener = null;
     removeListeners();
     await _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
 
     // 停止 AudioService 通知栏（先 stop 再 detach，确保状态转换正确）
     await audioHandler.stopIfOwner(_audioOwnerId);
@@ -1270,6 +1321,16 @@ class VideoPlayerController extends ChangeNotifier {
 
     _positionStreamController.close();
 
+    availableQualities.dispose();
+    currentQuality.dispose();
+    isLoading.dispose();
+    errorMessage.dispose();
+    isPlayerInitialized.dispose();
+    isSwitchingQuality.dispose();
+    loopMode.dispose();
+    backgroundPlayEnabled.dispose();
+    isBuffering.dispose();
+    hasEverPlayed.dispose();
     sliderPositionSeconds.dispose();
     durationSeconds.dispose();
     bufferedSeconds.dispose();

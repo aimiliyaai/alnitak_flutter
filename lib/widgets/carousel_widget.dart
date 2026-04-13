@@ -22,7 +22,7 @@ class CarouselWidget extends StatefulWidget {
   State<CarouselWidget> createState() => _CarouselWidgetState();
 }
 
-class _CarouselWidgetState extends State<CarouselWidget> {
+class _CarouselWidgetState extends State<CarouselWidget> with WidgetsBindingObserver {
   final CarouselService _carouselService = CarouselService();
   late PageController _pageController;
 
@@ -31,15 +31,31 @@ class _CarouselWidgetState extends State<CarouselWidget> {
   int _realIndex = 0; // 真实页面索引（用于无限循环）
   Timer? _autoPlayTimer;
   bool _isLoading = true;
+  bool _isVisible = true; // 页面可见性
 
-  @override
+@override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadCarousel();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _isVisible = false;
+      _stopAutoPlay();
+    } else if (state == AppLifecycleState.resumed) {
+      _isVisible = true;
+      if (_carouselList.length > 1) {
+        _startAutoPlay();
+      }
+    }
+  }
+
+@override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoPlayTimer?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -72,10 +88,11 @@ class _CarouselWidgetState extends State<CarouselWidget> {
     }
   }
 
-  void _startAutoPlay() {
+void _startAutoPlay() {
+    if (!_isVisible) return;
     _autoPlayTimer?.cancel();
     _autoPlayTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_carouselList.length <= 1) return;
+      if (_carouselList.length <= 1 || !_isVisible) return;
       // 始终向右滑动（向左动画效果）
       _realIndex++;
       _pageController.animateToPage(

@@ -34,6 +34,8 @@ class VideoPlayPage extends StatefulWidget {
     this.initialPart,
   });
 
+  static const String routeName = 'VideoPlayPage';
+
   @override
   State<VideoPlayPage> createState() => _VideoPlayPageState();
 }

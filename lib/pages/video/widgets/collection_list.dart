@@ -127,6 +127,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
             clicks: 0,
             desc: '',
             resourceId: r['resourceId'] ?? r['ID'],
+            resourceShortId: r['resourceShortId'],
             partTitle: r['title'] ?? r['Title'] ?? 'P${entry.key + 1}',
           );
         }).toList();

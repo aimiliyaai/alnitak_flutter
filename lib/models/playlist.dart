@@ -36,34 +36,40 @@ class PlaylistInfo {
 /// 合集中的视频项
 class PlaylistVideoItem {
   final int vid;
+  final String? shortId;
   final String title;
   final String cover;
   final double duration;
   final int clicks;
   final String desc;
   final int? resourceId;  // 分P的资源ID
+  final String? resourceShortId;  // 分P的资源ShortID
   final String? partTitle;  // 分P标题
 
   PlaylistVideoItem({
     required this.vid,
+    this.shortId,
     required this.title,
     required this.cover,
     required this.duration,
     required this.clicks,
     required this.desc,
     this.resourceId,
+    this.resourceShortId,
     this.partTitle,
   });
 
   factory PlaylistVideoItem.fromJson(Map<String, dynamic> json) {
     return PlaylistVideoItem(
       vid: json['vid'] ?? 0,
+      shortId: json['shortId'],
       title: json['title'] ?? '',
       cover: ImageUtils.getFullImageUrl(json['cover']),
       duration: (json['duration'] ?? 0).toDouble(),
       clicks: json['clicks'] ?? 0,
       desc: json['desc'] ?? '',
       resourceId: json['resourceId'],
+      resourceShortId: json['resourceShortId'],
       partTitle: json['partTitle'],
     );
   }

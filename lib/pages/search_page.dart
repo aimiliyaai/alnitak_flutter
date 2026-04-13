@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../models/video_item.dart';
 import '../models/article_list_model.dart';
@@ -29,6 +32,7 @@ class _SearchPageState extends State<SearchPage>
     with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final _hasInputTextNotifier = ValueNotifier<bool>(false);
 
   late TabController _tabController;
 
@@ -39,7 +43,9 @@ class _SearchPageState extends State<SearchPage>
 
   final UserService _userService = UserService();
 
-  static const int _pageSize = 30;
+  static const int _pageSize = 300;
+  Timer? _searchDebounce;
+  CancelToken? _searchCancelToken;
 
   List<VideoItem> _videos = [];
   int _videoPage = 1;
@@ -140,10 +146,15 @@ class _SearchPageState extends State<SearchPage>
     _articleScroll.dispose();
     _userScroll.dispose();
     _pgcScroll.dispose();
+    _hasInputTextNotifier.dispose();
+    _searchDebounce?.cancel();
+    _searchCancelToken?.cancel('dispose');
     super.dispose();
   }
 
   Future<void> _performSearch() async {
+    // 使用 CancelToken 跳过已取消的请求
+    if (_searchCancelToken?.isCancelled ?? false) return;
     final keywords = _searchController.text.trim();
     if (keywords.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -395,6 +406,7 @@ class _SearchPageState extends State<SearchPage>
         pageSize: _pageSize,
         sort: _sort,
         timeRange: _timeRange,
+        cancelToken: _searchCancelToken,
       );
       if (!mounted) return;
       setState(() {
@@ -550,24 +562,44 @@ class _SearchPageState extends State<SearchPage>
                 color: colors.iconSecondary,
                 size: 20,
               ),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: Icon(
-                        Icons.clear,
-                        color: colors.iconSecondary,
-                        size: 20,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _searchController.clear();
-                        });
-                      },
-                    )
-                  : null,
+              suffixIcon: ValueListenableBuilder<bool>(
+                  valueListenable: _hasInputTextNotifier,
+                  builder: (context, hasText, child) {
+                    return hasText
+                        ? IconButton(
+                            icon: Icon(
+                              Icons.clear,
+                              color: colors.iconSecondary,
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              _searchController.clear();
+                              _hasInputTextNotifier.value = false;
+                            },
+                          )
+                        : const SizedBox.shrink();
+                  },
+                ),
             ),
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => _performSearch(),
-            onChanged: (_) => setState(() {}),
+            onChanged: (text) {
+              // 避免无效 rebuild：只在新值变化时才更新
+              final hasText = text.isNotEmpty;
+              if (_hasInputTextNotifier.value != hasText) {
+                _hasInputTextNotifier.value = hasText;
+              }
+              // 取消旧请求 + debounce
+              _searchCancelToken?.cancel('new input');
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                _searchCancelToken = CancelToken();
+                final keywords = text.trim();
+                if (keywords.isNotEmpty) {
+                  _performSearch();
+                }
+              });
+            },
           ),
         ),
         actions: [

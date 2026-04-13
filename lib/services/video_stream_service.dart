@@ -7,11 +7,11 @@ import '../models/data_source.dart';
 import '../models/dash_models.dart';
 import '../utils/quality_utils.dart';
 
-/// 视频流服务 — JSON DASH / MPD / m3u8 加载
+/// 视频流服务 — MPD / JSON DASH / m3u8 加载
 ///
 /// 职责：
-///   1. 优先请求 JSON（按清晰度逐个请求并聚合）
-///   2. JSON 失败时回退 dash-unified MPD XML
+///   1. 优先请求 dash-unified MPD（单次请求返回所有清晰度）
+///   2. MPD 失败时回退 JSON（按清晰度逐个请求并聚合）
 ///   3. 最终回退到 m3u8 URL
 ///
 /// 质量切换从缓存 manifest 取对应清晰度的直链数据源。
@@ -34,19 +34,54 @@ class VideoStreamService {
   //  DASH（新资源主路径）
   // ──────────────────────────────────────────────
 
-  /// 获取完整 DASH manifest（一次请求所有清晰度）
+/// 获取完整 DASH manifest（一次请求所有清晰度）
   ///
-  /// 采用 JSON 优先策略，失败时回退 MPD，再失败回退 m3u8。
-  Future<DashManifest> getDashManifest(int resourceId) async {
-    // 1) JSON 优先（后端格式为单清晰度，需先取 quality 列表再逐个聚合）
+/// 采用 MPD 优先策略（单次请求），失败时回退 JSON（1+N 请求），再失败回退 m3u8。
+  Future<DashManifest> getDashManifest(Object resourceId) async {
+    // 1) MPD 优先（单次请求返回所有清晰度）
+    try {
+      final response = await _dio.get(
+        '/api/v1/video/getVideoFile',
+        queryParameters: {
+          'resourceId': resourceId,
+          'format': 'dash-unified',
+        },
+        options: Options(responseType: ResponseType.plain),
+      );
+
+      final xml = (response.data as String).trim();
+      if (xml.startsWith('<?xml') || xml.startsWith('<MPD')) {
+        return _parseMpd(xml);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('dash-unified failed, fallback JSON: $e');
+    }
+
+    // 2) JSON 回退（按清晰度逐个请求并聚合）
     try {
       final qualities = await _fetchQualities(resourceId);
       if (qualities.isNotEmpty) {
         final streams = <String, DashStreamInfo>{};
+        // 限流并发：最多 3 个并发，使用信号量控制
+        const maxConcurrent = 3;
+        var running = 0;
+        final pending = <MapEntry<String, Future<DashStreamInfo?>>>[];
         for (final quality in qualities) {
-          final stream = await _getJsonStream(resourceId, quality);
+          if (running >= maxConcurrent) {
+            final entry = pending.removeAt(0);
+            final stream = await entry.value;
+            if (stream != null) {
+              streams[entry.key] = stream;
+            }
+            running--;
+          }
+          pending.add(MapEntry(quality, _getJsonStreamSafe(resourceId, quality)));
+          running++;
+        }
+        for (final entry in pending) {
+          final stream = await entry.value;
           if (stream != null) {
-            streams[quality] = stream;
+            streams[entry.key] = stream;
           }
         }
         if (streams.isNotEmpty) {
@@ -59,29 +94,11 @@ class VideoStreamService {
         }
       }
     } catch (e) {
-      if (kDebugMode) debugPrint('getVideoFile json failed, fallback MPD: $e');
+      if (kDebugMode) debugPrint('getVideoFile json failed, fallback m3u8: $e');
     }
 
-    // 2) MPD 回退
-    try {
-      final response = await _dio.get(
-        '/api/v1/video/getVideoFile',
-        queryParameters: {
-          'resourceId': resourceId,
-          'format': 'dash-unified',
-        },
-        options: Options(responseType: ResponseType.plain),
-      );
-
-      final xml = (response.data as String).trim();
-      if (!xml.startsWith('<?xml') && !xml.startsWith('<MPD')) {
-        return _fallbackManifest(resourceId);
-      }
-      return _parseMpd(xml);
-    } catch (e) {
-      if (kDebugMode) debugPrint('dash-unified failed, fallback m3u8: $e');
-      return _fallbackManifest(resourceId);
-    }
+    // 3) m3u8 回退（旧资源）
+    return _fallbackManifest(resourceId);
   }
 
   // ──────────────────────────────────────────────
@@ -89,7 +106,7 @@ class VideoStreamService {
   // ──────────────────────────────────────────────
 
   /// 构造 m3u8 URL 给 mpv 直接加载
-  Future<DataSource> getM3u8DataSource(int resourceId, String quality) async {
+  Future<DataSource> getM3u8DataSource(Object resourceId, String quality) async {
     final url = '${ApiConfig.baseUrl}/api/v1/video/getVideoFile'
         '?resourceId=$resourceId&quality=$quality&format=m3u8';
     return DataSource(videoSource: url, httpHeaders: defaultHttpHeaders);
@@ -99,7 +116,7 @@ class VideoStreamService {
   //  内部：MPD 解析 & 回退
   // ──────────────────────────────────────────────
 
-  Future<DashStreamInfo?> _getJsonStream(int resourceId, String quality) async {
+Future<DashStreamInfo?> _getJsonStream(Object resourceId, String quality) async {
     final response = await _dio.get(
       '/api/v1/video/getVideoFile',
       queryParameters: {
@@ -109,6 +126,16 @@ class VideoStreamService {
       },
     );
     return _parseJsonStream(response.data, quality);
+  }
+
+  /// 安全并发请求：独立 try/catch，单个失败不影响整体
+  Future<DashStreamInfo?> _getJsonStreamSafe(Object resourceId, String quality) async {
+    try {
+      return await _getJsonStream(resourceId, quality);
+    } catch (e) {
+      if (kDebugMode) debugPrint('$_getJsonStream quality=$quality failed: $e');
+      return null;
+    }
   }
 
   DashStreamInfo? _parseJsonStream(dynamic raw, String requestedQuality) {
@@ -292,7 +319,7 @@ class VideoStreamService {
         (double.tryParse(m.group(3) ?? '') ?? 0);
   }
 
-  Future<List<String>> _fetchQualities(int resourceId) async {
+  Future<List<String>> _fetchQualities(Object resourceId) async {
     final response = await _dio.get(
       '/api/v1/video/getResourceQuality',
       queryParameters: {'resourceId': resourceId},
@@ -308,7 +335,7 @@ class VideoStreamService {
   }
 
   /// 旧资源回退：获取清晰度列表，返回 m3u8 模式 manifest
-  Future<DashManifest> _fallbackManifest(int resourceId) async {
+  Future<DashManifest> _fallbackManifest(Object resourceId) async {
     try {
       final qualities = await _fetchQualities(resourceId);
       if (qualities.isNotEmpty) {

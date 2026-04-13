@@ -641,8 +641,9 @@ class _UserVideosTabState extends State<_UserVideosTab>
 
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
+        // 避免多播放页实例冲突：先 pop 再 push
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => VideoPlayPage(
               videoRef: videoPathRef(vid: video.vid, shortId: video.shortId),
