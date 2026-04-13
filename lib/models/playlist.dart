@@ -42,8 +42,7 @@ class PlaylistVideoItem {
   final double duration;
   final int clicks;
   final String desc;
-  final int? resourceId;  // 分P的资源ID
-  final String? resourceShortId;  // 分P的资源ShortID
+  final int? p;  // 分P序号
   final String? partTitle;  // 分P标题
 
   PlaylistVideoItem({
@@ -54,8 +53,7 @@ class PlaylistVideoItem {
     required this.duration,
     required this.clicks,
     required this.desc,
-    this.resourceId,
-    this.resourceShortId,
+    this.p,
     this.partTitle,
   });
 
@@ -68,8 +66,7 @@ class PlaylistVideoItem {
       duration: (json['duration'] ?? 0).toDouble(),
       clicks: json['clicks'] ?? 0,
       desc: json['desc'] ?? '',
-      resourceId: json['resourceId'],
-      resourceShortId: json['resourceShortId'],
+      p: json['p'],
       partTitle: json['partTitle'],
     );
   }

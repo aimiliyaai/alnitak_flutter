@@ -126,9 +126,8 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
             duration: _parseDuration(r),
             clicks: 0,
             desc: '',
-            resourceId: r['resourceId'] ?? r['ID'],
-            resourceShortId: r['resourceShortId'],
-            partTitle: r['title'] ?? r['Title'] ?? 'P${entry.key + 1}',
+            p: r['p'] ?? entry.key + 1,
+            partTitle: r['title'] ?? 'P${entry.key + 1}',
           );
         }).toList();
         
@@ -234,12 +233,8 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
     }
     final video = _displayList[index];
     if (video.vid == widget.vid) {
-      final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
-      if (currentVideoParts.length > 1) {
-        final firstIndex = _displayList.indexOf(currentVideoParts.first);
-        return index - firstIndex + 1 == widget.currentPart;
-      }
-      return widget.currentPart == 1;
+      final itemP = video.p ?? 1;
+      return itemP == widget.currentPart;
     }
     return false;
   }
@@ -247,12 +242,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
   int? _getPartIndex(int index) {
     final video = _displayList[index];
     if (video.vid == widget.vid) {
-      final currentVideoParts = _displayList.where((v) => v.vid == widget.vid).toList();
-      if (currentVideoParts.length > 1) {
-        final firstIndex = _displayList.indexOf(currentVideoParts.first);
-        return index - firstIndex + 1;
-      }
-      return 1;
+      return video.p ?? 1;
     }
     return null;
   }
@@ -319,16 +309,9 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
   }
 
   /// 获取目标视频在列表中的分P序号（从1开始）
-  /// 当合集列表中的多分P视频被展开时，点击第N个分P应返回N
   int? _getTargetPart(int index) {
     final video = _displayList[index];
-    // 找到该视频在列表中的第一个出现位置
-    final firstIndex = _displayList.indexWhere((v) => v.vid == video.vid);
-    if (firstIndex < 0) return null;
-    // 检查该视频是否有多个分P在列表中
-    final sameVidCount = _displayList.where((v) => v.vid == video.vid).length;
-    if (sameVidCount <= 1) return null; // 单分P视频，不需要指定part
-    return index - firstIndex + 1;
+    return video.p;
   }
 
   Widget _buildGridMode() {
