@@ -84,9 +84,15 @@ dependency_overrides:
     path: E:/media-kit/media_kit_video
   # 覆盖 libmpv 库版本，获取最新的 v1.1.11
   media_kit_libs_android_video:
-    path: E:/media-kit/libs/android/media_kit_libs_android_video
+    git:
+      url: https://github.com/media-kit/media-kit
+      path: libs/android/media_kit_libs_android_video
+      ref: v1.1.11
   media_kit_libs_ios_video:
-    path: E:/media-kit/libs/ios/media_kit_libs_ios_video
+    git:
+      url: https://github.com/media-kit/media-kit
+      path: libs/ios/media_kit_libs_ios_video
+      ref: v1.1.11
   # 传递依赖拉齐到最新，消除 pub get 提示（win32 6.x 需 Dart 3.11+ 故不覆盖）
   characters: ^1.4.1
   matcher: ^0.12.19
