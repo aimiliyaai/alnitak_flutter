@@ -43,7 +43,7 @@ dependencies:
   # 视频播放器 - media-kit（使用 pili_plus 的第三方 fork，支持 options 参数）
   media_kit: 1.1.11
   media_kit_video: ^1.3.1
-  media_kit_libs_video: 1.0.5
+  media_kit_libs_video: ^1.0.7
   shared_preferences: ^2.2.0
   share_plus: ^12.0.0
   intl: ^0.20.2
@@ -65,7 +65,7 @@ dependencies:
   screen_brightness: ^2.1.7
   volume_controller: ^3.4.2
   # 网络状态监听
-  connectivity_plus: ^7.0.0
+  connectivity_plus: ^7.1.1
   # 文件加密
   crypto: ^3.0.3
   # 文件路径处理
@@ -82,6 +82,11 @@ dependency_overrides:
     path: E:/media-kit/media_kit
   media_kit_video:
     path: E:/media-kit/media_kit_video
+  # 覆盖 libmpv 库版本，获取最新的 v1.1.11
+  media_kit_libs_android_video:
+    path: E:/media-kit/libs/android/media_kit_libs_android_video
+  media_kit_libs_ios_video:
+    path: E:/media-kit/libs/ios/media_kit_libs_ios_video
   # 传递依赖拉齐到最新，消除 pub get 提示（win32 6.x 需 Dart 3.11+ 故不覆盖）
   characters: ^1.4.1
   matcher: ^0.12.19
