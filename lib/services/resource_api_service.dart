@@ -27,7 +27,7 @@ class ResourceApiService {
     }
   }
 
-  /// 删除资源
+/// 删除资源
   static Future<void> deleteResource(int id) async {
     try {
       final response = await _dio.delete(
@@ -39,6 +39,28 @@ class ResourceApiService {
       }
     } catch (e) {
       throw Exception('删除失败: $e');
+    }
+  }
+
+  /// 资源排序
+  static Future<void> reorderResources({
+    required int vid,
+    required List<int> resourceIds,
+  }) async {
+    try {
+      final response = await _dio.put(
+        '/api/v1/resource/reorder',
+        data: {
+          'vid': vid,
+          'resourceIds': resourceIds,
+        },
+      );
+
+      if (response.data['code'] != 200) {
+        throw Exception(response.data['msg'] ?? '排序失败');
+      }
+    } catch (e) {
+      throw Exception('排序失败: $e');
     }
   }
 }

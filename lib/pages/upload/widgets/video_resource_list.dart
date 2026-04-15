@@ -348,9 +348,285 @@ class _VideoResourceListState extends State<VideoResourceList> {
     }
   }
 
+/// 显示错误提示
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  /// 拖拽排序完成
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final item = _resources.removeAt(oldIndex);
+      _resources.insert(newIndex, item);
+    });
+
+    // 同步更新父组件
+    widget.onResourcesChanged?.call(_resources);
+
+    // 调用后端API保存排序
+    if (widget.vid != null) {
+      _saveOrder();
+    }
+  }
+
+  /// 保存排序到后端
+  Future<void> _saveOrder() async {
+    try {
+      final resourceIds = _resources.map((r) => r.id).toList();
+      await ResourceApiService.reorderResources(
+        vid: widget.vid!,
+        resourceIds: resourceIds,
+      );
+      _showSuccess('排序已保存');
+    } catch (e) {
+      _showError('排序保存失败: $e');
+    }
+  }
+
+  /// 显示成功提示
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
+  }
+
+  /// 显示错误提示
+
+  /// 构建单个资源项（用于拖拽列表）
+  Widget _buildResourceItem({required Key key, required int index}) {
+    final resource = _resources[index];
+    final isEditing = _editingIndex == index;
+
+    return Container(
+      key: key,
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        children: [
+          // 拖拽手柄
+          ReorderableDragStartListener(
+            index: index,
+            child: const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Icon(Icons.drag_handle, color: Colors.grey),
+            ),
+          ),
+          // 视频图标和分P编号
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              const Icon(Icons.video_library, size: 38, color: Colors.blue),
+              Positioned(
+                bottom: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                  child: Text(
+                    'P${index + 1}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+
+          // 信息区域
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: isEditing
+                          ? TextField(
+                              controller: _titleEditController,
+                              autofocus: true,
+                              maxLength: 100,
+                              decoration: const InputDecoration(
+                                counterText: '',
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 8,
+                                ),
+                                border: OutlineInputBorder(),
+                              ),
+                              onSubmitted: (_) => _saveTitle(index),
+                            )
+                          : GestureDetector(
+                              onTap: () => _startEditTitle(index),
+                              child: Text(
+                                resource.title.isEmpty ? '未命名视频' : resource.title,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                    ),
+                    if (!isEditing && _resources.length > 1)
+                      TextButton(
+                        onPressed: () => _deleteResource(index),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 32),
+                        ),
+                        child: const Text(
+                          '移除',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getStatusText(resource.status),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    LinearProgressIndicator(
+                      value: 1.0,
+                      backgroundColor: Colors.grey[200],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建普通列表视图（无拖拽，单个分P时使用）
+  Widget _buildResourceListView() {
+    if (_resources.isEmpty) return const SizedBox.shrink();
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemCount: _resources.length,
+      separatorBuilder: (context, index) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final resource = _resources[index];
+        final isEditing = _editingIndex == index;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.video_library, size: 38, color: Colors.blue),
+                  Positioned(
+                    bottom: 2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Text(
+                        'P${index + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: isEditing
+                              ? TextField(
+                                  controller: _titleEditController,
+                                  autofocus: true,
+                                  maxLength: 100,
+                                  decoration: const InputDecoration(
+                                    counterText: '',
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 8,
+                                    ),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onSubmitted: (_) => _saveTitle(index),
+                                )
+                              : GestureDetector(
+                                  onTap: () => _startEditTitle(index),
+                                  child: Text(
+                                    resource.title.isEmpty ? '未命名视频' : resource.title,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                        ),
+                        if (!isEditing && _resources.length > 1)
+                          TextButton(
+                            onPressed: () => _deleteResource(index),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text(
+                              '移除',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getStatusText(resource.status),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        LinearProgressIndicator(
+                          value: 1.0,
+                          backgroundColor: Colors.grey[200],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -449,123 +725,27 @@ class _VideoResourceListState extends State<VideoResourceList> {
 
         if (_uploadQueue.isNotEmpty) const Divider(height: 32),
 
-        // 视频资源列表
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          itemCount: _resources.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final resource = _resources[index];
-            final isEditing = _editingIndex == index;
-
-            return Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Row(
-                children: [
-                  // 视频图标和分P编号
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      const Icon(Icons.video_library, size: 38, color: Colors.blue),
-                      Positioned(
-                        bottom: 2,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                          child: Text(
-                            'P${index + 1}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 12),
-
-                  // 信息区域
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 标题编辑
-                        Row(
-                          children: [
-                            Expanded(
-                              child: isEditing
-                                  ? TextField(
-                                      controller: _titleEditController,
-                                      autofocus: true,
-                                      maxLength: 100,
-                                      decoration: const InputDecoration(
-                                        counterText: '',
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 8,
-                                        ),
-                                        border: OutlineInputBorder(),
-                                      ),
-                                      onSubmitted: (_) => _saveTitle(index),
-                                    )
-                                  : GestureDetector(
-                                      onTap: () => _startEditTitle(index),
-                                      child: Text(
-                                        resource.title.isEmpty ? '未命名视频' : resource.title,
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                    ),
-                            ),
-                            if (!isEditing && _resources.length > 1)
-                              TextButton(
-                                onPressed: () => _deleteResource(index),
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  minimumSize: const Size(0, 32),
-                                ),
-                                child: const Text(
-                                  '移除',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-
-                        // 状态和进度条
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _getStatusText(resource.status),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            LinearProgressIndicator(
-                              value: 1.0,
-                              backgroundColor: Colors.grey[200],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
+// 视频资源列表（支持拖拽排序）
+        if (_resources.length > 1)
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: _resources.length,
+            onReorder: (oldIndex, newIndex) => _onReorder(oldIndex, newIndex),
+            proxyDecorator: (child, index, animation) {
+              return Material(
+                elevation: 4,
+                color: Colors.transparent,
+                child: child,
+              );
+            },
+            itemBuilder: (context, index) {
+              return _buildResourceItem(key: ValueKey(_resources[index].id), index: index);
+            },
+          )
+        else
+          _buildResourceListView(),
       ],
     );
   }
