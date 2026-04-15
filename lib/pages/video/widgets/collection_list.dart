@@ -295,7 +295,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
           } else if (video.vid == widget.vid) {
-            if (partIndex != null && partIndex > 1) {
+            if (partIndex != null) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
@@ -337,7 +337,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
           } else if (video.vid == widget.vid) {
-            if (partIndex != null && partIndex > 1) {
+            if (partIndex != null) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
