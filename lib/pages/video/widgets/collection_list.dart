@@ -295,13 +295,13 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
           } else if (video.vid == widget.vid) {
-            if (partIndex != null) {
+            if (partIndex != null && partIndex > 1) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
-            // 计算目标视频的分P序号
             final targetPart = _getTargetPart(index);
-            widget.onVideoTap(video.vid, part: targetPart);
+            final sendPart = targetPart != null && targetPart > 1 ? targetPart : null;
+            widget.onVideoTap(video.vid, part: sendPart);
           }
         }
       },
@@ -337,12 +337,13 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
           } else if (video.vid == widget.vid) {
-            if (partIndex != null) {
+            if (partIndex != null && partIndex > 1) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
             final targetPart = _getTargetPart(index);
-            widget.onVideoTap(video.vid, part: targetPart);
+            final sendPart = targetPart != null && targetPart > 1 ? targetPart : null;
+            widget.onVideoTap(video.vid, part: sendPart);
           }
         }
       },
