@@ -1030,11 +1030,11 @@ class VideoPlayerController extends ChangeNotifier {
     // 禁用帧插值
     _player!.setProperty('interpolation', 'no');
 
-    // fMP4 容错：discardcorrupt 丢弃损坏帧
+// fMP4 容错：discardcorrupt 丢弃损坏帧
     _player!.setProperty('demuxer-lavf-o', 'fflags=+discardcorrupt');
 
-    // 禁止 demuxer 回退读取，避免 fMP4 fragment 边界触发 PTS 回退导致画面/进度冻结
-    _player!.setProperty('demuxer-max-back-bytes', '0');
+    // 允许小范围回退但限制大规模回退（解决 fMP4 边界问题 + 切换质量回退）
+    //_player!.setProperty('demuxer-max-back-bytes', '0');
 
     // 网络超时配置
     _player!.setProperty('network-timeout', '10');

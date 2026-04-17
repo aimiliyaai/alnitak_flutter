@@ -52,3 +52,4 @@ app.*.map.json
 # Local AI assistant config (do not commit)
 .claude/
 .cursor/
+*.hprof
