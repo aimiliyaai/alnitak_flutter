@@ -651,7 +651,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           final epId = item.latestEpId;
                           if (epId == null || epId <= 0) return;
                           final vid = await PgcApiService.resolveVidByEpisodeId(epId);
-                          if (vid == null || vid <= 0) return;
+                          if (vid == null || vid.isEmpty) return;
                           if (!context.mounted) return;
                           Navigator.push(
                             context,

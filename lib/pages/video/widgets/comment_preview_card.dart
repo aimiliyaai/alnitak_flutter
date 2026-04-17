@@ -11,7 +11,7 @@ import 'comment_list.dart';
 class CommentPreviewCard extends StatelessWidget {
   final int totalComments;
   final Comment? latestComment; // 最新评论
-  final int vid; // 视频ID，用于打开评论面板时传递
+  final String vid; // 视频ID，用于打开评论面板时传递
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
   final VoidCallback? onCommentPosted; // 评论发送成功后的回调
 
@@ -169,7 +169,7 @@ class CommentPreviewCard extends StatelessWidget {
 class CommentPanel extends StatefulWidget {
   final int totalComments;
   final Comment? latestComment;
-  final int vid;
+  final String vid;
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
   final VoidCallback? onCommentPosted; // 评论发送成功后的回调
 

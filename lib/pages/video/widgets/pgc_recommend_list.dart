@@ -7,7 +7,7 @@ import '../../../widgets/cached_image_widget.dart';
 import 'auto_play_source.dart';
 
 class PgcRecommendList extends StatefulWidget {
-  final int vid;
+  final String vid;
   final void Function(PgcItem) onPgcTap;
 
   const PgcRecommendList({
@@ -62,8 +62,8 @@ class PgcRecommendListState extends State<PgcRecommendList> with AutoPlaySource 
   }
 
   // 推荐区不参与自动连播：只保留一个开关（放在正片列表里）
-  @override
-  int? getNextVideo() => null;
+@override
+  String? getNextVideo() => null;
 
   @override
   Widget build(BuildContext context) {

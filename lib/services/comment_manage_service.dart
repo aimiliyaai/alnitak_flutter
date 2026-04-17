@@ -47,12 +47,12 @@ class CommentManageService {
     }
   }
 
-  /// 获取视频评论列表
-  /// [vid] 视频ID，0表示全部视频
+/// 获取视频评论列表
+  /// [vid] 视频ID，空字符串表示全部视频
   /// [page] 页码
   /// [pageSize] 每页数量
   Future<ManageCommentListResponse?> getVideoCommentList({
-    int vid = 0,
+    String vid = '',
     int page = 1,
     int pageSize = 10,
   }) async {
@@ -60,7 +60,7 @@ class CommentManageService {
       final response = await _dio.get(
         '/api/v1/comment/video/getCommentList',
         queryParameters: {
-          'vid': vid,
+          if (vid.isNotEmpty) 'vid': vid,
           'page': page,
           'pageSize': pageSize,
         },

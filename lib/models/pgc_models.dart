@@ -62,13 +62,15 @@ class PgcEpisode {
   final int id;
   final int episodeNumber;
   final String title;
-  final int vid;
+  final String vid;
+  final String? shortId;  // 分P的shortId
 
   PgcEpisode({
     required this.id,
     required this.episodeNumber,
     required this.title,
     required this.vid,
+    this.shortId,
   });
 
   factory PgcEpisode.fromJson(Map<String, dynamic> json) {
@@ -76,7 +78,8 @@ class PgcEpisode {
       id: jsonAsInt(json['id'] ?? json['ep_id']),
       episodeNumber: jsonAsInt(json['episode_number']),
       title: jsonAsString(json['title']),
-      vid: jsonAsInt(json['vid']),
+      vid: json['vid']?.toString() ?? '',
+      shortId: json['shortId'] as String?,
     );
   }
 }

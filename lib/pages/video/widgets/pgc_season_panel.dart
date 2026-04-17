@@ -7,8 +7,8 @@ import '../../../theme/theme_extensions.dart';
 import 'auto_play_source.dart';
 
 class PgcSeasonPanel extends StatefulWidget {
-  final int vid;
-  final ValueChanged<int> onEpisodeTap;
+  final String vid;
+  final ValueChanged<String> onEpisodeTap;
 
   const PgcSeasonPanel({
     super.key,
@@ -91,8 +91,8 @@ class PgcSeasonPanelState extends State<PgcSeasonPanel> with AutoPlaySource {
     _saveSettings();
   }
 
-  @override
-  int? getNextVideo() {
+@override
+  String? getNextVideo() {
     if (!_autoNext) return null;
     final eps = _panel?.episodes ?? const <PgcEpisode>[];
     if (eps.isEmpty) return null;

@@ -5,9 +5,9 @@ import '../utils/http_client.dart';
 class ReviewApiService {
   static final Dio _dio = HttpClient().dio;
 
-  /// 获取视频审核记录
+/// 获取视频审核记录
   /// 参考PC端: revies.ts - getVideoReviewRecordAPI
-  static Future<Map<String, dynamic>> getVideoReviewRecord(int vid) async {
+  static Future<Map<String, dynamic>> getVideoReviewRecord(String vid) async {
     try {
       final response = await _dio.get(
         '/api/v1/review/getVideoReviewRecord',

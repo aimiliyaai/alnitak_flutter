@@ -5,7 +5,7 @@ import '../services/collection_api_service.dart';
 
 /// 收藏到收藏夹弹窗
 class CollectionDialog extends StatefulWidget {
-  final int vid;
+  final String vid;
   final VoidCallback? onCollected;
 
   const CollectionDialog({
@@ -15,7 +15,7 @@ class CollectionDialog extends StatefulWidget {
   });
 
   /// 显示收藏弹窗
-  static Future<bool?> show(BuildContext context, int vid, {VoidCallback? onCollected}) {
+  static Future<bool?> show(BuildContext context, String vid, {VoidCallback? onCollected}) {
     return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,

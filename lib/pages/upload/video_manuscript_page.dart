@@ -22,7 +22,7 @@ enum VideoFilter { all, published, transcoding, transcodeFailed, pendingReview, 
 
 class _VideoManuscriptPageState extends State<VideoManuscriptPage> {
   final ScrollController _scrollController = ScrollController();
-  final Set<int> _expandedProgressVideos = <int>{};
+  final Set<String> _expandedProgressVideos = <String>{};
   Timer? _silentRefreshTimer;
 
   List<ManuscriptVideo> _videos = [];

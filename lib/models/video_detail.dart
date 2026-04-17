@@ -14,7 +14,7 @@ List<String> _parseTagsField(dynamic v) {
 
 /// 视频详情数据模型
 class VideoDetail {
-  final int vid;
+  final String vid;
   // 短 ID（后端返回 shortId，可选）
   final String? shortId;
   final String title;
@@ -47,7 +47,7 @@ class VideoDetail {
 
   factory VideoDetail.fromJson(Map<String, dynamic> json) {
     return VideoDetail(
-      vid: jsonAsInt(json['vid']),
+      vid: jsonAsString(json['vid']),
       shortId: jsonAsStringOrNull(json['shortId']),
       title: jsonAsString(json['title']),
       cover: ImageUtils.getFullImageUrl(jsonAsString(json['cover'])),
@@ -93,7 +93,7 @@ class VideoDetail {
 
 /// 视频资源（分P）
 class VideoResource {
-  final int id;
+  final String id;
   final String? shortId;
   final String title;
   final String url;
@@ -114,7 +114,7 @@ class VideoResource {
   factory VideoResource.fromJson(Map<String, dynamic> json) {
     final playOrUrl = json['playUrl'] ?? json['url'];
     return VideoResource(
-      id: jsonAsInt(json['id']),
+      id: jsonAsString(json['id']),
       shortId: jsonAsStringOrNull(json['shortId']),
       title: jsonAsString(json['title']),
       url: jsonAsString(playOrUrl),

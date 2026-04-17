@@ -46,7 +46,7 @@ class _CommentManagePageState extends State<CommentManagePage>
   // 视频/文章筛选
   List<UserVideoItem> _videoList = [];
   List<UserArticleItem> _articleList = [];
-  int _selectedVideoId = 0; // 0表示全部
+  String _selectedVideoId = ''; // 空表示全部
   int _selectedArticleId = 0; // 0表示全部
 
   @override
@@ -352,11 +352,11 @@ class _CommentManagePageState extends State<CommentManagePage>
   }
 
   /// 跳转到视频
-  void _navigateToVideo(int vid) {
+  void _navigateToVideo(String vid) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => VideoPlayPage(videoRef: vid.toString()),
+        builder: (context) => VideoPlayPage(videoRef: vid),
       ),
     );
   }
@@ -440,8 +440,8 @@ class _CommentManagePageState extends State<CommentManagePage>
                 borderRadius: BorderRadius.circular(8),
               ),
               child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: isVideoTab ? _selectedVideoId : _selectedArticleId,
+                child: DropdownButton<String>(
+                  value: isVideoTab ? _selectedVideoId : _selectedArticleId.toString(),
                   isExpanded: true,
                   dropdownColor: colors.card,
                   style: TextStyle(fontSize: 14, color: colors.textPrimary),
@@ -449,7 +449,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                   items: isVideoTab
                       ? [
                           DropdownMenuItem(
-                            value: 0,
+                            value: '',
                             child: Text('全部视频', style: TextStyle(color: colors.textPrimary)),
                           ),
                           ..._videoList.map((video) => DropdownMenuItem(
@@ -463,11 +463,11 @@ class _CommentManagePageState extends State<CommentManagePage>
                         ]
                       : [
                           DropdownMenuItem(
-                            value: 0,
+                            value: '0',
                             child: Text('全部文章', style: TextStyle(color: colors.textPrimary)),
                           ),
-                          ..._articleList.map((article) => DropdownMenuItem(
-                                value: article.aid,
+..._articleList.map((article) => DropdownMenuItem(
+                              value: article.aid.toString(),
                                 child: Text(
                                   article.title,
                                   style: TextStyle(color: colors.textPrimary),
@@ -478,7 +478,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                   onChanged: (value) {
                     if (isVideoTab) {
                       setState(() {
-                        _selectedVideoId = value ?? 0;
+                        _selectedVideoId = value ?? '';
                         _videoComments = [];
                         _hasMoreVideo = true;
                         _videoPage = 1;
@@ -486,7 +486,7 @@ class _CommentManagePageState extends State<CommentManagePage>
                       _loadVideoComments();
                     } else {
                       setState(() {
-                        _selectedArticleId = value ?? 0;
+                        _selectedArticleId = int.tryParse(value ?? '0') ?? 0;
                         _articleComments = [];
                         _hasMoreArticle = true;
                         _articlePage = 1;

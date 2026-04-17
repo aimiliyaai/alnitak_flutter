@@ -22,7 +22,7 @@ class OnlineWebSocketService {
   bool _isPaused = false; // 后台暂停重连
   DateTime? _lastMessageTime;
 
-  int? _currentVid;
+String? _currentVid;
   String? _clientId;
 
   /// 在线人数，播放器 UI 直接监听此 ValueNotifier
@@ -41,15 +41,15 @@ class OnlineWebSocketService {
     return _clientId!;
   }
 
-  /// 根据 ApiConfig 的 HTTPS 设置自动选择 ws/wss
-  String _buildUrl(int vid, String clientId) {
+/// 根据 ApiConfig 的 HTTPS 设置自动选择 ws/wss
+  String _buildUrl(String vid, String clientId) {
     final protocol = ApiConfig.httpsEnabled ? 'wss' : 'ws';
     return '$protocol://${ApiConfig.host}:${ApiConfig.port}'
         '/api/v1/online/video?vid=$vid&clientId=$clientId';
   }
 
   /// 连接到指定视频房间
-  Future<void> connect(int vid) async {
+  Future<void> connect(String vid) async {
     if (_currentVid == vid && _channel != null) return;
 
     _cleanup();
@@ -62,7 +62,7 @@ class OnlineWebSocketService {
   }
 
   /// 切换视频房间
-  Future<void> switchVideo(int vid) async {
+  Future<void> switchVideo(String vid) async {
     if (_currentVid == vid && _channel != null) return;
     await connect(vid);
   }

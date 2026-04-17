@@ -16,7 +16,7 @@ import '../../user/user_space_page.dart';
 
 /// 评论列表组件 - 优化输入体验
 class CommentList extends StatefulWidget {
-  final int vid; // 视频ID
+  final String vid; // 视频ID
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
 
   const CommentList({
@@ -31,7 +31,7 @@ class CommentList extends StatefulWidget {
 
 /// 评论列表内容（可复用，支持外部 ScrollController）
 class CommentListContent extends StatefulWidget {
-  final int vid;
+  final String vid;
   final ScrollController? scrollController; // 可选的 ScrollController
   final void Function(int seconds)? onSeek; // 点击时间戳跳转回调
   final VoidCallback? onCommentPosted; // 评论发送或删除成功后的回调

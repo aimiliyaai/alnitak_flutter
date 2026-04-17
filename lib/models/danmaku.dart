@@ -65,7 +65,8 @@ enum DanmakuType {
 
 /// 发送弹幕请求模型
 class SendDanmakuRequest {
-  final int vid;
+  final String vid;
+  final String? rid;  // 分P的shortId
   final int part;
   final double time;
   final int type;
@@ -74,6 +75,7 @@ class SendDanmakuRequest {
 
   const SendDanmakuRequest({
     required this.vid,
+    this.rid,
     required this.part,
     required this.time,
     this.type = 0,
@@ -81,9 +83,10 @@ class SendDanmakuRequest {
     required this.text,
   });
 
-  Map<String, dynamic> toJson() {
+Map<String, dynamic> toJson() {
     return {
       'vid': vid,
+      if (rid != null) 'rid': rid,
       'part': part,
       'time': time,
       'type': type,

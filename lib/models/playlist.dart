@@ -35,7 +35,7 @@ class PlaylistInfo {
 
 /// 合集中的视频项
 class PlaylistVideoItem {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String title;
   final String cover;
@@ -59,7 +59,7 @@ class PlaylistVideoItem {
 
   factory PlaylistVideoItem.fromJson(Map<String, dynamic> json) {
     return PlaylistVideoItem(
-      vid: json['vid'] ?? 0,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'],
       title: json['title'] ?? '',
       cover: ImageUtils.getFullImageUrl(json['cover']),

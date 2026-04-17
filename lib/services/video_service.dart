@@ -30,7 +30,7 @@ class VideoService {
   }
 
   /// 获取视频统计信息
-  Future<VideoStat?> getVideoStat(int vid) async {
+  Future<VideoStat?> getVideoStat(String vid) async {
     try {
       final response = await _dio.get('/api/v1/archive/video/stat', queryParameters: {'vid': vid});
       if (response.data['code'] == 200) {
@@ -44,7 +44,7 @@ class VideoService {
   }
 
   /// 视频分享计数+1
-  Future<bool> shareVideo(int vid) async {
+  Future<bool> shareVideo(String vid) async {
     try {
       final response = await _dio.post('/api/v1/archive/video/share', data: {'vid': vid});
       return response.data['code'] == 200;
@@ -55,7 +55,7 @@ class VideoService {
   }
 
   /// 获取用户操作状态（点赞、收藏、关注）
-  Future<UserActionStatus?> getUserActionStatus(int vid, int authorUid) async {
+  Future<UserActionStatus?> getUserActionStatus(String vid, int authorUid) async {
     bool hasLiked = false;
     bool hasCollected = false;
     int relationStatus = 0;
@@ -97,7 +97,7 @@ class VideoService {
   }
 
   /// 点赞视频
-  Future<bool> likeVideo(int vid) async {
+  Future<bool> likeVideo(String vid) async {
     try {
       final response = await _dio.post(
         '/api/v1/archive/video/like',
@@ -111,7 +111,7 @@ class VideoService {
   }
 
   /// 取消点赞
-  Future<bool> unlikeVideo(int vid) async {
+  Future<bool> unlikeVideo(String vid) async {
     try {
       final response = await _dio.post(
         '/api/v1/archive/video/cancelLike',
@@ -125,7 +125,7 @@ class VideoService {
   }
 
   /// 获取视频是否已收藏
-  Future<bool> getCollectStatus(int vid) async {
+  Future<bool> getCollectStatus(String vid) async {
     try {
       final response = await _dio.get('/api/v1/archive/video/hasCollect', queryParameters: {'vid': vid});
       if (response.data['code'] == 200) {
@@ -139,7 +139,7 @@ class VideoService {
   }
 
   /// 获取视频的收藏信息（收藏到了哪些收藏夹）
-  Future<List<int>> getCollectInfo(int vid) async {
+  Future<List<int>> getCollectInfo(String vid) async {
     try {
       final response = await _dio.get('/api/v1/archive/video/getCollectInfo', queryParameters: {'vid': vid});
       if (response.data['code'] == 200) {
@@ -153,7 +153,7 @@ class VideoService {
   }
 
   /// 收藏视频（参考PC端实现）
-  Future<bool> collectVideo(int vid, List<int> addList, List<int> cancelList) async {
+  Future<bool> collectVideo(String vid, List<int> addList, List<int> cancelList) async {
     try {
       final response = await _dio.post('/api/v1/archive/video/collect', data: {
         'vid': vid,
@@ -190,7 +190,7 @@ class VideoService {
   }
 
   /// 获取推荐视频列表
-  Future<List<Map<String, dynamic>>> getRecommendedVideos(int vid) async {
+  Future<List<Map<String, dynamic>>> getRecommendedVideos(String vid) async {
     try {
       final response = await _dio.get('/api/v1/video/getRelatedVideoList', queryParameters: {'vid': vid});
       if (response.data['code'] == 200) {
@@ -236,7 +236,7 @@ class VideoService {
   /// [page] 页码，从1开始
   /// [pageSize] 每页数量
   Future<CommentListResponse?> getComments({
-    required int vid,
+    required String vid,
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -279,7 +279,7 @@ class VideoService {
   /// [replyContent] 回复的评论或回复的内容（可选，用于发送通知）
   /// [at] @的用户名数组（可选）
   Future<bool> postComment({
-    required int cid,
+    required String cid,
     required String content,
     int? parentID,
     int? replyUserID,
@@ -387,7 +387,7 @@ class VideoService {
 
   /// 删除视频 (参考PC端实现)
   /// [vid] 视频ID
-  Future<bool> deleteVideo(int vid) async {
+  Future<bool> deleteVideo(String vid) async {
     try {
       final response = await _dio.delete('/api/v1/video/deleteVideo/$vid');
       return response.data['code'] == 200;

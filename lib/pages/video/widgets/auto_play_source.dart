@@ -7,5 +7,5 @@ mixin AutoPlaySource {
   int? getNextPart() => null;
 
   /// 获取下一个视频 vid（合集/推荐列表提供）
-  int? getNextVideo() => null;
+  String? getNextVideo() => null;
 }

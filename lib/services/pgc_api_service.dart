@@ -49,8 +49,8 @@ class PgcApiService {
     return list.map((e) => PgcItem.fromJson(Map<String, dynamic>.from(e as Map))).toList();
   }
 
-  static Future<PgcPlayPanel?> playPanelByVideo({
-    required int vid,
+static Future<PgcPlayPanel?> playPanelByVideo({
+    required String vid,
     String? seasonId,
   }) async {
     final resp = await _dio.get(
@@ -66,7 +66,7 @@ class PgcApiService {
     return PgcPlayPanel.fromJson(data);
   }
 
-  static Future<int?> resolveVidByEpisodeId(int epId) async {
+static Future<String?> resolveVidByEpisodeId(int epId) async {
     final resp = await _dio.get(
       '/api/v1/pgc/episode-detail',
       queryParameters: {'ep_id': epId},
@@ -75,14 +75,15 @@ class PgcApiService {
     final data = resp.data['data'] as Map<String, dynamic>? ?? {};
     final ep = data['episode'] as Map<String, dynamic>? ?? {};
     final vid = ep['vid'];
-    if (vid is int) return vid;
-    if (vid is num) return vid.toInt();
-    if (vid is String) return int.tryParse(vid);
+    if (vid == null) return null;
+    if (vid is String) return vid;
+    if (vid is int) return vid.toString();
+    if (vid is num) return vid.toString();
     return null;
   }
 
-  static Future<List<PgcItem>> recommendByVideo({
-    required int vid,
+static Future<List<PgcItem>> recommendByVideo({
+    required String vid,
     int page = 1,
     int pageSize = 12,
   }) async {

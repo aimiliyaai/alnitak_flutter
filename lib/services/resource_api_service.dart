@@ -6,8 +6,8 @@ class ResourceApiService {
   static final Dio _dio = HttpClient().dio;
 
   /// 修改资源标题
-  static Future<void> modifyTitle({
-    required int id,
+static Future<void> modifyTitle({
+    required String id,
     required String title,
   }) async {
     try {
@@ -27,8 +27,8 @@ class ResourceApiService {
     }
   }
 
-/// 删除资源
-  static Future<void> deleteResource(int id) async {
+  /// 删除资源
+  static Future<void> deleteResource(String id) async {
     try {
       final response = await _dio.delete(
         '/api/v1/resource/deleteResource/$id',
@@ -44,8 +44,8 @@ class ResourceApiService {
 
   /// 资源排序
   static Future<void> reorderResources({
-    required int vid,
-    required List<int> resourceIds,
+    required String vid,
+    required List<String> resourceIds,
   }) async {
     try {
       final response = await _dio.put(

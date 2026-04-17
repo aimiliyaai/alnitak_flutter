@@ -2,7 +2,7 @@ import '../utils/image_utils.dart';
 
 /// 评论管理 - 视频/文章简要信息
 class ContentBrief {
-  final int id; // vid 或 aid
+  final String id; // vid 或 aid
   final String title;
   final String cover;
 
@@ -14,7 +14,7 @@ class ContentBrief {
 
   factory ContentBrief.fromVideoJson(Map<String, dynamic> json) {
     return ContentBrief(
-      id: json['vid'] ?? 0,
+      id: json['vid']?.toString() ?? '',
       title: json['title'] ?? '',
       cover: ImageUtils.getFullImageUrl(json['cover'] ?? ''),
     );
@@ -22,7 +22,7 @@ class ContentBrief {
 
   factory ContentBrief.fromArticleJson(Map<String, dynamic> json) {
     return ContentBrief(
-      id: json['aid'] ?? 0,
+      id: json['aid']?.toString() ?? '',
       title: json['title'] ?? '',
       cover: ImageUtils.getFullImageUrl(json['cover'] ?? ''),
     );
@@ -148,7 +148,7 @@ class ManageCommentListResponse {
 
 /// 用户视频列表项（用于下拉选择）
 class UserVideoItem {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String title;
 
@@ -160,7 +160,7 @@ class UserVideoItem {
 
   factory UserVideoItem.fromJson(Map<String, dynamic> json) {
     return UserVideoItem(
-      vid: json['vid'] ?? 0,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
     );

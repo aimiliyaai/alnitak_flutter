@@ -3,7 +3,7 @@ import '../config/api_config.dart';
 import '../utils/video_route.dart';
 
 class VideoItem {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String id;
   final String title;
@@ -45,7 +45,7 @@ class VideoItem {
     return VideoItem(
       vid: apiModel.vid,
       shortId: apiModel.shortId,
-      id: apiModel.vid.toString(),
+      id: apiModel.vid,
       title: apiModel.title,
       coverUrl: getFullImageUrl(apiModel.cover),
       authorName: apiModel.author.name,

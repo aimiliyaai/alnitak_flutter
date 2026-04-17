@@ -11,7 +11,7 @@ List<String> _parseTags(dynamic v) {
 
 /// 上传视频模型
 class UploadVideo {
-  final int vid;
+  final String vid;
   final String title;
   final String cover;
   final String desc;
@@ -45,7 +45,7 @@ class UploadVideo {
 /// 编辑视频模型
 /// 参考PC端：编辑时不允许修改分区（EditVideoType不包含partitionId字段）
 class EditVideo {
-  final int vid;
+  final String vid;
   final String title;
   final String cover;
   final String desc;
@@ -72,14 +72,14 @@ class EditVideo {
 
 /// 视频资源模型
 class VideoResource {
-  final int id;
+  final String id;
   final String title;
   final String? url;
   final double? duration;
   final int status;
   final int? quality; // 清晰度
   final String? createdAt;
-  final int? vid; // 视频ID
+  final String? vid; // 视频ID
 
   VideoResource({
     required this.id,
@@ -94,14 +94,14 @@ class VideoResource {
 
   factory VideoResource.fromJson(Map<String, dynamic> json) {
     return VideoResource(
-      id: json['id'] as int,
+      id: json['id']?.toString() ?? '',
       title: json['title'] as String? ?? '',
       url: json['url'] as String?,
       duration: (json['duration'] as num?)?.toDouble(),
       status: json['status'] as int? ?? 0,
       quality: json['quality'] as int?,
       createdAt: json['createdAt'] as String?,
-      vid: json['vid'] as int?,
+      vid: json['vid']?.toString(),
     );
   }
 
@@ -121,7 +121,7 @@ class VideoResource {
 
 /// 视频状态模型
 class VideoStatus {
-  final int vid;
+  final String vid;
   final String title;
   final String cover;
   final String desc;
@@ -147,7 +147,7 @@ class VideoStatus {
 
   factory VideoStatus.fromJson(Map<String, dynamic> json) {
     return VideoStatus(
-      vid: json['vid'] as int? ?? 0,
+      vid: json['vid']?.toString() ?? '',
       title: json['title'] as String? ?? '',
       cover: json['cover'] as String? ?? '',
       desc: json['desc'] as String? ?? '',
@@ -167,7 +167,7 @@ class VideoStatus {
 
 /// 用户投稿视频列表项
 class ManuscriptVideo {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String title;
   final String cover;
@@ -191,7 +191,7 @@ class ManuscriptVideo {
 
   factory ManuscriptVideo.fromJson(Map<String, dynamic> json) {
     return ManuscriptVideo(
-      vid: json['vid'] as int,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'] as String?,
       title: json['title'] as String,
       cover: json['cover'] as String,

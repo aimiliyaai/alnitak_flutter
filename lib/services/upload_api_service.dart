@@ -43,11 +43,11 @@ class UploadApiService {
   /// [vid] 可选的视频ID，用于添加多分P（参考PC端：有vid时使用不同的endpoint）
   /// [filename] 可选的原始文件名，如果不传则使用file路径的文件名
   /// [onCancel] 可选的取消回调，返回true表示需要取消上传
-  static Future<Map<String, dynamic>> uploadVideo({
+static Future<Map<String, dynamic>> uploadVideo({
     required File file,
     required String title,
     required Function(double) onProgress,
-    int? vid,
+    String? vid,
     String? filename,
     bool Function()? onCancel,
   }) async {
@@ -271,7 +271,7 @@ class UploadApiService {
   }
 
   /// 获取视频信息
-  static Future<Map<String, dynamic>> _getVideoInfo({required int fileID, required int size, required String title, int? vid}) async {
+static Future<Map<String, dynamic>> _getVideoInfo({required int fileID, required int size, required String title, String? vid}) async {
     final endpoint = vid != null ? '/api/v1/upload/video/$vid' : '/api/v1/upload/video';
 
 

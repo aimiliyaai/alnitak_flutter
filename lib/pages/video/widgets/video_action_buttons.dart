@@ -12,7 +12,7 @@ import '../../../theme/theme_extensions.dart';
 
 /// 视频操作按钮（点赞、收藏、分享）
 class VideoActionButtons extends StatefulWidget {
-  final int vid;
+  final String vid;
   // 当前分P（用于分享URL中的 p 参数，可选）
   final int? currentPart;
   // 短 ID（用于分享URL中的 v 参数，可选，优先于 vid）
@@ -247,7 +247,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
   /// 获取分享URL
   String _getShareUrl() {
     // 统一播放页链接为 /watch?v=<shortId 或 vid>&p=<part>
-    final id = widget.shortId?.isNotEmpty == true ? widget.shortId! : widget.vid.toString();
+    final id = widget.shortId?.isNotEmpty == true ? widget.shortId! : widget.vid;
     final buffer = StringBuffer('watch?v=$id');
     if (widget.currentPart != null && widget.currentPart! > 1) {
       buffer.write('&p=${widget.currentPart}');
@@ -504,7 +504,7 @@ class _VideoActionButtonsState extends State<VideoActionButtons>
 
 /// 收藏对话框组件（参考PC端实现）
 class _CollectionListDialog extends StatefulWidget {
-  final int vid;
+  final String vid;
   final List<Collection> collectionList;
   final List<int> defaultCheckedIds;
 

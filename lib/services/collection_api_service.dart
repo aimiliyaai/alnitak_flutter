@@ -137,8 +137,8 @@ class CollectionApiService {
 
   // ==================== 视频收藏操作 ====================
 
-  /// 检查视频是否被收藏
-  Future<bool> hasCollectVideo(int vid) async {
+/// 检查视频是否被收藏
+  Future<bool> hasCollectVideo(String vid) async {
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/archive/video/hasCollect',
@@ -155,8 +155,8 @@ class CollectionApiService {
     }
   }
 
-  /// 获取视频被收藏到的收藏夹ID列表
-  Future<List<int>> getVideoCollectInfo(int vid) async {
+/// 获取视频被收藏到的收藏夹ID列表
+  Future<List<int>> getVideoCollectInfo(String vid) async {
     try {
       final response = await _httpClient.dio.get(
         '/api/v1/archive/video/getCollectInfo',

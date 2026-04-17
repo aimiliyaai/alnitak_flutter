@@ -16,7 +16,7 @@ import '../../widgets/partition_section.dart';
 import 'widgets/video_resource_list.dart';
 
 class VideoUploadPage extends StatefulWidget {
-  final int? vid; // 如果是编辑模式，传入vid
+  final String? vid; // 如果是编辑模式，传入vid
 
   const VideoUploadPage({super.key, this.vid});
 
@@ -348,7 +348,7 @@ Future<void> _uploadVideo({String? title}) async {
         _isUploading = false;
       });
 
-      final vid = videoInfo['vid'] as int?;
+      final vid = videoInfo['vid']?.toString();
 
       // 【新增】上传成功后清理当前视频临时文件
       if (_videoFile != null) {

@@ -94,8 +94,9 @@ class DanmakuController extends ChangeNotifier {
   /// 当前显示的弹幕
   final List<DanmakuItem> _activeDanmakus = [];
 
-  /// 当前视频ID
-  int? _currentVid;
+/// 当前视频ID
+  String? _currentVid;
+  String? _currentRid;  // 当前分P的shortId
   /// 当前分P
   int _currentPart = 1;
 
@@ -239,12 +240,14 @@ class DanmakuController extends ChangeNotifier {
      }
    }
 
-  /// 加载弹幕数据
+/// 加载弹幕数据
   Future<void> loadDanmaku({
-    required int vid,
+    required String vid,
+    String? rid,
     int part = 1,
   }) async {
     _currentVid = vid;
+    _currentRid = rid;
     _currentPart = part;
 
     try {
@@ -622,9 +625,10 @@ class DanmakuController extends ChangeNotifier {
     _danmakuList.add(localDanmaku);
     notifyListeners();
 
-    // 2. 发送网络请求
+// 2. 发送网络请求
     final request = SendDanmakuRequest(
       vid: _currentVid!,
+      rid: _currentRid,
       part: _currentPart,
       time: _currentTime,
       type: type,

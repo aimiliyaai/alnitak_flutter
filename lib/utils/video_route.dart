@@ -1,8 +1,8 @@
 /// 播放页路由/API 使用的视频标识：与后端 ParseVideoID 一致，优先 opaque shortId。
-String videoPathRef({required int vid, String? shortId}) {
+String videoPathRef({required String vid, String? shortId}) {
   final s = shortId?.trim();
   if (s != null && s.isNotEmpty) return s;
-  return vid.toString();
+  return vid;
 }
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ bool isPgcVideoPlayRef(String ref) => ref.trim().startsWith(kPgcVideoPlayRefPref
 
 /// 构造 PGC 播放路由字符串。
 /// [epId] 缺省或 ≤0 时生成 `pgc:<vid>:`，仍进入 PGC 播放模式。
-String pgcVideoPlayRef(int vid, {int? epId}) {
+String pgcVideoPlayRef(String vid, {int? epId}) {
   if (epId != null && epId > 0) {
     return '$kPgcVideoPlayRefPrefix$vid:$epId';
   }
@@ -25,7 +25,7 @@ String pgcVideoPlayRef(int vid, {int? epId}) {
 
 /// 从 `pgc:` 引用中解析出的 vid / 可选 epId（第二段须为正整数）。
 class ParsedPgcVideoPlayRef {
-  final int vid;
+  final String vid;
   final int? epId;
 
   const ParsedPgcVideoPlayRef({required this.vid, this.epId});
@@ -39,8 +39,7 @@ ParsedPgcVideoPlayRef? tryParsePgcVideoPlayRef(String raw) {
   if (parts.length < 2) return null;
   final vidStr = parts[1].trim();
   if (vidStr.isEmpty) return null;
-  final vid = int.tryParse(vidStr);
-  if (vid == null || vid <= 0) return null;
+  final vid = vidStr;
   int? epId;
   if (parts.length >= 3) {
     final epStr = parts[2].trim();
@@ -58,7 +57,7 @@ ParsedPgcVideoPlayRef? tryParsePgcVideoPlayRef(String raw) {
 String resolveVideoRefForPlayback(String videoRef) {
   final t = videoRef.trim();
   final parsed = tryParsePgcVideoPlayRef(t);
-  if (parsed != null) return parsed.vid.toString();
+  if (parsed != null) return parsed.vid;
   if (isPgcVideoPlayRef(t)) {
     final parts = t.split(':');
     if (parts.length >= 2 && parts[1].trim().isNotEmpty) {

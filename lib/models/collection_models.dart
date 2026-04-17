@@ -101,7 +101,7 @@ class CollectionItem {
 
 /// 收藏夹内的视频
 class CollectionVideo {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String title;
   final String cover;
@@ -123,7 +123,7 @@ class CollectionVideo {
 
   factory CollectionVideo.fromJson(Map<String, dynamic> json) {
     return CollectionVideo(
-      vid: json['vid'] ?? 0,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
       cover: json['cover'] ?? '',
@@ -178,7 +178,7 @@ class CollectionVideoAuthor {
 
 /// 收藏操作参数
 class CollectVideoParams {
-  final int vid;
+  final String vid;
   final List<int> addList; // 新增到的收藏夹ID
   final List<int> cancelList; // 移除的收藏夹ID
 

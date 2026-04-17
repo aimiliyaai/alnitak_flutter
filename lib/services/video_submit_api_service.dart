@@ -38,8 +38,8 @@ class VideoSubmitApiService {
     }
   }
 
-  /// 获取视频状态
-  static Future<VideoStatus> getVideoStatus(int vid) async {
+/// 获取视频状态
+  static Future<VideoStatus> getVideoStatus(String vid) async {
     try {
       final response = await _dio.get(
         '/api/v1/video/getVideoStatus',
@@ -91,8 +91,8 @@ class VideoSubmitApiService {
     }
   }
 
-  /// 删除视频
-  static Future<void> deleteVideo(int vid) async {
+/// 删除视频
+  static Future<void> deleteVideo(String vid) async {
     try {
       final response = await _dio.delete('/api/v1/video/deleteVideo/$vid');
 
@@ -104,10 +104,10 @@ class VideoSubmitApiService {
     }
   }
 
-  /// 添加视频资源
+/// 添加视频资源
   static Future<void> addVideoResource({
-    required int vid,
-    required int resourceId,
+    required String vid,
+    required String resourceId,
   }) async {
     try {
       final response = await _dio.post(
@@ -126,10 +126,10 @@ class VideoSubmitApiService {
     }
   }
 
-  /// 删除视频资源
+/// 删除视频资源
   static Future<void> deleteVideoResource({
-    required int vid,
-    required int resourceId,
+    required String vid,
+    required String resourceId,
   }) async {
     try {
       final response = await _dio.post(

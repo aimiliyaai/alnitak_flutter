@@ -50,7 +50,7 @@ class MessageUserInfo {
 
 /// 基础视频信息（用于消息展示）
 class MessageVideoInfo {
-  final int vid;
+  final String vid;
   final String? shortId;
   final String title;
   final String cover;
@@ -64,7 +64,7 @@ class MessageVideoInfo {
 
   factory MessageVideoInfo.fromJson(Map<String, dynamic> json) {
     return MessageVideoInfo(
-      vid: json['vid'] ?? 0,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'] as String?,
       title: json['title'] ?? '',
       cover: json['cover'] ?? '',

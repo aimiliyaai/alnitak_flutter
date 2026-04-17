@@ -38,8 +38,10 @@ class VideoPageController extends ChangeNotifier {
   bool isLoading = true;
   String? errorMessage;
 
-  /// 解析后的数字视频 id（接口返回）；首包加载完成前可能为 0
-  int currentVid = 0;
+/// 当前视频 id
+  String? currentVid;
+  /// 当前资源标识（rid）
+  String? _currentRid;
   String? _bootstrapVideoRef;
   late int currentPart;
   /// 当前资源标识（优先 shortId，回退 int ID）
@@ -73,7 +75,7 @@ class VideoPageController extends ChangeNotifier {
 
   int _nextPageRequestToken() => ++_pageRequestToken;
 
-  bool _isActiveRequest(int token, {int? expectedVid}) {
+bool _isActiveRequest(int token, {String? expectedVid}) {
     if (_disposed || token != _pageRequestToken) return false;
     if (expectedVid != null && currentVid != expectedVid) return false;
     return true;
@@ -81,10 +83,10 @@ class VideoPageController extends ChangeNotifier {
 
   // ============ 初始化 / 销毁 ============
 
-  void init(String videoRef, {int? initialPart}) {
+void init(String videoRef, {int? initialPart}) {
     final t = videoRef.trim();
     _bootstrapVideoRef = t.isEmpty ? null : t;
-    currentVid = 0;
+    currentVid = null;
     currentPart = initialPart ?? 1;
     danmakuController.addListener(_onDanmakuChanged);
     _authStateManager.addListener(_onAuthStateChanged);
@@ -100,7 +102,10 @@ class VideoPageController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _authStateManager.removeListener(_onAuthStateChanged);
-    progressTracker.saveOnDispose(currentVid, currentPart, playerController);
+    final vid = currentVid;
+    if (vid != null) {
+      progressTracker.saveOnDispose(vid, _currentRid, currentPart, playerController);
+    }
     danmakuController.removeListener(_onDanmakuChanged);
     danmakuController.dispose();
     danmakuCountNotifier.dispose();
@@ -203,11 +208,11 @@ class VideoPageController extends ChangeNotifier {
     return (part, adjustedProgress);
   }
 
-  Future<void> _fetchProgressAndRestore(
+Future<void> _fetchProgressAndRestore(
       {int? part,
       required int requestToken,
-      required int requestVid,
-      required int expectedVid}) async {
+      required String requestVid,
+      required String expectedVid}) async {
     try {
       final progressData =
           await _historyService.getProgress(vid: requestVid, part: part);
@@ -223,12 +228,13 @@ class VideoPageController extends ChangeNotifier {
 
   // ============ 开始播放 ============
 
-  void _startPlayback(int part, double? position) {
+void _startPlayback(int part, double? position) {
     if (_disposed) return;
 
     final currentResource = videoDetail!.resources[part - 1];
-    playerController?.setVideoContext(vid: currentVid, part: part);
-    progressTracker.lock(currentVid, part);
+    _currentRid = currentResource.shortId ?? currentResource.id;
+    playerController?.setVideoContext(vid: currentVid!, part: part);
+    progressTracker.lock(currentVid!, _currentRid, part);
     progressTracker.reset();
 
     currentPart = part;
@@ -236,7 +242,7 @@ class VideoPageController extends ChangeNotifier {
     currentInitialPosition = position;
     notifyListeners();
 
-    danmakuController.loadDanmaku(vid: currentVid, part: part);
+    danmakuController.loadDanmaku(vid: currentVid!, rid: _currentRid, part: part);
 
     LoggerService.instance.reportEvent(
       '开始播放',
@@ -246,10 +252,10 @@ class VideoPageController extends ChangeNotifier {
 
   // ============ 次要数据 ============
 
-  Future<void> _loadSecondaryData(int authorUid,
+Future<void> _loadSecondaryData(int authorUid,
       {required int requestToken,
-      required int requestVid,
-      int? expectedVid}) async {
+      required String requestVid,
+      String? expectedVid}) async {
     final futures = await Future.wait([
       _videoService.getVideoStat(requestVid).catchError((e) => null),
       _videoService
@@ -277,9 +283,9 @@ class VideoPageController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshCommentPreview() async {
-    if (currentVid == 0) return;
-    final requestVid = currentVid;
+Future<void> refreshCommentPreview() async {
+    if (currentVid == null) return;
+    final requestVid = currentVid!;
     try {
       final commentResponse = await _videoService.getComments(
           vid: requestVid, page: 1, pageSize: 1);
@@ -299,8 +305,9 @@ class VideoPageController extends ChangeNotifier {
   Future<void> _refreshAuthorInfo() async {
     if (videoDetail == null) return;
     final requestVid = currentVid;
+    if (requestVid == null) return;
     try {
-      final detail = await _videoService.getVideoDetail(requestVid.toString());
+      final detail = await _videoService.getVideoDetail(requestVid);
       if (_disposed || currentVid != requestVid) return;
       if (detail != null) {
         videoDetail = detail;
@@ -312,10 +319,10 @@ class VideoPageController extends ChangeNotifier {
   }
 
   Future<void> refreshUserActionStatus() async {
-    if (videoDetail == null || currentVid == 0) return;
+    if (videoDetail == null || currentVid == null) return;
     try {
       final status = await _videoService.getUserActionStatus(
-          currentVid, videoDetail!.author.uid);
+          currentVid!, videoDetail!.author.uid);
       if (status != null && !_disposed) {
         actionStatus = status;
         notifyListeners();
@@ -336,14 +343,14 @@ class VideoPageController extends ChangeNotifier {
       return;
     }
 
-    final requestToken = ++_changePartToken;
+final requestToken = ++_changePartToken;
     final oldPart = currentPart;
 
     progressTracker.unlock();
-    await progressTracker.saveBeforeSwitch(currentVid, oldPart);
+    await progressTracker.saveBeforeSwitch(currentVid!, _currentRid, oldPart);
 
     final progressData =
-        await _historyService.getProgress(vid: currentVid, part: part);
+        await _historyService.getProgress(vid: currentVid!, part: part);
     if (_disposed || requestToken != _changePartToken) return;
 
     var progress = progressData?.progress;
@@ -351,9 +358,10 @@ class VideoPageController extends ChangeNotifier {
     if (progress != null && progress > 2) progress = progress - 2;
 
     final newResource = videoDetail!.resources[part - 1];
-    playerController?.setVideoContext(vid: currentVid, part: part);
+    _currentRid = newResource.shortId ?? newResource.id as String?;
+    playerController?.setVideoContext(vid: currentVid!, part: part);
 
-    progressTracker.lock(currentVid, part);
+    progressTracker.lock(currentVid!, _currentRid, part);
     progressTracker.reset();
 
     currentPart = part;
@@ -361,25 +369,27 @@ class VideoPageController extends ChangeNotifier {
     currentInitialPosition = progress;
     notifyListeners();
 
-    danmakuController.loadDanmaku(vid: currentVid, part: part);
+    danmakuController.loadDanmaku(vid: currentVid!, rid: _currentRid, part: part);
     onComplete?.call();
   }
 
-  // ============ 视频切换（无缝） ============
+// ============ 视频切换（无缝） ============
 
-  Future<void> switchToVideo(int vid,
+  Future<void> switchToVideo(String vid,
       {int? part, VoidCallback? onComplete}) async {
     if (vid == currentVid || _isSwitchingVideo) return;
     _isSwitchingVideo = true;
 
     final oldVid = currentVid;
+    final oldRid = _currentRid;
     final oldPart = currentPart;
 
     progressTracker.unlock();
     currentVid = vid;
+    _currentRid = null;
 
     try {
-      await progressTracker.saveBeforeSwitch(oldVid, oldPart);
+      await progressTracker.saveBeforeSwitch(oldVid!, oldRid, oldPart);
 
       progressTracker.reset();
       currentPart = 1;
@@ -398,12 +408,13 @@ class VideoPageController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadVideoDataSeamless({int? targetPart}) async {
+Future<void> _loadVideoDataSeamless({int? targetPart}) async {
     final targetVid = currentVid;
+    if (targetVid == null) return;
     final requestToken = _nextPageRequestToken();
 
     try {
-      final detail = await _videoService.getVideoDetail(targetVid.toString());
+      final detail = await _videoService.getVideoDetail(targetVid);
       if (!_isActiveRequest(requestToken, expectedVid: targetVid)) return;
 
       if (detail == null) {
@@ -412,6 +423,8 @@ class VideoPageController extends ChangeNotifier {
         return;
       }
 
+      final newResource = detail.resources.isNotEmpty ? detail.resources[0] : null;
+      _currentRid = newResource?.shortId ?? newResource?.id;
       videoDetail = detail;
       currentVid = detail.vid;
       currentPart = 1;
@@ -439,8 +452,8 @@ class VideoPageController extends ChangeNotifier {
     }
   }
 
-  Future<void> _fetchProgressAndRestoreSeamless({
-    required int targetVid,
+Future<void> _fetchProgressAndRestoreSeamless({
+    required String targetVid,
     required VideoDetail videoDetail,
     int? targetPart,
     required int requestToken,
@@ -467,10 +480,11 @@ class VideoPageController extends ChangeNotifier {
   void _startPlaybackSeamless(VideoDetail detail, int part, double? position) {
     if (_disposed || currentVid != detail.vid) return;
 
-    final currentResource = detail.resources[part - 1];
-    playerController?.setVideoContext(vid: detail.vid, part: part);
+final currentResource = detail.resources[part - 1];
+    _currentRid = currentResource.shortId ?? currentResource.id as String?;
+    playerController?.setVideoContext(vid: currentVid!, part: part);
 
-    progressTracker.lock(detail.vid, part);
+    progressTracker.lock(currentVid!, _currentRid, part);
     progressTracker.reset();
 
     currentPart = part;
@@ -478,7 +492,7 @@ class VideoPageController extends ChangeNotifier {
     currentInitialPosition = position;
     notifyListeners();
 
-    danmakuController.loadDanmaku(vid: detail.vid, part: part);
+    danmakuController.loadDanmaku(vid: detail.vid, rid: _currentRid, part: part);
   }
 
   // ============ 播放器事件处理 ============
@@ -496,9 +510,9 @@ class VideoPageController extends ChangeNotifier {
     progressTracker.onProgressUpdate(position, totalDuration);
   }
 
-  void onVideoEnded() {
+void onVideoEnded() {
     final shouldAutoPlay =
-        progressTracker.onVideoEnded(currentVid, currentPart, playerController);
+        progressTracker.onVideoEnded(currentVid!, _currentRid, currentPart, playerController);
     if (!shouldAutoPlay) return;
 
     // 自动连播：分P → 合集 → 推荐

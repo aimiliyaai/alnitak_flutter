@@ -64,7 +64,7 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
         ArticleApiService.getArticleStat(widget.aid),
         ArticleApiService.hasLikedArticle(widget.aid),
         ArticleApiService.hasCollectedArticle(widget.aid),
-        _videoService.getUserActionStatus(0, article.author.uid),
+        _videoService.getUserActionStatus('', article.author.uid),
         ArticleApiService.getArticleComments(aid: widget.aid, page: 1, pageSize: 1),
       ]);
 
@@ -134,8 +134,8 @@ class _ArticleViewPageState extends State<ArticleViewPage> {
 
       if (success) {
         // 重新获取关系状态以更新按钮显示
-        final response = await _videoService.getUserActionStatus(
-          0,
+final response = await _videoService.getUserActionStatus(
+          '',
           _article!.author.uid,
         );
 

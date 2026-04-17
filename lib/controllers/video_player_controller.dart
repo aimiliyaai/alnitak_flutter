@@ -110,7 +110,9 @@ class VideoPlayerController extends ChangeNotifier {
   DateTime? _lastSeekAt;
 
 
-  int? _currentVid;
+String? _currentVid;
+  // ignore: unused_field - 保留以备将来使用（如进度上报）
+  String? _currentRid;  
   int _currentPart = 1;
 
   // 视频元数据（通知栏显示）
@@ -1097,8 +1099,9 @@ class VideoPlayerController extends ChangeNotifier {
     );
   }
 
-  void setVideoContext({required int vid, int part = 1}) {
+void setVideoContext({required String vid, String? rid, int part = 1}) {
     _currentVid = vid;
+    _currentRid = rid;
     _currentPart = part;
   }
 

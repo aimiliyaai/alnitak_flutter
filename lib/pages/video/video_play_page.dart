@@ -79,12 +79,13 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
 
   void _onControllerChanged() {
     if (mounted) setState(() {});
-    if (_isPGCMode && _controller.currentVid > 0 && _pgcPanel == null) {
-      _loadPgcMeta(_controller.currentVid);
+    final currentVid = _controller.currentVid;
+    if (_isPGCMode && currentVid != null && currentVid.isNotEmpty && _pgcPanel == null) {
+      _loadPgcMeta(currentVid);
     }
   }
 
-  Future<void> _loadPgcMeta(int vid) async {
+  Future<void> _loadPgcMeta(String vid) async {
     try {
       final panel = await PgcApiService.playPanelByVideo(vid: vid);
       final rec = await PgcApiService.recommendByVideo(vid: vid);
@@ -333,7 +334,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                 onProgressUpdate: c.onProgressUpdate,
                 onControllerReady: (controller) {
                   c.playerController = controller;
-                  controller.setVideoContext(vid: c.currentVid, part: c.currentPart);
+                  controller.setVideoContext(vid: c.currentVid!, part: c.currentPart);
                   controller.onReplayAfterCompletion = () {
                     if (!mounted) return;
                     c.onReplayFromEnd();
@@ -379,7 +380,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: VideoActionButtons(
-                      vid: c.currentVid,
+                      vid: c.currentVid!,
                       currentPart: c.currentPart,
                       shortId: c.videoDetail!.shortId,
                       initialStat: c.videoStat!,
@@ -411,14 +412,14 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                       child: _isPGCMode
                           ? PgcSeasonPanel(
                               key: _pgcSeasonKey,
-                              vid: c.currentVid,
+                              vid: c.currentVid!,
                               onEpisodeTap: (vid) => c.switchToVideo(vid, onComplete: _scrollToTop),
                             )
                           : CollectionList(
                               key: _collectionListKey,
-                              vid: c.currentVid,
+                              vid: c.currentVid!,
                               currentPart: c.currentPart,
-                              onVideoTap: (vid, {int? part}) =>
+                              onVideoTap: (vid, {String? shortId, int? part}) =>
                                   c.switchToVideo(vid, part: part, onComplete: _scrollToTop),
                               onPartTap: (part) => c.changePart(part, onComplete: _scrollToTop),
                             ),
@@ -427,7 +428,7 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: CommentPreviewCard(
-                      vid: c.currentVid,
+                      vid: c.currentVid!,
                       totalComments: c.totalComments,
                       latestComment: c.latestComment,
                       onSeek: (seconds) {
@@ -443,19 +444,19 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
                       child: _isPGCMode
                           ? PgcRecommendList(
                               key: _pgcRecommendKey,
-                              vid: c.currentVid,
+                              vid: c.currentVid!,
                               onPgcTap: (item) async {
                                 final epId = item.latestEpId;
-                                if (epId == null || epId <= 0) return;
+                                if (epId == null) return;
                                 final vid = await PgcApiService.resolveVidByEpisodeId(epId);
-                                if (vid == null || vid <= 0) return;
+                                if (vid == null || vid.isEmpty) return;
                                 c.switchToVideo(vid, onComplete: _scrollToTop);
                               },
                             )
                           : RecommendList(
                               key: _recommendListKey,
-                              vid: c.currentVid,
-                              onVideoTap: (vid) => c.switchToVideo(vid, onComplete: _scrollToTop),
+                              vid: c.currentVid!,
+                              onVideoTap: (vid, {String? shortId}) => c.switchToVideo(vid, onComplete: _scrollToTop),
                             ),
                     ),
                 ],
@@ -491,33 +492,33 @@ class _VideoPlayPageState extends State<VideoPlayPage> with WidgetsBindingObserv
             _isPGCMode
                 ? PgcSeasonPanel(
                     key: _pgcSeasonKey,
-                    vid: c.currentVid,
+                    vid: c.currentVid!,
                     onEpisodeTap: (vid) => c.switchToVideo(vid, onComplete: _scrollToTop),
                   )
                 : CollectionList(
                     key: _collectionListKey,
-                    vid: c.currentVid,
+                    vid: c.currentVid!,
                     currentPart: c.currentPart,
-                    onVideoTap: (vid, {int? part}) => c.switchToVideo(vid, part: part, onComplete: _scrollToTop),
+                    onVideoTap: (vid, {String? shortId, int? part}) => c.switchToVideo(vid, part: part, onComplete: _scrollToTop),
                     onPartTap: (part) => c.changePart(part, onComplete: _scrollToTop),
                   ),
             const SizedBox(height: 16),
             _isPGCMode
                 ? PgcRecommendList(
                     key: _pgcRecommendKey,
-                    vid: c.currentVid,
+                    vid: c.currentVid!,
                     onPgcTap: (item) async {
                       final epId = item.latestEpId;
-                      if (epId == null || epId <= 0) return;
+                      if (epId == null) return;
                       final vid = await PgcApiService.resolveVidByEpisodeId(epId);
-                      if (vid == null || vid <= 0) return;
+                      if (vid == null || vid.isEmpty) return;
                       c.switchToVideo(vid, onComplete: _scrollToTop);
                     },
                   )
                 : RecommendList(
                     key: _recommendListKey,
-                    vid: c.currentVid,
-                    onVideoTap: (vid) => c.switchToVideo(vid, onComplete: _scrollToTop),
+                    vid: c.currentVid!,
+                    onVideoTap: (vid, {String? shortId}) => c.switchToVideo(vid, onComplete: _scrollToTop),
                   ),
           ],
         ),

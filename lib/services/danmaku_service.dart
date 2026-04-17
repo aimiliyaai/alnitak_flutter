@@ -12,10 +12,10 @@ class DanmakuService {
   final Dio _dio = HttpClient().dio;
 
   /// 获取视频弹幕列表
-  /// [vid] 视频ID
+  /// [vid] 视频ID (支持 shortId)
   /// [part] 分P编号（从1开始）
   Future<List<Danmaku>> getDanmakuList({
-    required int vid,
+    required String vid,
     int part = 1,
   }) async {
     try {

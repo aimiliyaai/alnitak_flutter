@@ -7,8 +7,8 @@ import '../../../widgets/cached_image_widget.dart';
 
 /// 视频推荐列表
 class RecommendList extends StatefulWidget {
-  final int vid;
-  final Function(int) onVideoTap;
+  final String vid;
+  final Function(String vid, {String? shortId}) onVideoTap;
 
   const RecommendList({
     super.key,
@@ -63,8 +63,8 @@ class RecommendListState extends State<RecommendList> with AutoPlaySource {
   Future<void> _fetchRecommendVideos() async {
     if (!mounted) return;
 
-    // 无效 vid 直接显示空状态
-    if (widget.vid <= 0) {
+// 无效 vid 直接显示空状态
+    if (widget.vid.isEmpty) {
       setState(() {
         _recommendVideos = [];
         _isLoading = false;
@@ -102,15 +102,15 @@ class RecommendListState extends State<RecommendList> with AutoPlaySource {
     _saveSettings();
   }
 
-  @override
-  int? getNextVideo() {
+@override
+  String? getNextVideo() {
     if (!_autoNext || _recommendVideos.isEmpty) return null;
     // _currentPlayIndex 为 -1 表示还没开始播放推荐视频，此时返回第一个
     // 否则返回下一个视频
     final nextIndex = _currentPlayIndex + 1;
     if (nextIndex < _recommendVideos.length) {
       _currentPlayIndex = nextIndex;
-      return _recommendVideos[nextIndex]['vid'];
+      return _recommendVideos[nextIndex]['vid']?.toString();
     }
     return null;
   }
@@ -219,10 +219,11 @@ class RecommendListState extends State<RecommendList> with AutoPlaySource {
     );
   }
 
-  /// 构建视频卡片
+/// 构建视频卡片
   Widget _buildVideoCard(Map<String, dynamic> video, int index) {
     // 安全地提取数据，防止类型转换异常
-    final vid = (video['vid'] as num?)?.toInt() ?? 0;
+    final vid = video['vid']?.toString() ?? '';
+    final shortId = video['shortId'] as String?;
     final title = video['title']?.toString() ?? '';
     final coverPath = video['cover']?.toString() ?? '';
     final cover = ImageUtils.getFullImageUrl(coverPath);
@@ -233,7 +234,7 @@ class RecommendListState extends State<RecommendList> with AutoPlaySource {
     return InkWell(
       onTap: () {
         _currentPlayIndex = index;
-        widget.onVideoTap(vid);
+        widget.onVideoTap(vid, shortId: shortId);
       },
       borderRadius: BorderRadius.circular(8),
       child: Row(

@@ -31,7 +31,7 @@ class UploadTask {
 /// 视频资源列表组件（多分P管理）
 /// 参考PC端: UploadVideoFile.vue
 class VideoResourceList extends StatefulWidget {
-  final int? vid; // 视频ID，用于添加分P时关联
+  final String? vid; // 视频ID，用于添加分P时关联
   final List<VideoResource> initialResources;
   final ValueChanged<List<VideoResource>>? onResourcesChanged;
 
@@ -174,8 +174,8 @@ class _VideoResourceListState extends State<VideoResourceList> {
         );
 
         // 上传成功，添加到资源列表
-        final newResource = VideoResource(
-          id: videoInfo['id'] as int,
+final newResource = VideoResource(
+          id: videoInfo['id']?.toString() ?? '',
           title: videoInfo['title'] as String? ?? task.fileName,
           vid: widget.vid,
           duration: (videoInfo['duration'] as num?)?.toDouble(),

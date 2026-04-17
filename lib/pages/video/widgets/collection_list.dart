@@ -7,14 +7,16 @@ import 'auto_play_source.dart';
 
 /// 合集列表组件（样式与 PartList 一致）
 class CollectionList extends StatefulWidget {
-  final int vid;
+  final String vid;
+  final String? shortId;  // 视频的shortId
   final int currentPart;
-  final Function(int vid, {int? part}) onVideoTap;
+  final Function(String vid, {String? shortId, int? part}) onVideoTap;
   final Function(int part)? onPartTap;
 
   const CollectionList({
     super.key,
     required this.vid,
+    this.shortId,
     this.currentPart = 1,
     required this.onVideoTap,
     this.onPartTap,
@@ -76,7 +78,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
     await prefs.setBool('video_collection_auto_next', _autoNext);
   }
 
-  Future<void> _loadPlaylist(int vid) async {
+  Future<void> _loadPlaylist(String vid) async {
     setState(() => _isLoading = true);
 
     try {
@@ -179,7 +181,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
 
   /// 获取下一个视频（仅合集类型有效）
   @override
-  int? getNextVideo() {
+  String? getNextVideo() {
     if (!_autoNext || _listType != 'collection') return null;
     final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
     if (idx >= 0 && idx < _videoList.length - 1) {
@@ -189,8 +191,10 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
   }
 
   int get _currentIndex {
-    // 合集类型：优先精确匹配 vid
-    final idx = _videoList.indexWhere((v) => v.vid == widget.vid);
+    // 合集类型：优先精确匹配 vid (使用shortId比较)
+    final idx = _videoList.indexWhere((v) =>
+        v.vid == widget.vid ||
+        (v.shortId != null && v.shortId == widget.shortId));
     return idx >= 0 ? idx + 1 : 0;
   }
 
@@ -232,7 +236,9 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
       return index + 1 == widget.currentPart;
     }
     final video = _displayList[index];
-    if (video.vid == widget.vid) {
+    // 使用 vid 或 shortId 匹配
+    final isMatch = video.vid == widget.vid || video.shortId == widget.shortId;
+    if (isMatch) {
       final itemP = video.p ?? 1;
       return itemP == widget.currentPart;
     }
@@ -241,7 +247,7 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
 
   int? _getPartIndex(int index) {
     final video = _displayList[index];
-    if (video.vid == widget.vid) {
+    if (video.vid == widget.vid || video.shortId == widget.shortId) {
       return video.p ?? 1;
     }
     return null;
@@ -294,14 +300,14 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
         if (!isCurrent) {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
-          } else if (video.vid == widget.vid) {
+          } else if (video.vid == widget.vid || video.shortId == widget.shortId) {
             if (partIndex != null) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
             final targetPart = _getTargetPart(index);
             final sendPart = targetPart != null && targetPart > 1 ? targetPart : null;
-            widget.onVideoTap(video.vid, part: sendPart);
+            widget.onVideoTap(video.vid, shortId: video.shortId, part: sendPart);
           }
         }
       },
@@ -336,14 +342,14 @@ class CollectionListState extends State<CollectionList> with AutoPlaySource {
         if (!isCurrent) {
           if (_listType == 'parts') {
             widget.onPartTap?.call(index + 1);
-          } else if (video.vid == widget.vid) {
+          } else if (video.vid == widget.vid || video.shortId == widget.shortId) {
             if (partIndex != null) {
               widget.onPartTap?.call(partIndex);
             }
           } else {
             final targetPart = _getTargetPart(index);
             final sendPart = targetPart != null && targetPart > 1 ? targetPart : null;
-            widget.onVideoTap(video.vid, part: sendPart);
+            widget.onVideoTap(video.vid, shortId: video.shortId, part: sendPart);
           }
         }
       },

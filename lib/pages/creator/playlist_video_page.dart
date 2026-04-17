@@ -42,8 +42,8 @@ class _PlaylistVideoPageState extends State<PlaylistVideoPage> {
     }
   }
 
-  /// 移除视频
-  Future<void> _removeVideo(int vid, int index) async {
+/// 移除视频
+  Future<void> _removeVideo(String vid, int index) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -224,9 +224,9 @@ class _PlaylistVideoPageState extends State<PlaylistVideoPage> {
     );
   }
 
-  Widget _buildVideoItem(Map<String, dynamic> video, int index, dynamic colors) {
+Widget _buildVideoItem(Map<String, dynamic> video, int index, dynamic colors) {
     final cover = video['cover']?.toString() ?? '';
-    final vid = video['vid'] as int? ?? 0;
+    final vid = video['vid']?.toString() ?? '';
 
     return Container(
       key: ValueKey(vid),

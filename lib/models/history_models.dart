@@ -4,7 +4,8 @@
 
 /// 添加历史记录请求
 class AddHistoryRequest {
-  final int vid;
+  final String vid;
+  final String? rid;  // 分P的shortId
   final int part;
   final double time;     // 播放进度(秒)，-1 = 已看完
   final int duration;    // ✅ 视频总时长(秒)
@@ -13,6 +14,7 @@ class AddHistoryRequest {
 
   AddHistoryRequest({
     required this.vid,
+    this.rid,
     required this.part,
     required this.time,
     required this.duration,
@@ -23,6 +25,7 @@ class AddHistoryRequest {
   Map<String, dynamic> toJson() {
     return {
       'vid': vid,
+      if (rid != null) 'rid': rid,
       'part': part,
       'time': time,
       'duration': duration, // ✅ 新增
@@ -55,8 +58,9 @@ class PlayProgressData {
 
 /// 历史记录项
 class HistoryItem {
-  final int vid;
+  final String vid;
   final String? shortId;
+  final String? rid;  // 分P的shortId
   final int uid;
   final String title;
   final String cover;
@@ -75,6 +79,7 @@ class HistoryItem {
   HistoryItem({
     required this.vid,
     this.shortId,
+    this.rid,
     required this.uid,
     required this.title,
     required this.cover,
@@ -91,8 +96,9 @@ class HistoryItem {
 
   factory HistoryItem.fromJson(Map<String, dynamic> json) {
     return HistoryItem(
-      vid: json['vid'] as int,
+      vid: json['vid']?.toString() ?? '',
       shortId: json['shortId'] as String?,
+      rid: json['rid'] as String?,
       uid: json['uid'] as int,
       title: json['title'] as String,
       cover: json['cover'] as String,

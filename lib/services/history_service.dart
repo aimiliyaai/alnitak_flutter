@@ -23,14 +23,14 @@ class HistoryService {
   final TokenManager _tokenManager = TokenManager();
 
   // 用于保证进度上报顺序的序列号
-  int _progressSequence = 0;
+int _progressSequence = 0;
   // 最后成功上报的进度（用于去重）
   double? _lastSuccessfulProgress;
-  int? _lastSuccessfulVid;
+  String? _lastSuccessfulVid;
   int? _lastSuccessfulPart;
   final Map<String, double> _lastSubmittedProgress = {};
 
-  String _historyKey(int vid, int part) => '${vid}_$part';
+  String _historyKey(String vid, int part) => '${vid}_$part';
 
   @visibleForTesting
   static bool isProgressRegression({
@@ -43,14 +43,14 @@ class HistoryService {
     return newProgress + toleranceSeconds < lastProgress;
   }
 
-  /// 获取本地缓存的进度
-  Future<PlayProgressData?> _getLocalProgress(int vid, int? part) async {
+/// 获取本地缓存的进度
+  Future<PlayProgressData?> _getLocalProgress(String vid, int? part) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = part != null ? 'progress_${vid}_$part' : 'progress_${vid}_latest';
       final jsonStr = prefs.getString(key);
       if (jsonStr != null) {
-        return PlayProgressData.fromJson({'vid': vid, 'part': part ?? 1, 'progress': double.parse(jsonStr)});
+        return PlayProgressData.fromJson({'part': part ?? 1, 'progress': double.parse(jsonStr)});
       }
     } catch (e) {
       LoggerService.instance.logWarning('本地进度读取失败: $e', tag: 'HistoryService');
@@ -59,7 +59,7 @@ class HistoryService {
   }
 
   /// 保存进度到本地缓存
-  Future<void> _saveLocalProgress(int vid, int part, double progress) async {
+  Future<void> _saveLocalProgress(String vid, int part, double progress) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'progress_${vid}_$part';
@@ -69,9 +69,9 @@ class HistoryService {
     }
   }
 
-  /// 带重试的获取进度请求
+/// 带重试的获取进度请求
   Future<PlayProgressData?> _fetchProgressWithRetry({
-    required int vid,
+    required String vid,
     int? part,
     int maxRetries = 3,
     Duration initialDelay = const Duration(milliseconds: 500),
@@ -112,13 +112,15 @@ class HistoryService {
     return null;
   }
 
-  /// 添加历史记录
-  /// [vid] 视频ID
+/// 添加历史记录
+  /// [vid] 视频ID (支持 shortId)
+  /// [rid] 分P的shortId (可选)
   /// [part] 分P（默认为1）
   /// [time] 播放进度（秒，-1 表示已看完）
   /// [duration] 视频总时长（秒）
   Future<bool> addHistory({
-    required int vid,
+    required String vid,
+    String? rid,
     int part = 1,
     required double time,
     required int duration,
@@ -157,6 +159,7 @@ class HistoryService {
         '/api/v1/history/video/addHistory',
         data: AddHistoryRequest(
           vid: vid,
+          rid: rid,
           part: part,
           time: time,
           duration: duration,
@@ -197,9 +200,9 @@ class HistoryService {
     _lastSubmittedProgress.clear();
   }
 
-  /// 获取播放进度
+/// 获取播放进度
   Future<PlayProgressData?> getProgress({
-    required int vid,
+    required String vid,
     int? part,
     bool useCache = true,
   }) async {

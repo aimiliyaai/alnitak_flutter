@@ -26,25 +26,31 @@ class ProgressTracker {
   // 当前视频时长
   double currentDuration = 0;
 
-  // 【关键】进度上报用的 vid/part，在播放开始时锁定，防止切换视频/分P时的竞态
-  int? _reportVid;
+  // 【关键】进度上报用的 vid/rid/part，在播放开始时锁定，防止切换视频/分P时的竞态
+  String? _reportVid;
+  String? _reportRid;
   int? _reportPart;
 
   /// 当前锁定的 vid（只读）
-  int? get reportVid => _reportVid;
+  String? get reportVid => _reportVid;
+
+  /// 当前锁定的 rid（只读）
+  String? get reportRid => _reportRid;
 
   /// 当前锁定的 part（只读）
   int? get reportPart => _reportPart;
 
-  /// 锁定进度上报的 vid/part（播放开始时调用）
-  void lock(int vid, int part) {
+  /// 锁定进度上报的 vid/rid/part（播放开始时调用）
+  void lock(String vid, String? rid, int part) {
     _reportVid = vid;
+    _reportRid = rid;
     _reportPart = part;
   }
 
   /// 清空进度上报锁定（切换视频/分P 前调用）
   void unlock() {
     _reportVid = null;
+    _reportRid = null;
     _reportPart = null;
   }
 
@@ -58,10 +64,11 @@ class ProgressTracker {
 
   /// 处理播放进度更新（每秒触发一次）
   ///
-  /// 返回当前锁定的 (vid, part)，供调用方同步弹幕等。
+  /// 返回当前锁定的 (vid, rid, part)，供调用方同步弹幕等。
   /// 返回 null 表示当前进度锁定无效（正在切换），调用方应跳过业务处理。
-  (int vid, int part)? onProgressUpdate(Duration position, Duration totalDuration) {
+  (String vid, String? rid, int part)? onProgressUpdate(Duration position, Duration totalDuration) {
     final reportVid = _reportVid;
+    final reportRid = _reportRid;
     final reportPart = _reportPart;
     if (reportVid == null || reportPart == null) return null;
 
@@ -71,20 +78,21 @@ class ProgressTracker {
     }
     lastReportedPosition = position;
 
-    if (hasReportedCompleted) return (reportVid, reportPart);
+    if (hasReportedCompleted) return (reportVid, reportRid, reportPart);
 
     final currentSeconds = position.inSeconds;
 
     // duration 为 0 时不上报（可能是 open() 重置期间）
-    if (currentDuration <= 0) return (reportVid, reportPart);
+    if (currentDuration <= 0) return (reportVid, reportRid, reportPart);
 
     // 进度不应超过总时长（允许 2 秒误差）
-    if (currentSeconds > currentDuration + 2) return (reportVid, reportPart);
+    if (currentSeconds > currentDuration + 2) return (reportVid, reportRid, reportPart);
 
     if (_lastSavedSeconds == null ||
         (currentSeconds - _lastSavedSeconds!) >= 5) {
       _historyService.addHistory(
         vid: reportVid,
+        rid: reportRid,
         part: reportPart,
         time: currentSeconds.toDouble(),
         duration: currentDuration.toInt(),
@@ -92,16 +100,17 @@ class ProgressTracker {
       _lastSavedSeconds = currentSeconds;
     }
 
-    return (reportVid, reportPart);
+    return (reportVid, reportRid, reportPart);
   }
 
   /// 处理播放结束事件
   ///
   /// 返回 true 表示应触发自动连播，false 表示循环模式不触发。
-  bool onVideoEnded(int currentVid, int currentPart, VideoPlayerController? playerController) {
+  bool onVideoEnded(String currentVid, String? currentRid, int currentPart, VideoPlayerController? playerController) {
     if (hasReportedCompleted || currentDuration <= 0) return false;
 
     final reportVid = _reportVid ?? currentVid;
+    final reportRid = _reportRid ?? currentRid;
     final reportPart = _reportPart ?? currentPart;
 
     // 循环模式：不上报 -1，让播放器自动重新播放
@@ -113,6 +122,7 @@ class ProgressTracker {
 
     _historyService.addHistory(
       vid: reportVid,
+      rid: reportRid,
       part: reportPart,
       time: -1,
       duration: currentDuration > 0 ? currentDuration.toInt() : 0,
@@ -122,7 +132,7 @@ class ProgressTracker {
   }
 
   /// 页面退出时保存最终进度
-  void saveOnDispose(int currentVid, int currentPart, VideoPlayerController? playerController) {
+  void saveOnDispose(String currentVid, String? currentRid, int currentPart, VideoPlayerController? playerController) {
     // 当 listeners 异常死亡导致 currentDuration 未更新时，直接从 player 读取
     var duration = currentDuration;
     if (duration <= 0 && playerController != null) {
@@ -156,6 +166,7 @@ class ProgressTracker {
     final time = hasReportedCompleted ? -1.0 : progressToSave;
     _historyService.addHistory(
       vid: currentVid,
+      rid: currentRid,
       part: currentPart,
       time: time,
       duration: duration.toInt(),
@@ -163,12 +174,13 @@ class ProgressTracker {
   }
 
   /// 切换前上报当前进度（用于 _changePart / _switchToVideo）
-  Future<void> saveBeforeSwitch(int vid, int part) async {
+  Future<void> saveBeforeSwitch(String vid, String? rid, int part) async {
     final position = lastReportedPosition;
     final duration = currentDuration;
     if (position != null && duration > 0) {
       await _historyService.addHistory(
         vid: vid,
+        rid: rid,
         part: part,
         time: hasReportedCompleted ? -1 : position.inSeconds.toDouble(),
         duration: duration.toInt(),

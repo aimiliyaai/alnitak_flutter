@@ -12,7 +12,7 @@ List<String> _parseTags(dynamic v) {
 }
 
 class VideoApiModel {
-  final int vid;
+  final String vid;
   // 短 ID（后端返回 shortId，可选）
   final String? shortId;
   final int uid;
@@ -49,7 +49,7 @@ class VideoApiModel {
 
   factory VideoApiModel.fromJson(Map<String, dynamic> json) {
     return VideoApiModel(
-      vid: jsonAsInt(json['vid']),
+      vid: jsonAsString(json['vid']),
       shortId: jsonAsStringOrNull(json['shortId']),
       uid: jsonAsInt(json['uid']),
       title: jsonAsString(json['title']),
@@ -124,11 +124,11 @@ class AuthorModel {
 }
 
 class ResourceModel {
-  final int id;
+  final String id;
   // 资源短 ID（后端返回 shortId，可选）
   final String? shortId;
   final String createdAt;
-  final int vid;
+  final String vid;
   final String title;
   final double duration;
   final int status;
@@ -145,10 +145,10 @@ class ResourceModel {
 
   factory ResourceModel.fromJson(Map<String, dynamic> json) {
     return ResourceModel(
-      id: jsonAsInt(json['id']),
+      id: jsonAsString(json['id']),
       shortId: jsonAsStringOrNull(json['shortId']),
       createdAt: jsonAsString(json['createdAt']),
-      vid: jsonAsInt(json['vid']),
+      vid: jsonAsString(json['vid']),
       title: jsonAsString(json['title']),
       duration: (json['duration'] ?? 0).toDouble(),
       status: jsonAsInt(json['status']),

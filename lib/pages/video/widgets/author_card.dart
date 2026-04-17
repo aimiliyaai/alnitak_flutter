@@ -91,8 +91,8 @@ class _AuthorCardState extends State<AuthorCard> {
       if (success) {
         // 参考PC端：关注成功后重新获取关系状态以更新按钮显示
         // 这样可以正确处理互粉状态（relationStatus = 2）
-        final response = await _videoService.getUserActionStatus(
-          0, // vid 参数对关注接口不重要
+final response = await _videoService.getUserActionStatus(
+          '', // vid 参数对关注接口不重要
           widget.author.uid,
         );
 

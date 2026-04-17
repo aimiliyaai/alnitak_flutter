@@ -27,8 +27,8 @@ class PlaylistApiService {
 
   // ==================== 公开接口 ====================
 
-  /// 获取视频所属的合集列表
-  Future<List<Map<String, dynamic>>> getVideoPlaylists(int vid) async {
+/// 获取视频所属的合集列表
+  Future<List<Map<String, dynamic>>> getVideoPlaylists(String vid) async {
     try {
       final response = await _dio.get(
         '/api/v1/playlist/video/playlists',
@@ -200,10 +200,10 @@ class PlaylistApiService {
     }
   }
 
-  /// 从合集移除视频
+/// 从合集移除视频
   Future<bool> delPlaylistVideos({
     required int playlistId,
-    required List<int> vids,
+    required List<String> vids,
   }) async {
     if (!_tokenManager.canMakeAuthenticatedRequest) return false;
     try {
@@ -287,8 +287,8 @@ class PlaylistApiService {
     }
   }
 
-  /// 获取合集视频列表（包含多分P展开和当前视频分P）
-  Future<Map<String, dynamic>?> getPlaylistVideoListWithParts(int vid) async {
+/// 获取合集视频列表（包含多分P展开和当前视频分P）
+  Future<Map<String, dynamic>?> getPlaylistVideoListWithParts(String vid) async {
     try {
       final response = await _dio.get(
         '/api/v1/playlist/video/listWithParts',
