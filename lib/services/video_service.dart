@@ -321,16 +321,45 @@ class VideoService {
     }
   }
 
-  /// 点赞/取消点赞评论
-  Future<bool> likeComment(int commentId, bool like) async {
+  /// 点赞/取消点赞评论（视频）
+  /// 返回 null 表示成功；返回字符串表示失败原因
+  Future<String?> likeVideoComment(int commentId, bool like) async {
     try {
       final response = like
-          ? await _dio.post('/api/v1/comment/like/$commentId')
-          : await _dio.delete('/api/v1/comment/like/$commentId');
-      return response.data['code'] == 200;
+          ? await _dio.post('/api/v1/comment/video/like/$commentId')
+          : await _dio.delete('/api/v1/comment/video/like/$commentId');
+      if (response.data['code'] == 200) return null;
+      final msg = response.data['msg']?.toString() ?? '未知错误';
+      return 'code=${response.data['code']} msg=$msg';
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final msg = e.response?.data is Map ? e.response?.data['msg'] : e.message;
+      LoggerService.instance.logWarning('点赞视频评论失败: status=$status $msg', tag: 'VideoService');
+      return 'HTTP $status: $msg';
     } catch (e) {
-      LoggerService.instance.logWarning('点赞评论失败: $e', tag: 'VideoService');
-      return false;
+      LoggerService.instance.logWarning('点赞视频评论失败: $e', tag: 'VideoService');
+      return e.toString();
+    }
+  }
+
+  /// 点踩/取消点踩评论（视频）
+  /// 返回 null 表示成功；返回字符串表示失败原因
+  Future<String?> dislikeVideoComment(int commentId, bool dislike) async {
+    try {
+      final response = dislike
+          ? await _dio.post('/api/v1/comment/video/dislike/$commentId')
+          : await _dio.delete('/api/v1/comment/video/dislike/$commentId');
+      if (response.data['code'] == 200) return null;
+      final msg = response.data['msg']?.toString() ?? '未知错误';
+      return 'code=${response.data['code']} msg=$msg';
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final msg = e.response?.data is Map ? e.response?.data['msg'] : e.message;
+      LoggerService.instance.logWarning('点踩视频评论失败: status=$status $msg', tag: 'VideoService');
+      return 'HTTP $status: $msg';
+    } catch (e) {
+      LoggerService.instance.logWarning('点踩视频评论失败: $e', tag: 'VideoService');
+      return e.toString();
     }
   }
 

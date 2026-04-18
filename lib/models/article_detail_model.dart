@@ -153,6 +153,9 @@ class ArticleComment {
   final String? replyUserName;
   final String? replyContent;
   final int replyCount;
+  final int likes;
+  final bool liked;
+  final bool disliked;
   final DateTime createdAt;
   final String? atUserIds; // @提及的用户ID列表（逗号分隔）
   final String? atUsernames; // @提及的用户名列表（逗号分隔）
@@ -169,6 +172,9 @@ class ArticleComment {
     this.replyUserName,
     this.replyContent,
     required this.replyCount,
+    this.likes = 0,
+    this.liked = false,
+    this.disliked = false,
     required this.createdAt,
     this.atUserIds,
     this.atUsernames,
@@ -187,6 +193,9 @@ class ArticleComment {
       replyUserName: json['replyUserName'],
       replyContent: json['replyContent'],
       replyCount: json['replyCount'] ?? 0,
+      likes: json['likes'] ?? 0,
+      liked: json['liked'] ?? false,
+      disliked: json['disliked'] ?? false,
       createdAt: DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now(),
       atUserIds: json['atUserIds'] as String?,
       atUsernames: json['atUsernames'] as String?,
@@ -209,6 +218,33 @@ class ArticleComment {
       }
     }
     return map;
+  }
+
+  ArticleComment copyWith({
+    int? id, int? aid, int? uid, String? username, String? avatar,
+    String? content, int? parentId, int? replyUserId, String? replyUserName,
+    String? replyContent, int? replyCount, int? likes, bool? liked, bool? disliked,
+    DateTime? createdAt, String? atUserIds, String? atUsernames,
+  }) {
+    return ArticleComment(
+      id: id ?? this.id,
+      aid: aid ?? this.aid,
+      uid: uid ?? this.uid,
+      username: username ?? this.username,
+      avatar: avatar ?? this.avatar,
+      content: content ?? this.content,
+      parentId: parentId ?? this.parentId,
+      replyUserId: replyUserId ?? this.replyUserId,
+      replyUserName: replyUserName ?? this.replyUserName,
+      replyContent: replyContent ?? this.replyContent,
+      replyCount: replyCount ?? this.replyCount,
+      likes: likes ?? this.likes,
+      liked: liked ?? this.liked,
+      disliked: disliked ?? this.disliked,
+      createdAt: createdAt ?? this.createdAt,
+      atUserIds: atUserIds ?? this.atUserIds,
+      atUsernames: atUsernames ?? this.atUsernames,
+    );
   }
 }
 

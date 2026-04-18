@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../models/article_list_model.dart';
 import '../models/article_detail_model.dart';
@@ -323,4 +324,47 @@ class ArticleApiService {
       return false;
     }
   }
+
+  /// 点赞/取消点赞文章评论
+  /// 返回 null 表示成功；返回字符串表示失败原因
+  static Future<String?> likeArticleComment(int commentId, bool like) async {
+    try {
+      final response = like
+          ? await _httpClient.dio.post('/api/v1/comment/article/like/$commentId')
+          : await _httpClient.dio.delete('/api/v1/comment/article/like/$commentId');
+      if (response.data['code'] == 200) return null;
+      final msg = response.data['msg']?.toString() ?? '未知错误';
+      return 'code=${response.data['code']} msg=$msg';
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final msg = e.response?.data is Map ? e.response?.data['msg'] : e.message;
+      LoggerService.instance.logWarning('点赞文章评论失败: status=$status $msg', tag: 'ArticleApiService');
+      return 'HTTP $status: $msg';
+    } catch (e) {
+      LoggerService.instance.logWarning('点赞文章评论失败: $e', tag: 'ArticleApiService');
+      return e.toString();
+    }
+  }
+
+  /// 点踩/取消点踩文章评论
+  /// 返回 null 表示成功；返回字符串表示失败原因
+  static Future<String?> dislikeArticleComment(int commentId, bool dislike) async {
+    try {
+      final response = dislike
+          ? await _httpClient.dio.post('/api/v1/comment/article/dislike/$commentId')
+          : await _httpClient.dio.delete('/api/v1/comment/article/dislike/$commentId');
+      if (response.data['code'] == 200) return null;
+      final msg = response.data['msg']?.toString() ?? '未知错误';
+      return 'code=${response.data['code']} msg=$msg';
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final msg = e.response?.data is Map ? e.response?.data['msg'] : e.message;
+      LoggerService.instance.logWarning('点踩文章评论失败: status=$status $msg', tag: 'ArticleApiService');
+      return 'HTTP $status: $msg';
+    } catch (e) {
+      LoggerService.instance.logWarning('点踩文章评论失败: $e', tag: 'ArticleApiService');
+      return e.toString();
+    }
+  }
+
 }

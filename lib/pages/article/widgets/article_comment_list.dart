@@ -361,6 +361,109 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
     _commentFocusNode.unfocus();
   }
 
+  /// 点赞/取消点赞评论（与点踩互斥）
+  Future<void> _likeComment(int commentId, bool like) async {
+    final error = await ArticleApiService.likeArticleComment(commentId, like);
+    if (error == null || _isIdempotent(error, like, isLike: true)) {
+      setState(() {
+        _applyLikeUpdate(commentId, like);
+      });
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${like ? '点赞' : '取消点赞'}失败: $error')),
+      );
+    }
+  }
+
+  /// 点踩/取消点踩评论（与点赞互斥）
+  Future<void> _dislikeComment(int commentId, bool dislike) async {
+    final error = await ArticleApiService.dislikeArticleComment(commentId, dislike);
+    if (error == null || _isIdempotent(error, dislike, isLike: false)) {
+      setState(() {
+        _applyDislikeUpdate(commentId, dislike);
+      });
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${dislike ? '点踩' : '取消点踩'}失败: $error')),
+      );
+    }
+  }
+
+  /// 判断错误是否为幂等型（服务端已是目标状态）
+  bool _isIdempotent(String error, bool toTrue, {required bool isLike}) {
+    if (isLike) {
+      return (toTrue && error.contains('已点赞')) ||
+          (!toTrue && error.contains('未点赞'));
+    } else {
+      return (toTrue && error.contains('已点踩')) ||
+          (!toTrue && error.contains('未点踩'));
+    }
+  }
+
+  /// 在一级评论及所有已加载回复中查找并更新点赞状态
+  void _applyLikeUpdate(int commentId, bool like) {
+    final index = _comments.indexWhere((c) => c.id == commentId);
+    if (index != -1) {
+      final c = _comments[index];
+      _comments[index] = c.copyWith(
+        liked: like,
+        likes: like
+            ? c.likes + 1
+            : (c.likes > 0 ? c.likes - 1 : 0),
+        disliked: like ? false : c.disliked,
+      );
+      return;
+    }
+    for (final entry in _loadedReplies.entries) {
+      final list = entry.value;
+      final i = list.indexWhere((r) => r.id == commentId);
+      if (i != -1) {
+        final r = list[i];
+        list[i] = r.copyWith(
+          liked: like,
+          likes: like
+              ? r.likes + 1
+              : (r.likes > 0 ? r.likes - 1 : 0),
+          disliked: like ? false : r.disliked,
+        );
+        return;
+      }
+    }
+  }
+
+  /// 在一级评论及所有已加载回复中查找并更新点踩状态
+  void _applyDislikeUpdate(int commentId, bool dislike) {
+    final index = _comments.indexWhere((c) => c.id == commentId);
+    if (index != -1) {
+      final c = _comments[index];
+      final wasLiked = c.liked;
+      _comments[index] = c.copyWith(
+        disliked: dislike,
+        liked: dislike ? false : c.liked,
+        likes: dislike && wasLiked
+            ? (c.likes > 0 ? c.likes - 1 : 0)
+            : c.likes,
+      );
+      return;
+    }
+    for (final entry in _loadedReplies.entries) {
+      final list = entry.value;
+      final i = list.indexWhere((r) => r.id == commentId);
+      if (i != -1) {
+        final r = list[i];
+        final wasLiked = r.liked;
+        list[i] = r.copyWith(
+          disliked: dislike,
+          liked: dislike ? false : r.liked,
+          likes: dislike && wasLiked
+              ? (r.likes > 0 ? r.likes - 1 : 0)
+              : r.likes,
+        );
+        return;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isInPanel = widget.scrollController != null;
@@ -424,6 +527,10 @@ class _ArticleCommentListState extends State<ArticleCommentList> {
                       onReplyToReply: (reply) => _replyToUser(reply, parentComment: comment),
                       onDelete: () => _deleteComment(comment.id),
                       onDeleteReply: _deleteComment,
+                      onLike: (like) => _likeComment(comment.id, like),
+                      onDislike: (dislike) => _dislikeComment(comment.id, dislike),
+                      onReplyLike: _likeComment,
+                      onReplyDislike: _dislikeComment,
                       showReplies: _expandedReplies.contains(comment.id),
                       replies: _loadedReplies[comment.id],
                       isLoadingReplies: _loadingReplies[comment.id] ?? false,
@@ -606,6 +713,10 @@ class _ArticleCommentItem extends StatelessWidget {
   final Function(ArticleComment) onReplyToReply;
   final VoidCallback onDelete;
   final Function(int) onDeleteReply;
+  final Function(bool) onLike;
+  final Function(bool) onDislike;
+  final Function(int, bool) onReplyLike;
+  final Function(int, bool) onReplyDislike;
   final bool showReplies;
   final List<ArticleComment>? replies;
   final bool isLoadingReplies;
@@ -619,6 +730,10 @@ class _ArticleCommentItem extends StatelessWidget {
     required this.onReplyToReply,
     required this.onDelete,
     required this.onDeleteReply,
+    required this.onLike,
+    required this.onDislike,
+    required this.onReplyLike,
+    required this.onReplyDislike,
     required this.showReplies,
     this.replies,
     required this.isLoadingReplies,
@@ -787,6 +902,45 @@ class _ArticleCommentItem extends StatelessWidget {
                           ),
                         const Spacer(),
 
+                        // 点赞按钮
+                        InkWell(
+                          onTap: () => onLike(!comment.liked),
+                          child: Row(
+                            children: [
+                              Icon(
+                                comment.liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                size: 16,
+                                color: comment.liked ? const Color(0xFFFB7299) : colors.iconSecondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                comment.likes > 0 ? '${comment.likes}' : '赞',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: comment.liked ? const Color(0xFFFB7299) : colors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        // 点踩按钮（数量前端隐藏）
+                        InkWell(
+                          onTap: () => onDislike(!comment.disliked),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: Icon(
+                              comment.disliked ? Icons.thumb_down : Icons.thumb_down_outlined,
+                              size: 16,
+                              color: comment.disliked ? const Color(0xFF5EB6FF) : colors.iconSecondary,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
                         if (isOwnComment)
                           InkWell(
                             onTap: onDelete,
@@ -833,6 +987,8 @@ class _ArticleCommentItem extends StatelessWidget {
                                 rootUid: comment.uid,
                                 onReply: () => onReplyToReply(reply),
                                 onDelete: () => onDeleteReply(reply.id),
+                                onLike: (like) => onReplyLike(reply.id, like),
+                                onDislike: (dislike) => onReplyDislike(reply.id, dislike),
                                 formatTime: formatTime,
                                 currentUserId: currentUserId,
                               )),
@@ -873,6 +1029,8 @@ class _ArticleReplyItem extends StatelessWidget {
   final int rootUid;
   final VoidCallback onReply;
   final VoidCallback onDelete;
+  final Function(bool) onLike;
+  final Function(bool) onDislike;
   final String Function(DateTime) formatTime;
   final int? currentUserId;
 
@@ -881,6 +1039,8 @@ class _ArticleReplyItem extends StatelessWidget {
     required this.rootUid,
     required this.onReply,
     required this.onDelete,
+    required this.onLike,
+    required this.onDislike,
     required this.formatTime,
     this.currentUserId,
   });
@@ -1009,7 +1169,42 @@ class _ArticleReplyItem extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    if (isOwnReply)
+                    // 点赞按钮
+                    InkWell(
+                      onTap: () => onLike(!reply.liked),
+                      child: Row(
+                        children: [
+                          Icon(
+                            reply.liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                            size: 14,
+                            color: reply.liked ? const Color(0xFFFB7299) : colors.iconSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            reply.likes > 0 ? '${reply.likes}' : '赞',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: reply.liked ? const Color(0xFFFB7299) : colors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 点踩按钮（数量前端隐藏）
+                    InkWell(
+                      onTap: () => onDislike(!reply.disliked),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Icon(
+                          reply.disliked ? Icons.thumb_down : Icons.thumb_down_outlined,
+                          size: 14,
+                          color: reply.disliked ? const Color(0xFF5EB6FF) : colors.iconSecondary,
+                        ),
+                      ),
+                    ),
+                    if (isOwnReply) ...[
+                      const SizedBox(width: 8),
                       InkWell(
                         onTap: onDelete,
                         child: Text(
@@ -1020,6 +1215,7 @@ class _ArticleReplyItem extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ],
                   ],
                 ),
               ],

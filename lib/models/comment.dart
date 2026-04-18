@@ -9,6 +9,9 @@ class Comment {
   final String content; // 评论内容
   final DateTime createdAt; // 发布时间
   final int replyCount; // 回复数
+  final int likes; // 点赞数
+  final bool liked; // 当前用户是否已点赞
+  final bool disliked; // 当前用户是否已点踩
   final List<Comment>? replies; // 回复列表（可选，用于展开回复时加载）
   final String? replyUserName; // 回复的用户名（仅回复时存在）
   final int? replyUserId; // 回复的用户ID（仅回复时存在）
@@ -24,6 +27,9 @@ class Comment {
     required this.content,
     required this.createdAt,
     this.replyCount = 0,
+    this.likes = 0,
+    this.liked = false,
+    this.disliked = false,
     this.replies,
     this.replyUserName,
     this.replyUserId,
@@ -53,6 +59,9 @@ class Comment {
           ? DateTime.parse(json['createdAt'])
           : DateTime.now(),
       replyCount: json['replyCount'] ?? 0,
+      likes: json['likes'] ?? 0,
+      liked: json['liked'] ?? false,
+      disliked: json['disliked'] ?? false,
       replies: replies,
       replyUserName: json['replyUserName'],
       replyUserId: json['replyUserId'] != null && json['replyUserId'].toString().isNotEmpty
@@ -92,6 +101,9 @@ class Comment {
     String? content,
     DateTime? createdAt,
     int? replyCount,
+    int? likes,
+    bool? liked,
+    bool? disliked,
     List<Comment>? replies,
     String? replyUserName,
     int? replyUserId,
@@ -107,6 +119,9 @@ class Comment {
       content: content ?? this.content,
       createdAt: createdAt ?? this.createdAt,
       replyCount: replyCount ?? this.replyCount,
+      likes: likes ?? this.likes,
+      liked: liked ?? this.liked,
+      disliked: disliked ?? this.disliked,
       replies: replies ?? this.replies,
       replyUserName: replyUserName ?? this.replyUserName,
       replyUserId: replyUserId ?? this.replyUserId,
