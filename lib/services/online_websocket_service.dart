@@ -9,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import 'logger_service.dart';
 
+/// 弹幕消息回调
+typedef DanmakuCallback = void Function(Map<String, dynamic> danmaku);
+
 /// 在线人数 WebSocket 服务
 class OnlineWebSocketService {
   WebSocketChannel? _channel;
@@ -22,11 +25,25 @@ class OnlineWebSocketService {
   bool _isPaused = false; // 后台暂停重连
   DateTime? _lastMessageTime;
 
-String? _currentVid;
+  String? _currentVid;
+  String? _currentRid;
   String? _clientId;
 
   /// 在线人数，播放器 UI 直接监听此 ValueNotifier
   final ValueNotifier<int> onlineCount = ValueNotifier<int>(0);
+
+  /// 弹幕消息回调列表
+  final List<DanmakuCallback> _danmakuCallbacks = [];
+
+  /// 注册弹幕消息监听
+  void addDanmakuListener(DanmakuCallback callback) {
+    _danmakuCallbacks.add(callback);
+  }
+
+  /// 移除弹幕消息监听
+  void removeDanmakuListener(DanmakuCallback callback) {
+    _danmakuCallbacks.remove(callback);
+  }
 
   /// 获取或创建客户端ID（持久化存储）
   Future<String> _getClientId() async {
@@ -42,19 +59,22 @@ String? _currentVid;
   }
 
 /// 根据 ApiConfig 的 HTTPS 设置自动选择 ws/wss
-  String _buildUrl(String vid, String clientId) {
+  String _buildUrl(String vid, String clientId, String? rid) {
     final protocol = ApiConfig.httpsEnabled ? 'wss' : 'ws';
-    return '$protocol://${ApiConfig.host}:${ApiConfig.port}'
+    final base = '$protocol://${ApiConfig.host}:${ApiConfig.port}'
         '/api/v1/online/video?vid=$vid&clientId=$clientId';
+    if (rid == null || rid.isEmpty) return base;
+    return '$base&rid=${Uri.encodeQueryComponent(rid)}';
   }
 
   /// 连接到指定视频房间
-  Future<void> connect(String vid) async {
-    if (_currentVid == vid && _channel != null) return;
+  Future<void> connect(String vid, {String? rid}) async {
+    if (_currentVid == vid && _currentRid == rid && _channel != null) return;
 
     _cleanup();
 
     _currentVid = vid;
+    _currentRid = rid;
     _isManualClose = false;
     _reconnectAttempts = 0;
 
@@ -62,9 +82,9 @@ String? _currentVid;
   }
 
   /// 切换视频房间
-  Future<void> switchVideo(String vid) async {
-    if (_currentVid == vid && _channel != null) return;
-    await connect(vid);
+  Future<void> switchVideo(String vid, {String? rid}) async {
+    if (_currentVid == vid && _currentRid == rid && _channel != null) return;
+    await connect(vid, rid: rid);
   }
 
   /// 执行 WebSocket 连接
@@ -73,7 +93,7 @@ String? _currentVid;
 
     try {
       final clientId = await _getClientId();
-      final url = _buildUrl(_currentVid!, clientId);
+      final url = _buildUrl(_currentVid!, clientId, _currentRid);
 
       // 使用 IOWebSocketChannel 以获得更好的移动平台支持
       // 先建立原生 WebSocket 连接，然后包装为 channel
@@ -108,7 +128,7 @@ String? _currentVid;
     }
   }
 
-  void _onMessage(dynamic data) {
+void _onMessage(dynamic data) {
     _lastMessageTime = DateTime.now();
     try {
       final json = jsonDecode(data as String);
@@ -116,6 +136,19 @@ String? _currentVid;
       if (json['number'] != null) {
         final count = json['number'] as int;
         onlineCount.value = count;
+      }
+      // 处理弹幕消息 {"type": "danmaku", "danmaku": {...}}
+      if (json['type'] == 'danmaku' && json['danmaku'] != null) {
+        final danmaku = json['danmaku'] as Map<String, dynamic>;
+        // 复制一份监听器列表，避免回调中修改列表导致异常
+        final callbacks = List<DanmakuCallback>.from(_danmakuCallbacks);
+        for (final callback in callbacks) {
+          try {
+            callback(danmaku);
+          } catch (e) {
+            LoggerService.instance.logWarning('弹幕回调异常: $e', tag: 'OnlineWebSocket');
+          }
+        }
       }
     } catch (e) {
       LoggerService.instance.logWarning('WebSocket 消息解析失败: $e', tag: 'OnlineWebSocket');
@@ -204,6 +237,7 @@ String? _currentVid;
     _isManualClose = true;
     _isPaused = false;
     _currentVid = null;
+    _currentRid = null;
     _cleanup();
   }
 

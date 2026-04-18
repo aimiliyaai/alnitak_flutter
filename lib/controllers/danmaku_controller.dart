@@ -253,6 +253,7 @@ class DanmakuController extends ChangeNotifier {
     try {
       final list = await _danmakuService.getDanmakuList(
         vid: vid,
+        rid: rid,
         part: part,
       );
 
@@ -265,6 +266,8 @@ class DanmakuController extends ChangeNotifier {
 
        // 重置状态
        _reset();
+       // 重置后把指针定位到当前播放时间，避免历史弹幕被"未显示"永远卡在前面
+       _lastProcessedIndex = _findStartIndex(_currentTime);
 
        _logger.logDebug('弹幕加载完成: ${_filteredDanmakuList.length}/${list.length}条', tag: 'Danmaku');
        notifyListeners();
@@ -386,6 +389,13 @@ class DanmakuController extends ChangeNotifier {
 
       // 2. 弹幕时间已过（可能是 seek 导致跳过的），标记为已处理
       if (danmaku.time < _currentTime - 0.5) {
+        _lastProcessedIndex++;
+        continue;
+      }
+
+      // 2.5 防重：若该条弹幕已经通过 addExternalDanmaku 直接被塞进 _activeDanmakus，则跳过
+      if (danmaku.id > 0 &&
+          _activeDanmakus.any((item) => item.danmaku.id == danmaku.id)) {
         _lastProcessedIndex++;
         continue;
       }
@@ -702,7 +712,67 @@ class DanmakuController extends ChangeNotifier {
      } catch (e) {
        _logger.logWarning('弹幕刷新失败: $e', tag: 'Danmaku');
      }
-   }
+}
+
+  /// 添加外部接收的弹幕（通过 WebSocket 推送）
+  /// 注意：不能依赖 _processNewDanmakus 的时间窗（仅 [now-0.5, now+0.1]）—— ws 延迟几百毫秒就会错过窗口
+  /// 所以这里做两件事：
+  /// 1) 按 time 升序插入 _danmakuList + 刷新 filter（保证历史查询与列表展示正确）
+  /// 2) 直接把这条弹幕塞到 _activeDanmakus 里立即飞起（绕过时间窗）
+  void addExternalDanmaku(Danmaku danmaku) {
+    // 1) 插入历史列表（保持时间升序）
+    var lo = 0;
+    var hi = _danmakuList.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (_danmakuList[mid].time <= danmaku.time) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    _danmakuList.insert(lo, danmaku);
+    _applyFilter();
+    // 重新定位扫描指针到当前时间之后，避免 _processNewDanmakus 再把这条重复处理
+    _lastProcessedIndex = _findStartIndex(_currentTime);
+
+    if (!_isVisible) {
+      notifyListeners();
+      return;
+    }
+
+    // 2a) 自己刚发出、还在飞的本地临时弹幕 ws 回广播：用真实 id 替换占位，不新增渲染项
+    final localIdx = _activeDanmakus.indexWhere((item) =>
+        item.danmaku.id < 0 &&
+        item.danmaku.text == danmaku.text &&
+        item.danmaku.color == danmaku.color &&
+        (item.danmaku.time - danmaku.time).abs() < 1.5);
+    if (localIdx != -1) {
+      final oldItem = _activeDanmakus[localIdx];
+      _activeDanmakus[localIdx] = DanmakuItem(
+        danmaku: danmaku,
+        trackIndex: oldItem.trackIndex,
+        startTime: oldItem.startTime,
+        elapsedWhenPaused: oldItem.elapsedWhenPaused,
+        width: oldItem.width,
+      );
+      notifyListeners();
+      return;
+    }
+
+    // 2b) 他人弹幕：立即分配轨道并飞起，不等下一个 updateTime
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final screenWidth = _lastScreenWidth > 0 ? _lastScreenWidth : 1000.0;
+    final trackIndex = _allocateTrack(danmaku, now, screenWidth);
+    if (trackIndex != -1) {
+      _activeDanmakus.add(DanmakuItem(
+        danmaku: danmaku,
+        trackIndex: trackIndex,
+        startTime: now,
+      ));
+    }
+    notifyListeners();
+  }
 
   /// 清空弹幕
   void clear() {

@@ -1035,8 +1035,8 @@ String? _currentVid;
 // fMP4 容错：discardcorrupt 丢弃损坏帧
     _player!.setProperty('demuxer-lavf-o', 'fflags=+discardcorrupt');
 
-    // 允许小范围回退但限制大规模回退（解决 fMP4 边界问题 + 切换质量回退）
-    //_player!.setProperty('demuxer-max-back-bytes', '0');
+    // 不主动限制 back buffer：设为 0 会完全禁用回退缓存，损害 seek 与清晰度切换体验
+    // _player!.setProperty('demuxer-max-back-bytes', '0');
 
     // 网络超时配置
     _player!.setProperty('network-timeout', '10');

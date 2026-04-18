@@ -13,18 +13,23 @@ class DanmakuService {
 
   /// 获取视频弹幕列表
   /// [vid] 视频ID (支持 shortId)
-  /// [part] 分P编号（从1开始）
+  /// [rid] 资源 shortId（传入则优先按 rid 精准匹配）
+  /// [part] 分P编号（从1开始），仅在 rid 为空时生效
   Future<List<Danmaku>> getDanmakuList({
     required String vid,
+    String? rid,
     int part = 1,
   }) async {
     try {
+      final query = <String, dynamic>{'vid': vid};
+      if (rid != null && rid.isNotEmpty) {
+        query['rid'] = rid;
+      } else {
+        query['part'] = part;
+      }
       final response = await _dio.get(
         '/api/v1/danmaku/getDanmaku',
-        queryParameters: {
-          'vid': vid,
-          'part': part,
-        },
+        queryParameters: query,
       );
 
       if (response.data['code'] == 200) {

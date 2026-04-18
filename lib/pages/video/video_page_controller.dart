@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/video_detail.dart';
 import '../../models/comment.dart';
+import '../../models/danmaku.dart';
 import '../../services/video_service.dart';
 import '../../services/history_service.dart';
 import '../../services/cache_service.dart';
@@ -98,7 +99,7 @@ void init(String videoRef, {int? initialPart}) {
     loadVideoData();
   }
 
-  @override
+@override
   void dispose() {
     _disposed = true;
     _authStateManager.removeListener(_onAuthStateChanged);
@@ -109,6 +110,7 @@ void init(String videoRef, {int? initialPart}) {
     danmakuController.removeListener(_onDanmakuChanged);
     danmakuController.dispose();
     danmakuCountNotifier.dispose();
+    onlineWebSocketService.removeDanmakuListener(_onDanmakuReceived);
     onlineWebSocketService.dispose();
     CacheService().cleanupAllTempCache();
     super.dispose();
@@ -171,11 +173,11 @@ void init(String videoRef, {int? initialPart}) {
           requestToken: requestToken,
           requestVid: detail.vid,
           expectedVid: detail.vid);
-      _loadSecondaryData(detail.author.uid,
+_loadSecondaryData(detail.author.uid,
           requestToken: requestToken,
           requestVid: detail.vid,
           expectedVid: detail.vid);
-      onlineWebSocketService.connect(detail.vid);
+      _setupDanmakuListener();
     } catch (e) {
       if (!_isActiveRequest(requestToken)) return;
       errorMessage = '加载失败，请重试';
@@ -242,12 +244,28 @@ void _startPlayback(int part, double? position) {
     currentInitialPosition = position;
     notifyListeners();
 
-    danmakuController.loadDanmaku(vid: currentVid!, rid: _currentRid, part: part);
+danmakuController.loadDanmaku(vid: currentVid!, rid: _currentRid, part: part);
+    onlineWebSocketService.connect(currentVid!, rid: _currentRid);
 
     LoggerService.instance.reportEvent(
       '开始播放',
       {'vid': currentVid, 'part': part, 'position': position, 'resourceId': currentResource.id},
     );
+  }
+
+  // ============ 弹幕 WebSocket 监听 ============
+
+  void _setupDanmakuListener() {
+    // 防止重复注册：每次 loadVideoData 都会调到这里
+    onlineWebSocketService.removeDanmakuListener(_onDanmakuReceived);
+    onlineWebSocketService.addDanmakuListener(_onDanmakuReceived);
+  }
+
+  void _onDanmakuReceived(Map<String, dynamic> danmakuData) {
+    // 将 WebSocket 消息转换为 Danmaku 对象
+    final danmaku = Danmaku.fromJson(danmakuData);
+    // 添加到弹幕控制器（会按时间排序并在正确时间显示）
+    danmakuController.addExternalDanmaku(danmaku);
   }
 
   // ============ 次要数据 ============
@@ -370,6 +388,7 @@ final requestToken = ++_changePartToken;
     notifyListeners();
 
     danmakuController.loadDanmaku(vid: currentVid!, rid: _currentRid, part: part);
+    onlineWebSocketService.connect(currentVid!, rid: _currentRid);
     onComplete?.call();
   }
 
@@ -436,7 +455,6 @@ Future<void> _loadVideoDataSeamless({int? targetPart}) async {
       errorMessage = null;
       notifyListeners();
 
-      onlineWebSocketService.connect(detail.vid);
       _loadSecondaryData(detail.author.uid,
           requestToken: requestToken,
           requestVid: detail.vid,
@@ -493,6 +511,7 @@ final currentResource = detail.resources[part - 1];
     notifyListeners();
 
     danmakuController.loadDanmaku(vid: detail.vid, rid: _currentRid, part: part);
+    onlineWebSocketService.connect(detail.vid, rid: _currentRid);
   }
 
   // ============ 播放器事件处理 ============
@@ -506,7 +525,8 @@ final currentResource = detail.resources[part - 1];
   }
 
   void onProgressUpdate(Duration position, Duration totalDuration) {
-    danmakuController.updateTime(position.inSeconds.toDouble());
+    // 用毫秒精度喂给弹幕控制器：_processNewDanmakus 的时间窗只有 0.6s，秒级截断会大量漏弹幕
+    danmakuController.updateTime(position.inMilliseconds / 1000.0);
     progressTracker.onProgressUpdate(position, totalDuration);
   }
 

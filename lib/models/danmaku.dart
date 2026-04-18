@@ -11,6 +11,12 @@ class Danmaku {
   final String color;
   /// 弹幕文本内容
   final String text;
+  /// 视频分P
+  final int? part;
+  /// 资源短ID
+  final String? resourceShortId;
+  /// 创建时间
+  final DateTime? createdAt;
 
   const Danmaku({
     required this.id,
@@ -18,6 +24,9 @@ class Danmaku {
     required this.type,
     required this.color,
     required this.text,
+    this.part,
+    this.resourceShortId,
+    this.createdAt,
   });
 
   factory Danmaku.fromJson(Map<String, dynamic> json) {
@@ -27,6 +36,11 @@ class Danmaku {
       type: json['type'] as int? ?? 0,
       color: json['color'] as String? ?? '#ffffff',
       text: json['text'] as String? ?? '',
+      part: json['part'] as int?,
+      resourceShortId: json['resourceShortId'] as String?,
+      createdAt: json['createdAt'] != null 
+          ? DateTime.tryParse(json['createdAt'].toString()) 
+          : null,
     );
   }
 
@@ -37,6 +51,8 @@ class Danmaku {
       'type': type,
       'color': color,
       'text': text,
+      if (part != null) 'part': part,
+      if (resourceShortId != null) 'resourceShortId': resourceShortId,
     };
   }
 
