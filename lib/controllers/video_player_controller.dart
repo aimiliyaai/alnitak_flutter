@@ -1035,8 +1035,9 @@ String? _currentVid;
 // fMP4 容错：discardcorrupt 丢弃损坏帧
     _player!.setProperty('demuxer-lavf-o', 'fflags=+discardcorrupt');
 
-    // 不主动限制 back buffer：设为 0 会完全禁用回退缓存，损害 seek 与清晰度切换体验
-    // _player!.setProperty('demuxer-max-back-bytes', '0');
+    // 主动限制 back buffer：设为 0 会完全禁用回退缓存，损害 seek 与清晰度切换体验
+     _player!.setProperty('demuxer-max-back-bytes', '0');
+     _player!.setProperty('video-sync', 'audio');
 
     // 网络超时配置
     _player!.setProperty('network-timeout', '10');

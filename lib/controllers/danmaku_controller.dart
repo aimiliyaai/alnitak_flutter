@@ -715,10 +715,11 @@ class DanmakuController extends ChangeNotifier {
 }
 
   /// 添加外部接收的弹幕（通过 WebSocket 推送）
-  /// 注意：不能依赖 _processNewDanmakus 的时间窗（仅 [now-0.5, now+0.1]）—— ws 延迟几百毫秒就会错过窗口
-  /// 所以这里做两件事：
-  /// 1) 按 time 升序插入 _danmakuList + 刷新 filter（保证历史查询与列表展示正确）
-  /// 2) 直接把这条弹幕塞到 _activeDanmakus 里立即飞起（绕过时间窗）
+  /// 语义：
+  /// 1) 始终按 time 升序插入 _danmakuList + 刷新 filter（保证历史查询与列表展示正确）
+  /// 2) 仅当弹幕 time 接近当前播放进度时立即飞起（处理 ws 延迟错过 _processNewDanmakus 窗口的情况）
+  ///    若 time 位于未来（例如 A 在 55s 发、B 进度才 50s），不立即渲染，等 _processNewDanmakus
+  ///    在播放进度推进到该时间时自然消费；若 time 远早于当前（已过期），也不渲染
   void addExternalDanmaku(Danmaku danmaku) {
     // 1) 插入历史列表（保持时间升序）
     var lo = 0;
@@ -733,7 +734,7 @@ class DanmakuController extends ChangeNotifier {
     }
     _danmakuList.insert(lo, danmaku);
     _applyFilter();
-    // 重新定位扫描指针到当前时间之后，避免 _processNewDanmakus 再把这条重复处理
+    // 重新定位扫描指针到当前时间，未来弹幕能被自然消费
     _lastProcessedIndex = _findStartIndex(_currentTime);
 
     if (!_isVisible) {
@@ -760,16 +761,21 @@ class DanmakuController extends ChangeNotifier {
       return;
     }
 
-    // 2b) 他人弹幕：立即分配轨道并飞起，不等下一个 updateTime
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final screenWidth = _lastScreenWidth > 0 ? _lastScreenWidth : 1000.0;
-    final trackIndex = _allocateTrack(danmaku, now, screenWidth);
-    if (trackIndex != -1) {
-      _activeDanmakus.add(DanmakuItem(
-        danmaku: danmaku,
-        trackIndex: trackIndex,
-        startTime: now,
-      ));
+    // 2b) 只在"当前播放时间附近"立即飞起，其他情况交给 _processNewDanmakus
+    //     窗口比 _processNewDanmakus 的 [-0.5, +0.1] 略宽以覆盖 ws 抖动，但不越界到未来
+    final delta = danmaku.time - _currentTime;
+    final shouldRenderNow = delta >= -2.0 && delta <= 1.0;
+    if (shouldRenderNow) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final screenWidth = _lastScreenWidth > 0 ? _lastScreenWidth : 1000.0;
+      final trackIndex = _allocateTrack(danmaku, now, screenWidth);
+      if (trackIndex != -1) {
+        _activeDanmakus.add(DanmakuItem(
+          danmaku: danmaku,
+          trackIndex: trackIndex,
+          startTime: now,
+        ));
+      }
     }
     notifyListeners();
   }
